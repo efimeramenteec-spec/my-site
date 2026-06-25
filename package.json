@@ -1,7 +1,7 @@
 {
-  "name": "efimeramente-ds",
+  "name": "efimeramente-panel",
   "version": "1.0.0",
-  "description": "Efimeramente design system — glassmorphism components for the psychology practice panel",
+  "description": "Efimeramente Panel de Control — internal practice-management PWA (built on the efimeramente-ds design system)",
   "type": "module",
   "main": "dist/efimeramente-ds.umd.js",
   "module": "dist/efimeramente-ds.es.js",
@@ -19,8 +19,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2",
+    "recharts": "^2.12.7"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

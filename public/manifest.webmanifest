@@ -1,0 +1,26 @@
+{
+  "name": "Efimeramente — Panel de Control",
+  "short_name": "Efimeramente",
+  "description": "Panel interno de la práctica: sesiones, pacientes, seguimiento y finanzas.",
+  "lang": "es-MX",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f5f3f0",
+  "theme_color": "#b48ae4",
+  "icons": [
+    {
+      "src": "/logos/ISOTIPO (1).png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logos/ISOTIPO (1).png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

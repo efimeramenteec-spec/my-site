@@ -1,2 +1,23 @@
+# Efimeramente Panel de Control — Netlify config
+# The default `vite build` (non-lib mode) compiles the app from index.html into dist/.
+# The design-system library build lives behind `npm run build:lib` and is not used here.
+
 [build]
-  publish = "."
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# SPA fallback — let React Router handle client-side routes.
+# Functions are matched before this rule via /.netlify/functions/*.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

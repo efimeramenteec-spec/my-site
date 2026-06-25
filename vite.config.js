@@ -28,7 +28,21 @@ export default defineConfig(({ mode }) => {
     }
   }
 
+  // App build (Netlify): split heavy vendors into their own chunks
+  // for better caching and to keep the main bundle lean.
   return {
     plugins: [react()],
+    build: {
+      chunkSizeWarningLimit: 900,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            react: ['react', 'react-dom', 'react-router-dom'],
+            charts: ['recharts'],
+            supabase: ['@supabase/supabase-js'],
+          },
+        },
+      },
+    },
   }
 })
