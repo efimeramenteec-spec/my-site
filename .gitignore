@@ -11,3 +11,4 @@ node_modules/
 # Build output (app build — lib build in dist/ IS committed for reference)
 dist/index.html
 dist/assets/
+.env
