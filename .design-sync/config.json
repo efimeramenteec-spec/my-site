@@ -1,0 +1,29 @@
+{
+  "projectId": "0d236385-5810-42b8-b4ab-e9d21cba3f85",
+  "shape": "package",
+  "pkg": "efimeramente-ds",
+  "globalName": "EfimeramDS",
+  "buildCmd": "npm run build:lib",
+  "cssEntry": "./dist/efimeramente-ds.css",
+  "srcDir": "src",
+  "readmeHeader": ".design-sync/conventions.md",
+  "componentSrcMap": {
+    "Button": "src/components/Button/Button.jsx",
+    "Card":   "src/components/Card/Card.jsx",
+    "Badge":  "src/components/Badge/Badge.jsx",
+    "Input":  "src/components/Input/Input.jsx",
+    "Toggle": "src/components/Toggle/Toggle.jsx",
+    "Select": "src/components/Select/Select.jsx"
+  },
+  "overrides": {
+    "Button": { "cardMode": "column" }
+  },
+  "dtsPropsFor": {
+    "Button": "variant?: 'primary' | 'secondary' | 'ghost'; size?: 'sm' | 'md' | 'lg'; disabled?: boolean; className?: string; children?: React.ReactNode;",
+    "Card":   "withOrbs?: boolean; noPadding?: boolean; className?: string; children?: React.ReactNode;",
+    "Badge":  "variant?: 'yellow' | 'orange' | 'pink' | 'lavender' | 'neutral'; className?: string; children?: React.ReactNode;",
+    "Input":  "label?: string; id?: string; error?: string; hint?: string; className?: string; placeholder?: string; type?: string; disabled?: boolean; value?: string; onChange?: React.ChangeEventHandler<HTMLInputElement>;",
+    "Toggle": "checked?: boolean; onChange?: (checked: boolean) => void; label?: string; disabled?: boolean; id?: string;",
+    "Select": "label?: string; id?: string; options?: Array<{value: string; label: string}>; placeholder?: string; className?: string; error?: string; hint?: string; disabled?: boolean; value?: string; onChange?: React.ChangeEventHandler<HTMLSelectElement>;"
+  }
+}

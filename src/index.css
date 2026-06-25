@@ -1,0 +1,39 @@
+/* Google Fonts — all brand typefaces */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;700&family=Playfair+Display:wght@400;700&family=Lato:wght@400;700&family=DM+Sans:wght@400;500;700&family=Arimo:wght@400;700&family=EB+Garamond:wght@400;700&family=Source+Sans+3:wght@400;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Chetta Vissto is a custom font — must be self-hosted in production.
+     Falls back to Playfair Display when unavailable. */
+  @font-face {
+    font-family: 'Chetta Vissto';
+    src: url('/fonts/ChettaVissto.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-surface-warm font-body text-content-primary;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/70 backdrop-blur-[12px] border border-white/80;
+  }
+}
