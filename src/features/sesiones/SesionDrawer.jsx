@@ -4,6 +4,7 @@ import { Select } from '../../components/Select/Select.jsx'
 import { PatientSelect } from './PatientSelect.jsx'
 import { dateKey, addMinutesToTime, formatTime, fullName } from '../../lib/format.js'
 import { TIPO_FORM, MODALIDAD, DURACION_MIN, TARIFA_DEFAULT, toOptions } from '../../lib/constants.js'
+import { findConflict } from '../../lib/conflicts.js'
 
 const nativeInput =
   'w-full rounded-xl bg-white border border-stroke px-4 py-3 font-body text-content-primary ' +
@@ -37,7 +38,7 @@ function blankForm(defaultDate, therapists) {
   }
 }
 
-export function SesionDrawer({ open, mode = 'create', initial, defaultDate, patients = [], therapists = [], onClose, onSubmit }) {
+export function SesionDrawer({ open, mode = 'create', initial, defaultDate, patients = [], therapists = [], sessions = [], onClose, onSubmit }) {
   const [form, setForm] = useState(() => blankForm(defaultDate, therapists))
   const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
@@ -73,6 +74,11 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
 
   const dur = DURACION_MIN[form.tipo] || 75
   const endTime = form.hora_inicio ? addMinutesToTime(form.hora_inicio, dur) : ''
+  const conflict = findConflict(
+    sessions,
+    { terapeuta_id: form.terapeuta_id, fecha: form.fecha, hora_inicio: form.hora_inicio, tipo: form.tipo },
+    mode === 'edit' && initial ? initial.id : null,
+  )
 
   function validate() {
     const e = {}
@@ -88,6 +94,10 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
   async function handleSubmit(ev) {
     ev.preventDefault()
     if (!validate()) return
+    if (conflict) {
+      setSubmitError('Hay un conflicto de horario. Cambia la fecha u hora.')
+      return
+    }
     setSaving(true)
     setSubmitError('')
     const patient = patients.find((p) => p.id === form.patient_id)
@@ -164,6 +174,15 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
             </span>
           </div>
 
+          {conflict && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+              <p className="font-heading text-sm font-bold text-rose-700">Conflicto de horario</p>
+              <p className="mt-0.5 font-caption text-xs text-rose-600">
+                {fullName(conflict.therapist)} ya tiene a {fullName(conflict.patient)} de {formatTime(conflict.hora_inicio)} a {formatTime(conflict.hora_fin)}.
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <Select label="Modalidad" options={toOptions(MODALIDAD)} value={form.modalidad} onChange={(e) => set('modalidad', e.target.value)} placeholder="Modalidad…" />
             <Field label="Tarifa (USD)" error={errors.monto}>
@@ -180,7 +199,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
 
         <div className="flex items-center justify-end gap-3 border-t border-stroke/60 px-6 py-4">
           <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button type="submit" variant="primary" disabled={saving}>
+          <Button type="submit" variant="primary" disabled={saving || !!conflict}>
             {saving ? 'Guardando…' : mode === 'edit' ? 'Guardar cambios' : 'Crear sesión'}
           </Button>
         </div>

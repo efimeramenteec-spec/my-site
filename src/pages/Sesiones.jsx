@@ -6,8 +6,9 @@ import { Select } from '../components/Select/Select.jsx'
 import { getSessionsData, createSession, updateSession } from '../lib/queries.js'
 import { WeekView, MonthView, ListView } from '../features/sesiones/views.jsx'
 import { SesionDrawer } from '../features/sesiones/SesionDrawer.jsx'
-import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName } from '../lib/format.js'
+import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName, formatTime } from '../lib/format.js'
 import { CONFIRMACION } from '../lib/constants.js'
+import { findConflict } from '../lib/conflicts.js'
 import { IconChevronRight, IconPlus } from '../layout/icons.jsx'
 
 const VIEWS = [
@@ -50,6 +51,11 @@ export default function Sesiones() {
   const closeDrawer = () => setDrawer((d) => ({ ...d, open: false }))
 
   async function handleSubmit(payload) {
+    // Backstop: never allow a double-booking even if the drawer guard was bypassed.
+    const conflict = findConflict(data?.sessions || [], payload, drawer.mode === 'edit' ? drawer.initial.id : null)
+    if (conflict) {
+      return { ok: false, error: `Choca con ${fullName(conflict.patient)} (${formatTime(conflict.hora_inicio)}–${formatTime(conflict.hora_fin)}).` }
+    }
     const res = drawer.mode === 'edit' ? await updateSession(drawer.initial.id, payload) : await createSession(payload)
     if (res.ok) await loadData()
     return res
@@ -151,6 +157,7 @@ export default function Sesiones() {
         defaultDate={drawer.defaultDate}
         patients={data?.patients || []}
         therapists={data?.therapists || []}
+        sessions={data?.sessions || []}
         onClose={closeDrawer}
         onSubmit={handleSubmit}
       />
