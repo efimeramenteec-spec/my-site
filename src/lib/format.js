@@ -3,7 +3,9 @@ const LOCALE = 'es-MX'
 
 /** Accepts a Date or 'YYYY-MM-DD' string and returns a LOCAL Date (no TZ shift). */
 export function toDate(d) {
-  if (d instanceof Date) return d
+  // Always return a FRESH Date — callers like addDays() mutate the result,
+  // and returning the same instance would corrupt shared dates (e.g. week start).
+  if (d instanceof Date) return new Date(d.getTime())
   if (typeof d === 'string') {
     const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/)
     if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
