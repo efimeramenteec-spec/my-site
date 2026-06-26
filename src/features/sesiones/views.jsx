@@ -8,6 +8,7 @@ import {
   monthMatrix,
   dateKey,
   capitalize,
+  toDate,
 } from '../../lib/format.js'
 import { CONFIRMACION, TIPO_SESION, MODALIDAD, METODO_PAGO } from '../../lib/constants.js'
 import { IconVideo, IconPin, IconPlus } from '../../layout/icons.jsx'
@@ -174,7 +175,7 @@ export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid }) {
       {rows.map((s) => (
         <div key={s.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-2 py-3 transition-colors hover:bg-white/50">
           <div className="w-24 flex-shrink-0">
-            <p className="font-heading text-sm font-bold text-content-primary">{capitalize(new Intl.DateTimeFormat('es-EC', { weekday: 'short', day: 'numeric' }).format(new Date(s.fecha)))}</p>
+            <p className="font-heading text-sm font-bold text-content-primary">{capitalize(new Intl.DateTimeFormat('es-EC', { weekday: 'short', day: 'numeric' }).format(toDate(s.fecha)))}</p>
             <p className="font-caption text-xs text-content-muted">{formatTime(s.hora_inicio)}</p>
           </div>
 
