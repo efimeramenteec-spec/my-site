@@ -106,3 +106,54 @@ export function initials(person) {
   if (!person) return '—'
   return [person.nombre?.[0], person.apellido?.[0]].filter(Boolean).join('').toUpperCase()
 }
+
+// --- Calendar helpers (Sesiones) ---
+
+export function addMonths(d, n) {
+  const dt = toDate(d)
+  dt.setMonth(dt.getMonth() + n)
+  return dt
+}
+
+/** The 7 Date objects (Mon→Sun) of the week containing `d`. */
+export function weekDays(d = new Date()) {
+  const { monday } = weekRange(d)
+  return Array.from({ length: 7 }, (_, i) => addDays(monday, i))
+}
+
+/** A 6×7 grid of Dates covering the month of `d`, weeks starting Monday. */
+export function monthMatrix(d = new Date()) {
+  const dt = toDate(d)
+  const first = new Date(dt.getFullYear(), dt.getMonth(), 1)
+  const { monday } = weekRange(first)
+  return Array.from({ length: 6 }, (_, w) =>
+    Array.from({ length: 7 }, (_, i) => addDays(monday, w * 7 + i)),
+  )
+}
+
+/** '23–29 jun' (or '29 jun – 5 jul' across months). */
+export function formatWeekRange(d) {
+  const days = weekDays(d)
+  const a = days[0]
+  const b = days[6]
+  const mon = (x) => new Intl.DateTimeFormat(LOCALE, { month: 'short' }).format(x)
+  return a.getMonth() === b.getMonth()
+    ? `${a.getDate()}–${b.getDate()} ${mon(b)}`
+    : `${a.getDate()} ${mon(a)} – ${b.getDate()} ${mon(b)}`
+}
+
+/** 'Junio 2026' */
+export function formatMonthYear(d) {
+  return capitalize(
+    new Intl.DateTimeFormat(LOCALE, { month: 'long', year: 'numeric' }).format(toDate(d)),
+  )
+}
+
+/** Add minutes to an 'HH:MM[:SS]' string → 'HH:MM'. */
+export function addMinutesToTime(hhmm, mins) {
+  if (!hhmm) return ''
+  const [h, m] = String(hhmm).split(':').map(Number)
+  const total = h * 60 + m + mins
+  const p = (n) => String(n).padStart(2, '0')
+  return `${p(Math.floor(total / 60) % 24)}:${p(((total % 60) + 60) % 60)}`
+}
