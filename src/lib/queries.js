@@ -35,7 +35,8 @@ function computeDashboard(data, now) {
     (s) => s.fecha >= start && s.fecha <= end && isActive(s),
   ).length
 
-  const pendientes = sessions.filter((s) => s.estado === 'completada' && !s.pagado)
+  // Money owed = sessions already delivered (past), not cancelled, not yet paid.
+  const pendientes = sessions.filter((s) => s.fecha < todayKey && isActive(s) && !s.pagado)
   const pagosPendientes = {
     count: pendientes.length,
     total: pendientes.reduce((a, s) => a + Number(s.monto || 0), 0),

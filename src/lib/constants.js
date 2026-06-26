@@ -1,16 +1,24 @@
 // Single source of truth for enum → label + Badge variant mappings.
 // Keeps every screen consistent and powers the poka-yoke dropdowns.
 
-// sessions.estado
+// sessions.estado — confirmation state. Three states are used going forward;
+// legacy values (completada/no_show) are mapped for safe display of old rows.
 export const ESTADO_SESION = {
-  programada: { label: 'Programada', badge: 'yellow' },
+  programada: { label: 'Pendiente',  badge: 'yellow' },
   confirmada: { label: 'Confirmada', badge: 'lavender' },
-  completada: { label: 'Completada', badge: 'neutral' },
   cancelada:  { label: 'Cancelada',  badge: 'pink' },
-  no_show:    { label: 'No asistió', badge: 'pink' },
+  completada: { label: 'Confirmada', badge: 'lavender' }, // legacy → treat as confirmed
+  no_show:    { label: 'Cancelada',  badge: 'pink' },      // legacy → treat as cancelled
 }
 
-// sessions.tipo
+// The confirmation states a user can set, in display order.
+export const CONFIRMACION = [
+  { value: 'programada', short: 'Pend.',  label: 'Pendiente',  color: '#ffd84a' },
+  { value: 'confirmada', short: 'Conf.',  label: 'Confirmada', color: '#b48ae4' },
+  { value: 'cancelada',  short: 'Canc.',  label: 'Cancelada',  color: '#f5a8a0' },
+]
+
+// sessions.tipo — full map (for display of any record).
 export const TIPO_SESION = {
   individual: 'Individual',
   pareja:     'Pareja',
@@ -19,18 +27,33 @@ export const TIPO_SESION = {
   evaluacion: 'Evaluación',
 }
 
+// Types offered in the scheduling form (simplified per practice).
+export const TIPO_FORM = {
+  individual: 'Individual',
+  pareja:     'Pareja',
+}
+
+// Session duration in minutes, including a 15-min buffer for overruns.
+export const DURACION_MIN = {
+  individual: 75,
+  pareja:     105,
+  familia:    75,
+  grupo:      75,
+  evaluacion: 75,
+}
+
 // sessions.modalidad
 export const MODALIDAD = {
   presencial: 'Presencial',
   en_linea:   'En línea',
 }
 
-// sessions.metodo_pago / facturas.metodo_pago
+// Payment methods (set per patient at creation, recorded on the session).
 export const METODO_PAGO = {
-  efectivo:      'Efectivo',
   transferencia: 'Transferencia',
-  tarjeta:       'Tarjeta',
-  pendiente:     'Pendiente',
+  payphone:      'PayPhone',
+  paypal:        'PayPal',
+  cash:          'Cash',
 }
 
 // patients.estado_general
@@ -48,7 +71,10 @@ export const RESPUESTA_CITA = {
   reprogramar: { label: 'Reprogramar', badge: 'orange' },
 }
 
-// Helper to build <Select> options from a label map.
+// Default per-session rate (USD) when a patient has none set.
+export const TARIFA_DEFAULT = 39
+
+// Build <Select> options from a label map.
 export const toOptions = (map) =>
   Object.entries(map).map(([value, v]) => ({
     value,

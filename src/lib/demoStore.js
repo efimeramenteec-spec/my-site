@@ -2,6 +2,8 @@
 // sessions created/edited in the UI persist while navigating (until reload).
 // Once a Supabase anon key is set, the live path takes over and this is unused.
 import { buildMockData } from './mockData.js'
+import { addMinutesToTime } from './format.js'
+import { DURACION_MIN, TARIFA_DEFAULT } from './constants.js'
 
 let store = null
 
@@ -20,10 +22,17 @@ function attach(s, row) {
 
 export function demoCreateSession(payload) {
   const s = getDemoStore()
+  const patient = s.patients.find((p) => p.id === payload.patient_id)
+  const start = (payload.hora_inicio || '10:00:00').slice(0, 5)
   const row = attach(s, {
     id: 's-' + Date.now(),
     google_event_id: null,
     notas: null,
+    estado: 'programada',
+    pagado: false,
+    monto: patient?.tarifa ?? TARIFA_DEFAULT,
+    metodo_pago: patient?.metodo_pago || 'transferencia',
+    hora_fin: `${addMinutesToTime(start, DURACION_MIN[payload.tipo] || 75)}:00`,
     ...payload,
   })
   s.sessions.push(row)

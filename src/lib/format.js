@@ -1,5 +1,5 @@
-// es-MX formatting + small date utilities shared across pages.
-const LOCALE = 'es-MX'
+// es-EC formatting + small date utilities shared across pages.
+const LOCALE = 'es-EC'
 
 /** Accepts a Date or 'YYYY-MM-DD' string and returns a LOCAL Date (no TZ shift). */
 export function toDate(d) {
@@ -48,7 +48,8 @@ export function formatCurrency(n) {
   if (n == null || Number.isNaN(Number(n))) return '—'
   return new Intl.NumberFormat(LOCALE, {
     style: 'currency',
-    currency: 'MXN',
+    currency: 'USD',
+    currencyDisplay: 'narrowSymbol',
     maximumFractionDigits: 0,
   }).format(Number(n))
 }

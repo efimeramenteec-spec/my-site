@@ -3,11 +3,11 @@ import { useOutletContext } from 'react-router-dom'
 import { Card } from '../components/Card/Card.jsx'
 import { Button } from '../components/Button/Button.jsx'
 import { Select } from '../components/Select/Select.jsx'
-import { getSessionsData, createSession, updateSession, cancelSession } from '../lib/queries.js'
+import { getSessionsData, createSession, updateSession } from '../lib/queries.js'
 import { WeekView, MonthView, ListView } from '../features/sesiones/views.jsx'
 import { SesionDrawer } from '../features/sesiones/SesionDrawer.jsx'
 import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName } from '../lib/format.js'
-import { ESTADO_SESION, toOptions } from '../lib/constants.js'
+import { CONFIRMACION } from '../lib/constants.js'
 import { IconChevronRight, IconPlus } from '../layout/icons.jsx'
 
 const VIEWS = [
@@ -55,11 +55,16 @@ export default function Sesiones() {
     return res
   }
 
-  async function handleCancel(s) {
-    if (!window.confirm(`¿Cancelar la sesión de ${fullName(s.patient)}?`)) return
-    const res = await cancelSession(s.id)
+  async function handleSetEstado(s, estado) {
+    const res = await updateSession(s.id, { estado })
     if (res.ok) await loadData()
-    else window.alert(res.error || 'No se pudo cancelar.')
+    else window.alert(res.error || 'No se pudo actualizar la confirmación.')
+  }
+
+  async function handleTogglePaid(s, paid) {
+    const res = await updateSession(s.id, { pagado: paid })
+    if (res.ok) await loadData()
+    else window.alert(res.error || 'No se pudo actualizar el pago.')
   }
 
   const navLabel =
@@ -69,7 +74,10 @@ export default function Sesiones() {
     { value: '', label: 'Todos los terapeutas' },
     ...(data?.therapists || []).map((t) => ({ value: t.id, label: fullName(t) })),
   ]
-  const estadoOptions = [{ value: '', label: 'Todos los estados' }, ...toOptions(ESTADO_SESION)]
+  const estadoOptions = [
+    { value: '', label: 'Todos los estados' },
+    ...CONFIRMACION.map((c) => ({ value: c.value, label: c.label })),
+  ]
 
   return (
     <div className="space-y-5 pt-2">
@@ -132,7 +140,7 @@ export default function Sesiones() {
         ) : view === 'mes' ? (
           <MonthView sessions={sessions} cursor={cursor} onEdit={openEdit} onCreateOn={openCreate} />
         ) : (
-          <ListView sessions={sessions} onEdit={openEdit} onCancel={handleCancel} />
+          <ListView sessions={sessions} onEdit={openEdit} onSetEstado={handleSetEstado} onTogglePaid={handleTogglePaid} />
         )}
       </Card>
 
