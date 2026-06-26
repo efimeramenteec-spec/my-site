@@ -11,7 +11,7 @@ insert into therapists (id,nombre,apellido,email,color,activo) values
   ('4eb27d28-e3bf-5194-aa30-9e5a185a26c1','Daniela','Espinosa','daniela@efimeramente.ec','#faab55',true),
   ('aaf55d12-e51c-5197-ad4f-29c87bd859c8','Camila','Maya','camila@efimeramente.ec','#ffd84a',true),
   ('2f5bf11b-42a8-562f-99c9-501c62a4ca04','Francisco','Mena','francisco@efimeramente.ec','#d6a2e8',true),
-  ('df43d23e-52f2-511f-9d66-77de36ebd67d','Maria Gracia','Villalba','maria@efimeramente.ec','#f7b9a0',true);
+  ('df43d23e-52f2-511f-9d66-77de36ebd67d','Maria Gracia','Villalba','maria@efimeramente.ec','#f7b9a0',true) on conflict do nothing;
 
 insert into patients (id,nombre,apellido,telefono,terapeuta_id,tarifa,metodo_pago,estado_general) values
   ('acde9b9c-6e9e-5f76-9cfa-444c3eb2ae80','Alegría','Perez','+593987497807','aaf55d12-e51c-5197-ad4f-29c87bd859c8',36,'transferencia','activo'),
@@ -34,7 +34,7 @@ insert into patients (id,nombre,apellido,telefono,terapeuta_id,tarifa,metodo_pag
   ('ddea1b25-6983-5763-91e7-d0c9a71efaf3','Dana','Guamán','+593990435866','aaf55d12-e51c-5197-ad4f-29c87bd859c8',39,'transferencia','activo'),
   ('12d9cbf0-0165-55d2-8aba-09a090fa5155','Fabian','Banderas','+593994884649','aaf55d12-e51c-5197-ad4f-29c87bd859c8',39,'transferencia','activo'),
   ('d7477622-2482-5565-81ce-00889a94f1e5','Carolina','Gomez','+593987070898','48a4a020-8ab4-5e11-89ed-17a1e1713b54',39,'transferencia','activo'),
-  ('6ab917e2-2b3c-5328-8cb4-aa04d8a55caa','Emilie','Conforme','+593999643019','48a4a020-8ab4-5e11-89ed-17a1e1713b54',39,'transferencia','activo'),
+  ('6ab917e2-2b3c-5328-8cb4-aa04d8a55caa','Emilie','Conforme',null,'48a4a020-8ab4-5e11-89ed-17a1e1713b54',39,'transferencia','activo'),
   ('71904b68-79be-57fe-9ea6-a7b8847c9bec','Gabriela','Witt','+593999094991','48a4a020-8ab4-5e11-89ed-17a1e1713b54',39,'transferencia','activo'),
   ('ee1dc8e9-d550-5974-bed4-54f3d3fa339a','Karen','Nieto','+593986937547','48a4a020-8ab4-5e11-89ed-17a1e1713b54',39,'transferencia','activo'),
   ('832ee36a-3a47-5731-8485-2ec6be62833b','Ricardo','Carrera','+593987155914','48a4a020-8ab4-5e11-89ed-17a1e1713b54',39,'transferencia','activo'),
@@ -65,7 +65,7 @@ insert into patients (id,nombre,apellido,telefono,terapeuta_id,tarifa,metodo_pag
   ('4de68c91-8315-5eab-b15e-b1bde54a6d77','Cinthya','Perez','+593958603292','4eb27d28-e3bf-5194-aa30-9e5a185a26c1',36,'transferencia','activo'),
   ('f7f8dca3-9ac2-509a-a969-e4951315d6dd','David','Chacón','+593984259563','4eb27d28-e3bf-5194-aa30-9e5a185a26c1',39,'transferencia','activo'),
   ('df69f9cf-b267-5375-8137-9a2bb3b3639e','Gabriela','Jácome','+593969056092','4eb27d28-e3bf-5194-aa30-9e5a185a26c1',39,'transferencia','activo'),
-  ('c0cfefae-961c-5575-a9ac-92aeda99cfa8','Laura','Vasquez','+593999643019','4eb27d28-e3bf-5194-aa30-9e5a185a26c1',39,'transferencia','activo'),
+  ('c0cfefae-961c-5575-a9ac-92aeda99cfa8','Laura','Vasquez',null,'4eb27d28-e3bf-5194-aa30-9e5a185a26c1',39,'transferencia','activo'),
   ('d5743a56-0a66-53a6-bbff-5522b60234ca','Maria','Dolores Ordoñez','+593999202409','4eb27d28-e3bf-5194-aa30-9e5a185a26c1',39,'transferencia','activo'),
   ('4fb74b4d-bcb6-57b7-822d-c0ad2f857587','Michelle','Reyes','+593997081174','4eb27d28-e3bf-5194-aa30-9e5a185a26c1',39,'transferencia','activo'),
   ('9fc06285-d304-52f2-b3bc-2b11f2c6faf1','Pamela','Garcia','+593978906159','4eb27d28-e3bf-5194-aa30-9e5a185a26c1',39,'transferencia','activo'),
@@ -163,7 +163,7 @@ insert into patients (id,nombre,apellido,telefono,terapeuta_id,tarifa,metodo_pag
   ('0b83024b-d5f1-5d4e-92a5-bcf4d65e4241','Cristina','Puente','+593995065947','4eb27d28-e3bf-5194-aa30-9e5a185a26c1',39,'transferencia','activo'),
   ('68f76c3c-2d33-5c96-ac61-edd6ce5eb280','Eduarda','Acosta','+593969359090','aaf55d12-e51c-5197-ad4f-29c87bd859c8',39,'transferencia','activo'),
   ('1f607a7f-bbe8-5d9f-8b12-bb9a2ff3845c','Valeria','Garcia','+593987897855','4eb27d28-e3bf-5194-aa30-9e5a185a26c1',39,'transferencia','activo'),
-  ('11ee98f2-c1fe-5511-bb8d-8b98c9ccb7fb','Luis','Rodriguez','+593978924354','aaf55d12-e51c-5197-ad4f-29c87bd859c8',39,'transferencia','activo');
+  ('11ee98f2-c1fe-5511-bb8d-8b98c9ccb7fb','Luis','Rodriguez','+593978924354','aaf55d12-e51c-5197-ad4f-29c87bd859c8',39,'transferencia','activo') on conflict do nothing;
 
 insert into sessions (id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,metodo_pago) values
   ('1067215c-712c-54be-a7fd-bef68f69f877','7fb37e9f-9c1e-5e94-a44a-4f678a3cf792','48a4a020-8ab4-5e11-89ed-17a1e1713b54','2026-06-01','08:00:00','09:15:00','individual','presencial','confirmada',35,true,'transferencia'),
@@ -220,7 +220,7 @@ insert into sessions (id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo
   ('eca25420-c428-5d1b-87b8-20ab2cc80f4b','aa338b1c-99c6-5440-ad9a-8e4cd0ad9c34','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-05','16:00:00','17:15:00','individual','presencial','confirmada',39,true,'transferencia'),
   ('4d444adb-d991-5d93-8831-16eb094235a1','e84b3d46-98fc-56e6-a27a-e4e940f43fa2','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-05','08:00:00','09:15:00','individual','en_linea','confirmada',35,true,'transferencia'),
   ('4dbd862e-6d14-5066-9556-13a2a2f4777a','16b8d509-5977-5860-8788-35dad2532a3d','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-05','11:00:00','12:15:00','individual','en_linea','confirmada',30,true,'transferencia'),
-  ('841b3f1e-e1be-5458-8dce-b56d57a5e276','c0cfefae-961c-5575-a9ac-92aeda99cfa8','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-06','10:30:00','11:45:00','individual','presencial','confirmada',36,true,'transferencia'),
+  ('841b3f1e-e1be-5458-8dce-b56d57a5e276','f2a17a5d-153e-56be-9adf-ac12f9936b6a','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-06','10:30:00','11:45:00','individual','presencial','confirmada',36,true,'transferencia'),
   ('94686fdb-2e10-5f20-9752-9dd629e68085','249e0349-7039-56e6-83b9-64874b6fa3b8','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-06',null,null,'individual','en_linea','confirmada',35,true,'transferencia'),
   ('b98c4c9e-a0ce-5b29-bf53-fea91a412e73','8339d641-ceb1-51f4-9ade-4ad716bb642e','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-06',null,null,'individual','en_linea','confirmada',45,true,'transferencia'),
   ('4eab9f0e-1391-5aa3-acd0-b263436b50dd','004ba1e1-2e75-55fb-b440-233016d7c6d5','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-06',null,null,'individual','en_linea','confirmada',30,true,'transferencia'),
@@ -285,9 +285,9 @@ insert into sessions (id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo
   ('4bda6ea5-4761-5af6-829b-8c553fb4bc39','a1d1b73a-b0fb-55dc-8fa4-d9855a2cbf9e','48a4a020-8ab4-5e11-89ed-17a1e1713b54','2026-06-12','18:00:00','19:15:00','individual','en_linea','confirmada',39,true,'transferencia'),
   ('3b4b1b05-6013-5295-acf2-998445c30fa5','004ba1e1-2e75-55fb-b440-233016d7c6d5','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-12',null,null,'individual','en_linea','confirmada',30,true,'transferencia'),
   ('020d4f67-a204-5591-9b0a-9107964a11ee','4de68c91-8315-5eab-b15e-b1bde54a6d77','4eb27d28-e3bf-5194-aa30-9e5a185a26c1','2026-06-13','12:00:00','13:15:00','individual','presencial','confirmada',36,true,'transferencia'),
-  ('70f38313-a105-50ab-a6a9-caff1ccc42c6','c0cfefae-961c-5575-a9ac-92aeda99cfa8','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-13','10:30:00','11:45:00','individual','presencial','confirmada',36,true,'transferencia'),
+  ('70f38313-a105-50ab-a6a9-caff1ccc42c6','f2a17a5d-153e-56be-9adf-ac12f9936b6a','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-13','10:30:00','11:45:00','individual','presencial','confirmada',36,true,'transferencia'),
   ('51d7848d-31ed-5485-865b-9be321d62084','106818e5-2ca3-5fb4-be80-a4a202def799','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-13','11:30:00','12:45:00','individual','presencial','confirmada',39,true,'transferencia'),
-  ('012c53f0-6bde-5bae-ad53-3a051120fe98','c0cfefae-961c-5575-a9ac-92aeda99cfa8','48a4a020-8ab4-5e11-89ed-17a1e1713b54','2026-06-13','10:30:00','11:45:00','individual','presencial','confirmada',36,true,'transferencia'),
+  ('012c53f0-6bde-5bae-ad53-3a051120fe98','f2a17a5d-153e-56be-9adf-ac12f9936b6a','48a4a020-8ab4-5e11-89ed-17a1e1713b54','2026-06-13','10:30:00','11:45:00','individual','presencial','confirmada',36,true,'transferencia'),
   ('4994fd98-4ccf-5603-b1aa-5b88d670ffa5','12d9cbf0-0165-55d2-8aba-09a090fa5155','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-13','09:00:00','10:15:00','individual','en_linea','confirmada',39,true,'transferencia'),
   ('2ba2ca9c-fc67-5218-b83f-be1f67237b16','832ee36a-3a47-5731-8485-2ec6be62833b','48a4a020-8ab4-5e11-89ed-17a1e1713b54','2026-06-15','18:00:00','19:15:00','individual','presencial','confirmada',39,false,'transferencia'),
   ('f51f1986-76cd-5e69-9fe1-f18ae0015167','4fb74b4d-bcb6-57b7-822d-c0ad2f857587','4eb27d28-e3bf-5194-aa30-9e5a185a26c1','2026-06-15','12:00:00','13:15:00','individual','en_linea','cancelada',39,false,'transferencia'),
@@ -359,7 +359,7 @@ insert into sessions (id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo
   ('1eee90f9-90e1-5284-87c7-4e4c66e3da60','6ab917e2-2b3c-5328-8cb4-aa04d8a55caa','48a4a020-8ab4-5e11-89ed-17a1e1713b54','2026-06-20','10:30:00','11:45:00','individual','presencial','confirmada',36,true,'transferencia'),
   ('122c76d4-b80e-5aeb-a241-c96d106fedd6','9c8e80dc-fb7d-5530-b960-b61699d655eb','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-20','17:00:00','18:15:00','individual','presencial','confirmada',36,false,'transferencia'),
   ('3b8707b3-c51c-53ae-a7ae-c4fc11e40af2','589739d9-e006-56af-8fcf-8b7dc08c8024','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-20','15:00:00','16:15:00','individual','presencial','confirmada',30,true,'transferencia'),
-  ('9177028d-35cb-57af-9843-b3621875c5f8','c0cfefae-961c-5575-a9ac-92aeda99cfa8','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-20','10:30:00','11:45:00','individual','presencial','confirmada',36,true,'transferencia'),
+  ('9177028d-35cb-57af-9843-b3621875c5f8','f2a17a5d-153e-56be-9adf-ac12f9936b6a','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-20','10:30:00','11:45:00','individual','presencial','confirmada',36,true,'transferencia'),
   ('b06e1984-7e00-5831-9cf4-adbb9425d282','e963b953-de23-59bf-9ed3-ff9d74499074','2f5bf11b-42a8-562f-99c9-501c62a4ca04','2026-06-20','14:00:00','15:15:00','individual','en_linea','confirmada',35,true,'transferencia'),
   ('e61a5fa0-bd2f-51d8-a1d1-45ffd8319856','e0eb299e-c030-52e3-af26-293a4b7f9ff7','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-20',null,null,'individual','en_linea','confirmada',35,true,'transferencia'),
   ('ce868f1a-beec-5aca-a929-8b60a6ac2041','5ef8d924-0ee7-595b-9b03-e1370b5ccf61','2f5bf11b-42a8-562f-99c9-501c62a4ca04','2026-06-20',null,null,'individual','en_linea','confirmada',30,true,'transferencia'),
@@ -414,7 +414,6 @@ insert into sessions (id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo
   ('58895be0-1004-57ac-8acb-0cee97b7b90b','aa338b1c-99c6-5440-ad9a-8e4cd0ad9c34','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-25','12:00:00','13:15:00','individual','presencial','confirmada',39,false,'transferencia'),
   ('fbfc5512-ffd2-5465-8a71-55dc0e6935e5','8339d641-ceb1-51f4-9ade-4ad716bb642e','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-25','16:00:00','17:15:00','individual','presencial','confirmada',45,false,'transferencia'),
   ('46f6bae7-057c-5ebb-89b6-b97cfbe28474','7d5466f3-6dbd-5ecb-ba33-0d6fe5c6eb02','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-25','20:00:00','21:15:00','individual','en_linea','confirmada',45,false,'transferencia'),
-  ('0733d59b-b8d9-59d3-bf45-a89c80939be2','82db5b4f-d960-576e-9bda-c520a60d2856','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-25','18:30:00','19:45:00','individual','presencial','confirmada',35,false,'transferencia'),
   ('bf4b9ba7-0ca3-5524-b402-2e8ae1c411a7','ede6a2f7-5625-58dd-99d0-36dfcd1a61cf','48a4a020-8ab4-5e11-89ed-17a1e1713b54','2026-06-26','15:30:00','16:45:00','individual','presencial','confirmada',39,false,'transferencia'),
   ('cb3f908a-8663-52f9-ade5-5dd0a1964dfe','e94b6775-3225-56da-9be5-d4318cb45584','2f5bf11b-42a8-562f-99c9-501c62a4ca04','2026-06-26','10:30:00','11:45:00','individual','presencial','cancelada',39,false,'transferencia'),
   ('043dc240-da11-54a6-8803-1e99e7d781f4','12d9cbf0-0165-55d2-8aba-09a090fa5155','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-26','17:00:00','18:15:00','individual','en_linea','confirmada',39,false,'transferencia'),
@@ -423,7 +422,7 @@ insert into sessions (id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo
   ('49160069-7448-5716-8a25-e9e3e7dde714','18e50af9-e9c1-503b-adc1-81044048e4a1','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-26','18:00:00','19:15:00','individual','presencial','confirmada',39,false,'transferencia'),
   ('be3bc93e-ebb2-5a8c-96ff-39f338634619','4de68c91-8315-5eab-b15e-b1bde54a6d77','4eb27d28-e3bf-5194-aa30-9e5a185a26c1','2026-06-27','12:00:00','13:15:00','individual','presencial','confirmada',36,false,'transferencia'),
   ('351f7ff3-7797-5a27-a864-3bf02aeba779','b7889b9a-e659-5571-910d-8f71bbe90f6c','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-27','10:00:00','11:15:00','individual','en_linea','cancelada',20,false,'transferencia'),
-  ('dbb779f0-8a94-5d9f-86ed-c38f987916a7','c0cfefae-961c-5575-a9ac-92aeda99cfa8','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-27','10:30:00','11:45:00','individual','presencial','cancelada',36,false,'transferencia'),
+  ('dbb779f0-8a94-5d9f-86ed-c38f987916a7','f2a17a5d-153e-56be-9adf-ac12f9936b6a','aaf55d12-e51c-5197-ad4f-29c87bd859c8','2026-06-27','10:30:00','11:45:00','individual','presencial','cancelada',36,false,'transferencia'),
   ('7a80d56e-2bb8-5791-9186-0f1920e61ef6','9c8e80dc-fb7d-5530-b960-b61699d655eb','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-27','09:00:00','10:15:00','individual','presencial','confirmada',36,false,'transferencia'),
   ('d4e2ede1-acb9-5e63-8a58-c73ea24cea57','ad688cff-d862-5108-8b78-cc26094373fb','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-29','11:00:00','12:15:00','individual','presencial','confirmada',21,false,'transferencia'),
   ('f84600dd-cbda-5221-b919-9e637783cc26','7fb37e9f-9c1e-5e94-a44a-4f678a3cf792','48a4a020-8ab4-5e11-89ed-17a1e1713b54','2026-06-29','17:00:00','18:15:00','individual','presencial','confirmada',35,false,'transferencia'),
@@ -467,6 +466,6 @@ insert into sessions (id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo
   ('0176b2df-9b52-54ac-941c-d7da2070572b','4060754b-c5c8-5dbd-a037-540e2bf3288d','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-27','09:00:00','10:15:00','individual','presencial','confirmada',40,false,'transferencia'),
   ('f4af76c0-2404-5ac3-836b-2038dd62ce00','0411dc97-fd59-5c80-b752-ca65ed32620e','4eb27d28-e3bf-5194-aa30-9e5a185a26c1','2026-07-08','10:00:00','11:15:00','individual','presencial','confirmada',39,false,'transferencia'),
   ('225d3bc2-77d0-5e63-8bfd-3eb1dfdb03b1','4de68c91-8315-5eab-b15e-b1bde54a6d77','4eb27d28-e3bf-5194-aa30-9e5a185a26c1','2026-07-04','12:00:00','13:15:00','individual','presencial','confirmada',36,false,'transferencia'),
-  ('c596ec21-4a30-5400-bb05-1c4a1e4c0ef6','b7889b9a-e659-5571-910d-8f71bbe90f6c','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-30','20:00:00','21:15:00','individual','en_linea','confirmada',20,false,'transferencia');
+  ('c596ec21-4a30-5400-bb05-1c4a1e4c0ef6','b7889b9a-e659-5571-910d-8f71bbe90f6c','b219e764-4664-594c-9eb3-d2b19e52caac','2026-06-30','20:00:00','21:15:00','individual','en_linea','confirmada',20,false,'transferencia') on conflict do nothing;
 
 commit;
