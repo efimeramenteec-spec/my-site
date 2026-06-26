@@ -1,5 +1,6 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
+import { useAuth } from '../lib/auth.jsx'
 import { Logo } from './Logo.jsx'
 import {
   IconDashboard,
@@ -11,11 +12,11 @@ import {
 } from './icons.jsx'
 
 export const NAV = [
-  { to: '/', label: 'Dashboard', icon: IconDashboard, end: true },
+  { to: '/', label: 'Dashboard', icon: IconDashboard, end: true, ownerOnly: true },
   { to: '/sesiones', label: 'Sesiones', icon: IconCalendar },
-  { to: '/pacientes', label: 'Pacientes', icon: IconUsers },
-  { to: '/seguimiento', label: 'Seguimiento', icon: IconPulse },
-  { to: '/finanzas', label: 'Finanzas', icon: IconWallet },
+  { to: '/pacientes', label: 'Pacientes', icon: IconUsers, ownerOnly: true },
+  { to: '/seguimiento', label: 'Seguimiento', icon: IconPulse, ownerOnly: true },
+  { to: '/finanzas', label: 'Finanzas', icon: IconWallet, ownerOnly: true },
 ]
 
 const itemClass = ({ isActive }) =>
@@ -27,8 +28,27 @@ const itemClass = ({ isActive }) =>
       : 'text-content-secondary hover:bg-white/70 hover:text-content-primary',
   ].join(' ')
 
+function useNav() {
+  const { fullAccess } = useAuth()
+  return fullAccess ? NAV : NAV.filter((n) => !n.ownerOnly)
+}
+
+function SignOut() {
+  const { isDemo, signOut } = useAuth()
+  if (isDemo) return null
+  return (
+    <button
+      onClick={() => signOut()}
+      className="mt-2 w-full rounded-pill px-4 py-2 text-left font-heading text-sm font-bold text-content-muted transition-colors hover:bg-white/70 hover:text-content-primary"
+    >
+      Cerrar sesión
+    </button>
+  )
+}
+
 /** Fixed left rail — desktop / tablet (lg and up). */
 export function Sidebar() {
+  const nav = useNav()
   return (
     <aside className="hidden lg:flex fixed top-0 left-0 z-30 h-screen w-[260px] flex-col px-5 py-7 bg-white/60 backdrop-blur-[14px] border-r border-white/70">
       <div className="px-3 pb-8">
@@ -36,7 +56,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex flex-col gap-1.5">
-        {NAV.map(({ to, label, icon: Icon, end }) => (
+        {nav.map(({ to, label, icon: Icon, end }) => (
           <NavLink key={to} to={to} end={end} className={itemClass}>
             <Icon size={20} />
             <span>{label}</span>
@@ -54,6 +74,7 @@ export function Sidebar() {
             <p className="font-caption text-xs text-content-muted">Efimeramente</p>
           </div>
         </div>
+        <SignOut />
       </div>
     </aside>
   )
@@ -61,9 +82,10 @@ export function Sidebar() {
 
 /** Bottom tab bar — mobile (below lg). PWA-friendly. */
 export function MobileNav() {
+  const nav = useNav()
   return (
     <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 flex items-stretch justify-around bg-white/80 backdrop-blur-[14px] border-t border-white/70 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-      {NAV.map(({ to, label, icon: Icon, end }) => (
+      {nav.map(({ to, label, icon: Icon, end }) => (
         <NavLink
           key={to}
           to={to}
