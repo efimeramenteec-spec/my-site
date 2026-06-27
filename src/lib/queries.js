@@ -2,7 +2,7 @@
 // transparently falls back to demo data on misconfig or network error,
 // returning a `source: 'live' | 'demo'` flag the UI can surface.
 import { supabase, isSupabaseConfigured } from './supabase.js'
-import { getDemoStore, demoCreateSession, demoUpdateSession } from './demoStore.js'
+import { getDemoStore, demoCreateSession, demoUpdateSession, demoCreatePatient, demoUpdatePatient } from './demoStore.js'
 import { dateKey, weekRange, addDays } from './format.js'
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
@@ -240,4 +240,59 @@ export async function checkFreebusy(calendarEmail, fecha, horaInicio, horaFin) {
   } catch {
     return []
   }
+}
+
+// ─── Pacientes ───────────────────────────────────────────────────
+
+const PATIENT_SELECT =
+  'id,nombre,apellido,telefono,email,motivo_consulta,terapeuta_id,estado_general,tarifa,metodo_pago'
+
+const SESSION_HISTORY_SELECT =
+  'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,metodo_pago'
+
+export async function getPatientsData() {
+  if (isSupabaseConfigured) {
+    try {
+      const [pRes, tRes, sRes] = await Promise.all([
+        supabase.from('patients').select(PATIENT_SELECT).order('nombre', { ascending: true }),
+        supabase.from('therapists').select('id,nombre,apellido,color,activo').order('nombre', { ascending: true }),
+        supabase.from('sessions').select(SESSION_HISTORY_SELECT)
+          .order('fecha', { ascending: false }).order('hora_inicio', { ascending: false }),
+      ])
+      if (pRes.error) throw pRes.error
+      if (tRes.error) throw tRes.error
+      if (sRes.error) throw sRes.error
+      return { source: 'live', patients: pRes.data || [], therapists: tRes.data || [], sessions: sRes.data || [] }
+    } catch (err) {
+      console.warn('[efimeramente] Supabase unavailable, showing demo data:', err?.message || err)
+    }
+  }
+  const store = getDemoStore()
+  return { source: 'demo', patients: [...store.patients], therapists: [...store.therapists], sessions: [...store.sessions] }
+}
+
+export async function createPatient(payload) {
+  if (isSupabaseConfigured) {
+    try {
+      const res = await supabase.from('patients').insert(payload).select(PATIENT_SELECT).single()
+      if (res.error) throw res.error
+      return { ok: true, data: res.data }
+    } catch (err) {
+      return { ok: false, error: err?.message || 'No se pudo crear el paciente.' }
+    }
+  }
+  return { ok: true, data: demoCreatePatient(payload) }
+}
+
+export async function updatePatient(id, patch) {
+  if (isSupabaseConfigured) {
+    try {
+      const res = await supabase.from('patients').update(patch).eq('id', id).select(PATIENT_SELECT).single()
+      if (res.error) throw res.error
+      return { ok: true, data: res.data }
+    } catch (err) {
+      return { ok: false, error: err?.message || 'No se pudo actualizar el paciente.' }
+    }
+  }
+  return { ok: true, data: demoUpdatePatient(id, patch) }
 }
