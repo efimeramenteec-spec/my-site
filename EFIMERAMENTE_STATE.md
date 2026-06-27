@@ -1,11 +1,19 @@
 # Efimeramente Dashboard — State File
 
+## HANDOFF PROTOCOL (read this first)
+At the START of every build session: fetch https://raw.githubusercontent.com/efimeramenteec-spec/my-site/main/EFIMERAMENTE_STATE.md
+At the END of every build session: update this file and commit it to GitHub via the web editor.
+Memory files are read-only in Cowork — GitHub is the only persistent store. Do NOT use memory for handoffs.
+
+---
+
 ## Project Overview
 - **Stack:** React + Vite frontend, Supabase backend, Netlify serverless functions
 - **Live URL:** https://genuine-praline-0f8e70.netlify.app
 - **GitHub repo:** github.com/efimeramenteec-spec/my-site
 - **Supabase project ID:** vnityzpuhnkumsyfnskz
 - **Netlify function:** `/.netlify/functions/calendar`
+- **Netlify plan:** Personal ($9/mo) — upgraded, build minutes no longer an issue
 
 ## Key Files
 - `src/lib/queries.js` — core data layer: `buildCalendarEvent`, `callCalendar`, `createSession`, `updateSession`, `checkFreebusy`
@@ -37,13 +45,26 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | yes |
 | Carolina | no | no |
 | Daniela Espinosa | no | no |
-| Camila Maya | camimaya22@gmail.com | yes |
+| Camila | no | no |
 | Francisco | no | no |
 | Maria Gracia | no | no |
 
-To activate: share Google Calendar with service account, set calendar_email in Supabase therapists table.
+To activate: share Google Calendar with service account, set `calendar_email` in Supabase `therapists` table.
+**Note:** Google Calendar settings UI is off-limits for computer-use going forward.
+
+## Build Phases
+
+| Phase | Module | Status |
+|---|---|---|
+| 1 | Dashboard | done |
+| 2 | Sesiones | done |
+| 3 | Pacientes | done (commit 6f6e3a7) |
+| 4 | Seguimiento | NEXT |
+| 5 | Finanzas | pending |
+| - | Twilio webhook | pending |
 
 ## Completed Features
+- [x] Dashboard (Phase 1)
 - [x] Sesiones calendar view (week/month/list)
 - [x] Create/edit/cancel sessions with Google Calendar sync
 - [x] Modalidad (En linea / Presencial) in Calendar event title
@@ -51,34 +72,36 @@ To activate: share Google Calendar with service account, set calendar_email in S
 - [x] Google Calendar sync active for Mariana Villegas
 - [x] freebusy endpoint in Netlify function (commit b224f2e)
 - [x] checkFreebusy() frontend helper in queries.js (commit 204dd3b)
-- [x] Google Calendar sync active for Camila Maya (camimaya22@gmail.com)
+- [x] Pacientes module (commit 6f6e3a7) — patient list, profile, session history, notes/expediente
 
 ## Pending / Backlog
 
 ### Immediate — next session
-- [ ] **Pacientes module** — FILES BUILT, READY TO PUSH
-  - Pacientes.jsx, queries.js, demoStore.js, icons.jsx all updated
-  - Push 4 files then Pacientes is live
+- [ ] **Seguimiento** module — NEXT SPRINT
 
 ### Pending (no access yet)
 - [ ] Activate Google Calendar for 5 remaining therapists
 
 ### Future
+- [ ] **Finanzas** module
+- [ ] **Twilio webhook** integration
 - [ ] **Llamada Gratuita** — public booking page for free intro calls
   - Backend ready: checkFreebusy() + freebusy action in calendar.js
   - Remaining: public booking UI, therapist selector, confirmation email
 
 ## Workflow Notes
-- GitHub web editor CM6 trick: document.querySelector('.cm-content')?.cmTile?.view then .dispatch({ changes: {...} })
-- form_input MCP works for native select and input[type=time]; custom React dropdowns need mouse clicks
+- GitHub web editor CM6 trick: `document.querySelector('.cm-content')?.cmTile?.view` then `.dispatch({ changes: {...} })`
+- `form_input` MCP works for native `<select>` and `<input type="time">`; custom React dropdowns need mouse clicks
 - Sandbox has no GitHub credentials — push via GitHub web editor only
+- **Google Calendar settings UI is off-limits for computer-use**
+- Memory files are READ-ONLY in Cowork — never attempt memory writes for handoffs
 
 ## Session Management (Self-Preservation Protocol)
 
 ### At the end of every session
 1. Update this file with completed items, new pending items, changed technical details
-2. Commit updated file to GitHub (repo root: EFIMERAMENTE_STATE.md)
-3. At start of next session, fetch from: https://raw.githubusercontent.com/efimeramenteec-spec/my-site/main/EFIMERAMENTE_STATE.md
+2. Commit updated file to GitHub via web editor (this file: EFIMERAMENTE_STATE.md at repo root)
+3. Tell Nicolas: "Start next session with: Fetch the Efimeramente state file from GitHub and let's continue."
 
 ### When to compact and start a new session
 Suggest compacting when ANY of these apply:
@@ -87,4 +110,4 @@ Suggest compacting when ANY of these apply:
 - Waiting on something external (access, deploy review, etc.)
 - Switching to a different type of task
 
-Handoff phrase: Good stopping point — want me to update the state file and set up a clean handoff for next session?
+Handoff phrase: "Good stopping point — want me to update the state file and set up a clean handoff?"
