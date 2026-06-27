@@ -37,7 +37,7 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | yes |
 | Carolina | no | no |
 | Daniela Espinosa | no | no |
-| Camila | no | no |
+| Camila Maya | camimaya22@gmail.com | yes |
 | Francisco | no | no |
 | Maria Gracia | no | no |
 
@@ -51,12 +51,14 @@ To activate: share Google Calendar with service account, set calendar_email in S
 - [x] Google Calendar sync active for Mariana Villegas
 - [x] freebusy endpoint in Netlify function (commit b224f2e)
 - [x] checkFreebusy() frontend helper in queries.js (commit 204dd3b)
+- [x] Google Calendar sync active for Camila Maya (camimaya22@gmail.com)
 
 ## Pending / Backlog
 
 ### Immediate — next session
-- [ ] **Pacientes module** — NEXT SPRINT
-  - Patient list view, patient detail/profile, session history per patient, notes/expediente
+- [ ] **Pacientes module** — FILES BUILT, READY TO PUSH
+  - Pacientes.jsx, queries.js, demoStore.js, icons.jsx all updated
+  - Push 4 files then Pacientes is live
 
 ### Pending (no access yet)
 - [ ] Activate Google Calendar for 5 remaining therapists
