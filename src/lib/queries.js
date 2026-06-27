@@ -32,7 +32,7 @@ function buildCalendarEvent(session) {
     ? `${session.patient.nombre} ${session.patient.apellido}`
     : 'Paciente'
   return {
-    summary: `Sesión — ${patientName} · ${session.modalidad === 'virtual' ? 'Virtual' : 'Presencial'}`,
+    summary: `Sesión — ${patientName} · ${session.modalidad === 'en_linea' ? 'En línea' : 'Presencial'}`,
     description: session.notas || '',
     start: { dateTime: `${session.fecha}T${session.hora_inicio}`, timeZone: TZ },
     end:   { dateTime: `${session.fecha}T${session.hora_fin}`,    timeZone: TZ },
