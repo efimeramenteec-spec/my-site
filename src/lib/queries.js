@@ -11,16 +11,48 @@ const isActive = (s) => s.estado !== 'cancelada' && s.estado !== 'no_show'
 
 // Joined select used everywhere we need patient + therapist names/colors.
 const SESSION_SELECT =
-  'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,metodo_pago,notas,' +
-  'patient:patients(id,nombre,apellido,telefono),therapist:therapists(id,nombre,apellido,color)'
+  'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,metodo_pago,notas,google_event_id,' +
+  'patient:patients(id,nombre,apellido,telefono),therapist:therapists(id,nombre,apellido,color,calendar_email)'
 
 // Only real columns may be written to the sessions table.
 const SESSION_COLUMNS = [
   'patient_id', 'terapeuta_id', 'fecha', 'hora_inicio', 'hora_fin',
-  'tipo', 'modalidad', 'estado', 'monto', 'pagado', 'metodo_pago', 'notas',
+  'tipo', 'modalidad', 'estado', 'monto', 'pagado', 'metodo_pago', 'notas', 'google_event_id',
 ]
 const pickColumns = (obj) =>
   Object.fromEntries(SESSION_COLUMNS.filter((k) => k in obj).map((k) => [k, obj[k]]))
+
+// ─── Google Calendar sync (best-effort, never blocks session save) ──────────
+
+const CALENDAR_FN = '/.netlify/functions/calendar'
+const TZ = 'America/Guayaquil'
+
+function buildCalendarEvent(session) {
+  const patientName = session.patient
+    ? `${session.patient.nombre} ${session.patient.apellido}`
+    : 'Paciente'
+  return {
+    summary: `Sesión — ${patientName}`,
+    description: session.notas || '',
+    start: { dateTime: `${session.fecha}T${session.hora_inicio}`, timeZone: TZ },
+    end:   { dateTime: `${session.fecha}T${session.hora_fin}`,    timeZone: TZ },
+  }
+}
+
+async function callCalendar(action, calendarId, calEvent, eventId) {
+  try {
+    const res = await fetch(CALENDAR_FN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, calendarId, event: calEvent, eventId }),
+    })
+    const json = await res.json()
+    return json // { success, eventId? }
+  } catch (err) {
+    console.warn('[calendar] sync failed (non-blocking):', err?.message)
+    return { success: false }
+  }
+}
 
 // ─── Dashboard ──────────────────────────────────────────────────
 
@@ -116,7 +148,7 @@ export async function getSessionsData() {
           .order('fecha', { ascending: true }).order('hora_inicio', { ascending: true }),
         supabase.from('patients').select('id,nombre,apellido,telefono,terapeuta_id,estado_general')
           .order('nombre', { ascending: true }),
-        supabase.from('therapists').select('id,nombre,apellido,color,activo')
+        supabase.from('therapists').select('id,nombre,apellido,color,calendar_email,activo')
           .order('nombre', { ascending: true }),
       ])
       if (sRes.error) throw sRes.error
@@ -142,7 +174,18 @@ export async function createSession(payload) {
     try {
       const res = await supabase.from('sessions').insert(data).select(SESSION_SELECT).single()
       if (res.error) throw res.error
-      return { ok: true, data: res.data }
+      const session = res.data
+      // Best-effort Google Calendar sync
+      const calEmail = session.therapist?.calendar_email
+      if (calEmail) {
+        const calRes = await callCalendar('create', calEmail, buildCalendarEvent(session))
+        if (calRes.success && calRes.eventId) {
+          // Store the Google event ID back on the session row (fire-and-forget)
+          supabase.from('sessions').update({ google_event_id: calRes.eventId }).eq('id', session.id).then(() => {})
+          session.google_event_id = calRes.eventId
+        }
+      }
+      return { ok: true, data: session }
     } catch (err) {
       return { ok: false, error: err?.message || 'No se pudo guardar la sesión.' }
     }
@@ -156,7 +199,19 @@ export async function updateSession(id, patch) {
     try {
       const res = await supabase.from('sessions').update(data).eq('id', id).select(SESSION_SELECT).single()
       if (res.error) throw res.error
-      return { ok: true, data: res.data }
+      const session = res.data
+      // Best-effort Google Calendar sync
+      const calEmail = session.therapist?.calendar_email
+      const eventId = session.google_event_id
+      if (calEmail && eventId) {
+        const isCancelled = session.estado === 'cancelada' || session.estado === 'no_show'
+        if (isCancelled) {
+          callCalendar('delete', calEmail, null, eventId).then(() => {})
+        } else {
+          callCalendar('update', calEmail, buildCalendarEvent(session), eventId).then(() => {})
+        }
+      }
+      return { ok: true, data: session }
     } catch (err) {
       return { ok: false, error: err?.message || 'No se pudo actualizar la sesión.' }
     }
