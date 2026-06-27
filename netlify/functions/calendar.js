@@ -144,6 +144,31 @@ exports.handler = async (event) => {
     return {
       statusCode: 200,
       headers: corsHeaders(origin),
+
+  if (action === 'freebusy') {
+    const { timeMin, timeMax } = body;
+    if (!timeMin || !timeMax) {
+      return {
+        statusCode: 200,
+        headers: corsHeaders(origin),
+        body: JSON.stringify({ success: false, error: 'Missing timeMin or timeMax for freebusy' }),
+      };
+    }
+    const res = await calendar.freebusy.query({
+      requestBody: {
+        timeMin,
+        timeMax,
+        items: [{ id: calendarId }],
+      },
+    });
+    const busy = (res.data.calendars[calendarId] && res.data.calendars[calendarId].busy) || [];
+    return {
+      statusCode: 200,
+      headers: corsHeaders(origin),
+      body: JSON.stringify({ success: true, busy }),
+    };
+  }
+
       body: JSON.stringify({ success: false, error: `Unknown action: ${action}` }),
     };
   } catch (err) {
