@@ -26,6 +26,7 @@ const pickColumns = (obj) =>
 
 const CALENDAR_FN = '/.netlify/functions/calendar'
 const TZ = 'America/Guayaquil'
+const TZ_OFFSET = '-05:00' // Ecuador, no DST
 
 function buildCalendarEvent(session) {
   const patientName = session.patient
@@ -221,4 +222,22 @@ export async function updateSession(id, patch) {
 
 export function cancelSession(id) {
   return updateSession(id, { estado: 'cancelada' })
+}
+
+
+/**
+ * Check Google Calendar availability for a therapist in a time window.
+ * Returns array of { start, end } busy periods (ISO strings).
+ * Returns [] if therapist has no calendar_email or the call fails.
+ */
+export async function checkFreebusy(calendarEmail, fecha, horaInicio, horaFin) {
+  if (!calendarEmail) return []
+  try {
+    const timeMin = fecha + 'T' + horaInicio + TZ_OFFSET
+    const timeMax = fecha + 'T' + horaFin + TZ_OFFSET
+    const data = await callCalendar({ action: 'freebusy', calendarId: calendarEmail, timeMin, timeMax })
+    return (data && data.busy) ? data.busy : []
+  } catch {
+    return []
+  }
 }
