@@ -46,3 +46,28 @@ export function demoUpdateSession(id, patch) {
   s.sessions[i] = attach(s, { ...s.sessions[i], ...patch })
   return s.sessions[i]
 }
+
+// ─── Pacientes demo mutations ────────────────────────────────────
+
+export function demoCreatePatient(payload) {
+  const s = getDemoStore()
+  const row = {
+    id: 'p-' + Date.now(),
+    estado_general: 'activo',
+    tarifa: TARIFA_DEFAULT,
+    metodo_pago: 'transferencia',
+    email: null,
+    motivo_consulta: null,
+    ...payload,
+  }
+  s.patients.push(row)
+  return row
+}
+
+export function demoUpdatePatient(id, patch) {
+  const s = getDemoStore()
+  const i = s.patients.findIndex((x) => x.id === id)
+  if (i === -1) return null
+  s.patients[i] = { ...s.patients[i], ...patch }
+  return s.patients[i]
+}
