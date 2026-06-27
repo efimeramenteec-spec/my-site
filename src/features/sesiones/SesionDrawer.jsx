@@ -69,7 +69,12 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
   // Picking a patient pre-fills their fixed rate (still editable).
   const onPatient = (id) => {
     const p = patients.find((x) => x.id === id)
-    setForm((f) => ({ ...f, patient_id: id, monto: p?.tarifa ?? f.monto }))
+    setForm((f) => ({
+      ...f,
+      patient_id: id,
+      monto: p?.tarifa ?? f.monto,
+      terapeuta_id: p?.terapeuta_id ?? f.terapeuta_id,
+    }))
   }
 
   const dur = DURACION_MIN[form.tipo] || 75
@@ -153,7 +158,15 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-6">
           <PatientSelect patients={patients} value={form.patient_id} onChange={onPatient} error={errors.patient_id} />
 
-          <Select label="Terapeuta" options={therapistOptions} value={form.terapeuta_id} onChange={(e) => set('terapeuta_id', e.target.value)} error={errors.terapeuta_id} placeholder="Seleccionar…" />
+          {form.patient_id ? (
+            <Field label="Terapeuta">
+              <div className="w-full rounded-xl bg-surface-warm border border-stroke px-4 py-3 font-body text-content-secondary cursor-default">
+                {therapistOptions.find((t) => t.value === form.terapeuta_id)?.label || '—'}
+              </div>
+            </Field>
+          ) : (
+            <Select label="Terapeuta" options={therapistOptions} value={form.terapeuta_id} onChange={(e) => set('terapeuta_id', e.target.value)} error={errors.terapeuta_id} placeholder="Seleccionar…" />
+          )}
 
           <Field label="Fecha" error={errors.fecha}>
             <input type="date" className={nativeInput} value={form.fecha} onChange={(e) => set('fecha', e.target.value)} />

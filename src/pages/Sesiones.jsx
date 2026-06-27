@@ -10,6 +10,7 @@ import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName, formatT
 import { CONFIRMACION } from '../lib/constants.js'
 import { findConflict } from '../lib/conflicts.js'
 import { IconChevronRight, IconPlus } from '../layout/icons.jsx'
+import { useAuth } from '../lib/auth.jsx'
 
 const VIEWS = [
   ['semana', 'Semana'],
@@ -24,6 +25,10 @@ export default function Sesiones() {
   const [cursor, setCursor] = useState(new Date())
   const [filters, setFilters] = useState({ terapeuta: '', estado: '' })
   const [drawer, setDrawer] = useState({ open: false, mode: 'create', initial: null, defaultDate: null })
+  const [search, setSearch] = useState('')
+  const { fullAccess, terapeutaId } = useAuth()
+
+  const handleSetView = (v) => { setView(v); setSearch('') }
 
   async function loadData() {
     const d = await getSessionsData()
@@ -38,9 +43,19 @@ export default function Sesiones() {
 
   const sessions = (data?.sessions || []).filter(
     (s) =>
-      (!filters.terapeuta || s.terapeuta_id === filters.terapeuta) &&
+      (fullAccess
+        ? !filters.terapeuta || s.terapeuta_id === filters.terapeuta
+        : s.terapeuta_id === terapeutaId) &&
       (!filters.estado || s.estado === filters.estado),
   )
+
+  const visibleSessions =
+    view === 'lista' && search.trim()
+      ? sessions.filter((s) => {
+          const name = `${s.patient?.nombre || ''} ${s.patient?.apellido || ''}`.toLowerCase()
+          return name.includes(search.trim().toLowerCase())
+        })
+      : sessions
 
   function shift(dir) {
     setCursor((c) => (view === 'mes' ? addMonths(c, dir) : addDays(c, dir * 7)))
@@ -94,7 +109,7 @@ export default function Sesiones() {
             {VIEWS.map(([v, label]) => (
               <button
                 key={v}
-                onClick={() => setView(v)}
+                onClick={() => handleSetView(v)}
                 className={`rounded-pill px-4 py-1.5 font-heading text-sm font-bold transition-all duration-300 ${
                   view === v ? 'bg-brand-gradient text-white shadow-soft' : 'text-content-secondary hover:text-content-primary'
                 }`}
@@ -119,6 +134,16 @@ export default function Sesiones() {
             </div>
           )}
         </div>
+
+        {view === 'lista' && (
+          <input
+            type="text"
+            placeholder="Buscar paciente…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="rounded-xl border border-stroke bg-white/70 px-4 py-2 font-body text-sm text-content-primary placeholder:text-content-muted focus:border-brand-lavender focus:outline-none focus:ring-2 focus:ring-brand-lavender/20"
+          />
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="w-44">
@@ -146,7 +171,7 @@ export default function Sesiones() {
         ) : view === 'mes' ? (
           <MonthView sessions={sessions} cursor={cursor} onEdit={openEdit} onCreateOn={openCreate} />
         ) : (
-          <ListView sessions={sessions} onEdit={openEdit} onSetEstado={handleSetEstado} onTogglePaid={handleTogglePaid} />
+          <ListView sessions={visibleSessions} onEdit={openEdit} onSetEstado={handleSetEstado} onTogglePaid={handleTogglePaid} />
         )}
       </Card>
 
@@ -155,7 +180,11 @@ export default function Sesiones() {
         mode={drawer.mode}
         initial={drawer.initial}
         defaultDate={drawer.defaultDate}
-        patients={data?.patients || []}
+        patients={
+          fullAccess
+            ? (data?.patients || [])
+            : (data?.patients || []).filter((p) => p.terapeuta_id === terapeutaId)
+        }
         therapists={data?.therapists || []}
         sessions={data?.sessions || []}
         onClose={closeDrawer}
