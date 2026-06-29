@@ -29,7 +29,7 @@ import {
   IconMail,
 } from '../layout/icons.jsx'
 
-// âââ Small helpers âââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Small helpers ───────────────────────────────────────────────
 
 function TherapistDot({ color }) {
   return (
@@ -48,7 +48,7 @@ function SectionTitle({ children }) {
   )
 }
 
-// âââ Patient row (list) ââââââââââââââââââââââââââââââââââââââââââ
+// ─── Patient row (list) ──────────────────────────────────────────
 
 function PatientRow({ patient, therapist, isSelected, onClick }) {
   const estado = ESTADO_PACIENTE[patient.estado_general] || { label: patient.estado_general, badge: 'neutral' }
@@ -72,8 +72,8 @@ function PatientRow({ patient, therapist, isSelected, onClick }) {
           {fullName(patient)}
         </p>
         <p className="mt-0.5 truncate font-caption text-xs text-content-muted">
-          {therapist ? `${therapist.nombre} ${therapist.apellido}` : 'â'}
-          {patient.motivo_consulta ? ` Â· ${patient.motivo_consulta}` : ''}
+          {therapist ? `${therapist.nombre} ${therapist.apellido}` : '—'}
+          {patient.motivo_consulta ? ` · ${patient.motivo_consulta}` : ''}
         </p>
       </div>
 
@@ -89,7 +89,7 @@ function PatientRow({ patient, therapist, isSelected, onClick }) {
   )
 }
 
-// âââ Patient detail panel ââââââââââââââââââââââââââââââââââââââââ
+// ─── Patient detail panel ────────────────────────────────────────
 
 function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
   const [form, setForm] = useState({
@@ -150,7 +150,7 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
           <div className="mb-1 flex items-center gap-2">
             {therapist && <TherapistDot color={therapist.color} />}
             <span className="font-caption text-xs text-content-muted">
-              {therapist ? fullName(therapist) : 'â'}
+              {therapist ? fullName(therapist) : '—'}
             </span>
           </div>
           <h2 className="font-serif text-2xl font-bold leading-tight text-content-primary">
@@ -195,9 +195,9 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
 
         {/* Editable settings */}
         <section className="space-y-3">
-          <SectionTitle>ConfiguraciÃ³n</SectionTitle>
+          <SectionTitle>Configuración</SectionTitle>
           <Input
-            label="Tarifa por sesiÃ³n (USD)"
+            label="Tarifa por sesión (USD)"
             type="number"
             min="0"
             step="1"
@@ -205,7 +205,7 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
             onChange={(e) => set('tarifa', e.target.value)}
           />
           <Select
-            label="MÃ©todo de pago"
+            label="Método de pago"
             value={form.metodo_pago}
             onChange={(e) => set('metodo_pago', e.target.value)}
             options={toOptions(METODO_PAGO)}
@@ -226,7 +226,7 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
             onClick={handleSave}
             disabled={saving}
           >
-            {saved ? 'â Guardado' : saving ? 'Guardandoâ¦' : 'Guardar cambios'}
+            {saved ? '✓ Guardado' : saving ? 'Guardando…' : 'Guardar cambios'}
           </Button>
         </section>
 
@@ -234,7 +234,7 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
         <section>
           <div className="mb-3 flex items-center justify-between">
             <SectionTitle>
-              Historial Â· {sorted.length} {sorted.length === 1 ? 'sesiÃ³n' : 'sesiones'}
+              Historial · {sorted.length} {sorted.length === 1 ? 'sesión' : 'sesiones'}
             </SectionTitle>
             {totalPaid > 0 && (
               <span className="font-caption text-xs text-content-muted">
@@ -300,7 +300,7 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
   )
 }
 
-// âââ Create patient drawer âââââââââââââââââââââââââââââââââââââââ
+// ─── Create patient drawer ───────────────────────────────────────
 
 const EMPTY_FORM = {
   nombre: '',
@@ -407,12 +407,12 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
           </div>
 
           <Input
-            label="TelÃ©fono"
+            label="Teléfono"
             type="tel"
             value={form.telefono}
             onChange={(e) => set('telefono', e.target.value)}
             error={errors.telefono}
-            hint="+593â¦"
+            hint="+593…"
           />
 
           <Input
@@ -430,7 +430,7 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
               value={form.motivo_consulta}
               onChange={(e) => set('motivo_consulta', e.target.value)}
               rows={2}
-              placeholder="Ej. Ansiedad, duelo, terapia de parejaâ¦"
+              placeholder="Ej. Ansiedad, duelo, terapia de pareja…"
               className="w-full resize-none rounded-xl border border-stroke bg-white px-4 py-3 font-body text-content-primary placeholder:text-content-muted focus:border-brand-lavender focus:outline-none focus:ring-2 focus:ring-brand-lavender/20"
             />
           </div>
@@ -440,7 +440,7 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
             value={form.terapeuta_id}
             onChange={(e) => set('terapeuta_id', e.target.value)}
             options={therapistOptions}
-            placeholder="Seleccionar terapeutaâ¦"
+            placeholder="Seleccionar terapeuta…"
             error={errors.terapeuta_id}
           />
 
@@ -455,7 +455,7 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
               error={errors.tarifa}
             />
             <Select
-              label="MÃ©todo de pago"
+              label="Método de pago"
               value={form.metodo_pago}
               onChange={(e) => set('metodo_pago', e.target.value)}
               options={toOptions(METODO_PAGO)}
@@ -486,7 +486,7 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
             onClick={handleSubmit}
             disabled={saving}
           >
-            {saving ? 'Creandoâ¦' : 'Crear paciente'}
+            {saving ? 'Creando…' : 'Crear paciente'}
           </Button>
         </div>
       </div>
@@ -494,7 +494,7 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
   )
 }
 
-// âââ Filter chip row âââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Filter chip row ─────────────────────────────────────────────
 
 function FilterChip({ active, onClick, children, style }) {
   return (
@@ -513,7 +513,7 @@ function FilterChip({ active, onClick, children, style }) {
   )
 }
 
-// âââ Main page âââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Main page ───────────────────────────────────────────────────
 
 const ESTADO_FILTERS = [
   { value: 'all', label: 'Todos' },
@@ -603,7 +603,7 @@ export default function Pacientes() {
     return res
   }, [])
 
-  // ââ Loading skeleton ââ
+  // ── Loading skeleton ──
   if (!data) {
     return (
       <div className="space-y-4 pt-2">
@@ -622,7 +622,7 @@ export default function Pacientes() {
   return (
     <>
       <div className="flex items-start gap-6">
-        {/* ââ LIST COLUMN ââ */}
+        {/* ── LIST COLUMN ── */}
         <div
           className={[
             'flex flex-col gap-4 min-w-0',
@@ -652,7 +652,7 @@ export default function Pacientes() {
             />
             <input
               type="search"
-              placeholder="Buscar por nombre, terapeuta, motivoâ¦"
+              placeholder="Buscar por nombre, terapeuta, motivo…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-xl border border-stroke bg-white/70 py-2.5 pl-9 pr-4 font-body text-sm text-content-primary placeholder:text-content-muted backdrop-blur-sm focus:border-brand-lavender focus:outline-none focus:ring-2 focus:ring-brand-lavender/20"
@@ -714,7 +714,7 @@ export default function Pacientes() {
                 <p className="font-body text-content-secondary">
                   {search || filterEstado !== 'all' || filterTerapeuta !== 'all'
                     ? 'Sin resultados para estos filtros.'
-                    : 'AÃºn no hay pacientes registrados.'}
+                    : 'Aún no hay pacientes registrados.'}
                 </p>
                 {!search && filterEstado === 'all' && filterTerapeuta === 'all' && (
                   <Button
@@ -742,7 +742,7 @@ export default function Pacientes() {
           </Card>
         </div>
 
-        {/* ââ DETAIL PANEL ââ */}
+        {/* ── DETAIL PANEL ── */}
         {hasPanel && (
           <div className="w-full flex-shrink-0 lg:w-[420px]">
             {/* Mobile: back button */}
@@ -750,7 +750,7 @@ export default function Pacientes() {
               onClick={() => setSelectedId(null)}
               className="mb-3 flex items-center gap-1.5 font-heading text-sm font-bold text-brand-lavender lg:hidden"
             >
-              â Lista de pacientes
+              ← Lista de pacientes
             </button>
 
             <Card
