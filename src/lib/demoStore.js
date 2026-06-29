@@ -47,20 +47,25 @@ export function demoUpdateSession(id, patch) {
   return s.sessions[i]
 }
 
-// ─── Pacientes demo mutations ────────────────────────────────────
-
 export function demoCreatePatient(payload) {
   const s = getDemoStore()
   const row = {
     id: 'p-' + Date.now(),
+    nombre: '',
+    apellido: '',
+    telefono: '',
+    email: null,
+    motivo_consulta: null,
     estado_general: 'activo',
     tarifa: TARIFA_DEFAULT,
     metodo_pago: 'transferencia',
-    email: null,
-    motivo_consulta: null,
+    notas: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
     ...payload,
   }
   s.patients.push(row)
+  s.patients.sort((a, b) => a.nombre.localeCompare(b.nombre))
   return row
 }
 
@@ -68,6 +73,6 @@ export function demoUpdatePatient(id, patch) {
   const s = getDemoStore()
   const i = s.patients.findIndex((x) => x.id === id)
   if (i === -1) return null
-  s.patients[i] = { ...s.patients[i], ...patch }
+  s.patients[i] = { ...s.patients[i], ...patch, updated_at: new Date().toISOString() }
   return s.patients[i]
 }
