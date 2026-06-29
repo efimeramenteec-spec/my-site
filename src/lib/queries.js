@@ -320,9 +320,14 @@ export async function updatePatient(id, patch) {
 
 export async function checkFreebusy(calendarEmail, fecha, horaInicio, horaFin) {
   if (!calendarEmail) return []
+  // Google freebusy needs full RFC3339 timestamps — ensure HH:MM:SS. The DB
+  // returns "HH:MM:SS", but the drawer's form state holds "HH:MM" until it
+  // appends seconds on save; without this, an "HH:MM" caller yields an invalid
+  // timestamp, the query throws, and we'd silently report no conflicts.
+  const withSeconds = (t) => (/^\d{2}:\d{2}$/.test(t) ? `${t}:00` : t)
   try {
-    const timeMin = fecha + 'T' + horaInicio + TZ_OFFSET
-    const timeMax = fecha + 'T' + horaFin + TZ_OFFSET
+    const timeMin = fecha + 'T' + withSeconds(horaInicio) + TZ_OFFSET
+    const timeMax = fecha + 'T' + withSeconds(horaFin) + TZ_OFFSET
     const res = await fetch(CALENDAR_FN, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
