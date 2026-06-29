@@ -118,7 +118,11 @@ export const IconSparkle = (p) => (
   </Svg>
 )
 
-// ─── Pacientes module additions ────────────────────────────────────
+export const IconX = (p) => (
+  <Svg {...p}>
+    <path d="M18 6L6 18M6 6l12 12" />
+  </Svg>
+)
 
 export const IconSearch = (p) => (
   <Svg {...p}>
@@ -127,21 +131,15 @@ export const IconSearch = (p) => (
   </Svg>
 )
 
-export const IconX = (p) => (
-  <Svg {...p}>
-    <path d="M18 6L6 18M6 6l12 12" />
-  </Svg>
-)
-
 export const IconPhone = (p) => (
   <Svg {...p}>
-    <path d="M6.6 10.8a15.3 15.3 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.6 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.6 3.6a1 1 0 0 1-.25 1L6.6 10.8Z" />
+    <path d="M5.5 4h4l1.5 4.5-2 1.5a10 10 0 0 0 5 5l1.5-2 4.5 1.5v4A2 2 0 0 1 18 20C8.5 20 4 11.5 4 6a2 2 0 0 1 1.5-2Z" />
   </Svg>
 )
 
 export const IconMail = (p) => (
   <Svg {...p}>
-    <rect x="3" y="5" width="18" height="14" rx="2.5" />
-    <path d="M3 8l9 6 9-6" />
+    <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+    <path d="M2.5 8l9.5 6.5L21.5 8" />
   </Svg>
 )
