@@ -29,7 +29,7 @@ import {
   IconMail,
 } from '../layout/icons.jsx'
 
-// ─── Small helpers ───────────────────────────────────────────────
+// ─── Small helpers ──────────────────────────────────────────────
 
 function TherapistDot({ color }) {
   return (
@@ -48,7 +48,7 @@ function SectionTitle({ children }) {
   )
 }
 
-// ─── Patient row (list) ──────────────────────────────────────────
+// ─── Patient row (list) ─────────────────────────────────────────
 
 function PatientRow({ patient, therapist, isSelected, onClick }) {
   const estado = ESTADO_PACIENTE[patient.estado_general] || { label: patient.estado_general, badge: 'neutral' }
@@ -89,24 +89,25 @@ function PatientRow({ patient, therapist, isSelected, onClick }) {
   )
 }
 
-// ─── Patient detail panel ────────────────────────────────────────
+// ─── Patient detail panel ───────────────────────────────────────
 
 function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
   const [form, setForm] = useState({
     tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
     metodo_pago: patient.metodo_pago || 'transferencia',
     estado_general: patient.estado_general || 'activo',
+    notas: patient.notas || '',
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
 
-  // Reset form when a different patient is opened
   useEffect(() => {
     setForm({
       tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
       metodo_pago: patient.metodo_pago || 'transferencia',
       estado_general: patient.estado_general || 'activo',
+      notas: patient.notas || '',
     })
     setSaved(false)
     setError(null)
@@ -121,6 +122,7 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
       tarifa: parseFloat(form.tarifa) || TARIFA_DEFAULT,
       metodo_pago: form.metodo_pago,
       estado_general: form.estado_general,
+      notas: form.notas.trim() || null,
     })
     setSaving(false)
     if (!res.ok) {
@@ -131,7 +133,6 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
     }
   }
 
-  // Sort sessions newest-first
   const sorted = useMemo(
     () =>
       [...sessions].sort((a, b) =>
@@ -230,6 +231,27 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
           </Button>
         </section>
 
+        {/* Expediente / notas */}
+        <section className="space-y-2">
+          <SectionTitle>Expediente</SectionTitle>
+          <textarea
+            value={form.notas}
+            onChange={(e) => set('notas', e.target.value)}
+            rows={4}
+            placeholder="Notas clínicas, antecedentes, observaciones…"
+            className="w-full resize-none rounded-xl border border-stroke bg-white px-4 py-3 font-body text-sm text-content-primary placeholder:text-content-muted focus:border-brand-lavender focus:outline-none focus:ring-2 focus:ring-brand-lavender/20"
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            className="w-full"
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saved ? '✓ Guardado' : saving ? 'Guardando…' : 'Guardar expediente'}
+          </Button>
+        </section>
+
         {/* Session history */}
         <section>
           <div className="mb-3 flex items-center justify-between">
@@ -255,7 +277,6 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
                     key={s.id}
                     className="flex items-center gap-3 border-b border-stroke/30 py-2.5 last:border-0"
                   >
-                    {/* Date + time */}
                     <div className="w-16 flex-shrink-0">
                       <p className="font-heading text-xs font-bold text-content-primary">
                         {formatDateShort(s.fecha)}
@@ -265,7 +286,6 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
                       </p>
                     </div>
 
-                    {/* Type + modality */}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1 font-caption text-xs text-content-muted">
                         <ModIcon size={12} />
@@ -273,10 +293,8 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
                       </div>
                     </div>
 
-                    {/* Estado badge */}
                     <Badge variant={est.badge}>{est.label}</Badge>
 
-                    {/* Amount + paid status */}
                     <div className="flex-shrink-0 text-right">
                       <p className="font-heading text-xs font-bold text-content-primary">
                         {formatCurrency(s.monto)}
@@ -300,7 +318,7 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
   )
 }
 
-// ─── Create patient drawer ───────────────────────────────────────
+// ─── Create patient drawer ──────────────────────────────────────
 
 const EMPTY_FORM = {
   nombre: '',
@@ -357,7 +375,6 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
     if (!res.ok) {
       setApiError(res.error)
     }
-    // onClose is called by the parent after successful creation
   }
 
   const therapistOptions = therapists.map((t) => ({
@@ -367,16 +384,13 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
 
   return (
     <>
-      {/* Backdrop */}
       <div
         className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
         onClick={onClose}
         aria-hidden="true"
       />
 
-      {/* Drawer */}
       <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-surface-warm shadow-glow">
-        {/* Header */}
         <div className="flex flex-shrink-0 items-center justify-between border-b border-stroke/40 px-6 py-5">
           <h2 className="font-serif text-xl font-bold text-content-primary">Nuevo Paciente</h2>
           <button
@@ -388,7 +402,6 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
           </button>
         </div>
 
-        {/* Scrollable form body */}
         <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
           <div className="grid grid-cols-2 gap-3">
             <Input
@@ -468,24 +481,11 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex flex-shrink-0 gap-3 border-t border-stroke/40 px-6 py-4">
-          <Button
-            variant="secondary"
-            size="sm"
-            className="flex-1"
-            onClick={onClose}
-            disabled={saving}
-          >
+          <Button variant="secondary" size="sm" className="flex-1" onClick={onClose} disabled={saving}>
             Cancelar
           </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            className="flex-1"
-            onClick={handleSubmit}
-            disabled={saving}
-          >
+          <Button variant="primary" size="sm" className="flex-1" onClick={handleSubmit} disabled={saving}>
             {saving ? 'Creando…' : 'Crear paciente'}
           </Button>
         </div>
@@ -494,7 +494,7 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
   )
 }
 
-// ─── Filter chip row ─────────────────────────────────────────────
+// ─── Filter chip ────────────────────────────────────────────────
 
 function FilterChip({ active, onClick, children, style }) {
   return (
@@ -513,7 +513,7 @@ function FilterChip({ active, onClick, children, style }) {
   )
 }
 
-// ─── Main page ───────────────────────────────────────────────────
+// ─── Main page ──────────────────────────────────────────────────
 
 const ESTADO_FILTERS = [
   { value: 'all', label: 'Todos' },
@@ -539,18 +539,14 @@ export default function Pacientes() {
       setData(d)
       ctx?.setDataSource?.(d.source)
     })
-    return () => {
-      alive = false
-    }
+    return () => { alive = false }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Build therapist lookup map once
   const therapistMap = useMemo(() => {
     if (!data) return {}
     return Object.fromEntries(data.therapists.map((t) => [t.id, t]))
   }, [data])
 
-  // Filtered patient list
   const filtered = useMemo(() => {
     if (!data) return []
     const q = search.toLowerCase()
@@ -575,7 +571,6 @@ export default function Pacientes() {
     ? data.sessions.filter((s) => s.patient_id === selectedId)
     : []
 
-  // Update patient in local state after save
   const handleUpdate = useCallback(async (id, patch) => {
     const res = await updatePatient(id, patch)
     if (res.ok) {
@@ -587,15 +582,12 @@ export default function Pacientes() {
     return res
   }, [])
 
-  // Add new patient to local state after create
   const handleCreate = useCallback(async (payload) => {
     const res = await createPatient(payload)
     if (res.ok) {
       setData((d) => ({
         ...d,
-        patients: [...d.patients, res.data].sort((a, b) =>
-          a.nombre.localeCompare(b.nombre),
-        ),
+        patients: [...d.patients, res.data].sort((a, b) => a.nombre.localeCompare(b.nombre)),
       }))
       setShowCreate(false)
       setSelectedId(res.data.id)
@@ -603,7 +595,6 @@ export default function Pacientes() {
     return res
   }, [])
 
-  // ── Loading skeleton ──
   if (!data) {
     return (
       <div className="space-y-4 pt-2">
@@ -622,15 +613,8 @@ export default function Pacientes() {
   return (
     <>
       <div className="flex items-start gap-6">
-        {/* ── LIST COLUMN ── */}
-        <div
-          className={[
-            'flex flex-col gap-4 min-w-0',
-            // On mobile: hide list when detail panel is open; on desktop: always show
-            hasPanel ? 'hidden lg:flex flex-1' : 'flex flex-1',
-          ].join(' ')}
-        >
-          {/* Page header */}
+        {/* ── LIST ── */}
+        <div className={['flex flex-col gap-4 min-w-0', hasPanel ? 'hidden lg:flex flex-1' : 'flex flex-1'].join(' ')}>
           <div className="flex items-center justify-between gap-3">
             <h1 className="font-serif text-2xl font-bold text-content-primary">
               Pacientes
@@ -644,12 +628,8 @@ export default function Pacientes() {
             </Button>
           </div>
 
-          {/* Search */}
           <div className="relative">
-            <IconSearch
-              size={16}
-              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-content-muted"
-            />
+            <IconSearch size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-content-muted" />
             <input
               type="search"
               placeholder="Buscar por nombre, terapeuta, motivo…"
@@ -659,26 +639,17 @@ export default function Pacientes() {
             />
           </div>
 
-          {/* Estado filter chips */}
           <div className="flex flex-wrap gap-2">
             {ESTADO_FILTERS.map((f) => (
-              <FilterChip
-                key={f.value}
-                active={filterEstado === f.value}
-                onClick={() => setFilterEstado(f.value)}
-              >
+              <FilterChip key={f.value} active={filterEstado === f.value} onClick={() => setFilterEstado(f.value)}>
                 {f.label}
               </FilterChip>
             ))}
           </div>
 
-          {/* Therapist filter chips */}
           {data.therapists.length > 1 && (
             <div className="flex flex-wrap gap-2">
-              <FilterChip
-                active={filterTerapeuta === 'all'}
-                onClick={() => setFilterTerapeuta('all')}
-              >
+              <FilterChip active={filterTerapeuta === 'all'} onClick={() => setFilterTerapeuta('all')}>
                 Todos
               </FilterChip>
               {data.therapists.map((t) => (
@@ -704,7 +675,6 @@ export default function Pacientes() {
             </div>
           )}
 
-          {/* Patient list */}
           <Card noPadding>
             {filtered.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-16 text-center">
@@ -717,12 +687,7 @@ export default function Pacientes() {
                     : 'Aún no hay pacientes registrados.'}
                 </p>
                 {!search && filterEstado === 'all' && filterTerapeuta === 'all' && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setShowCreate(true)}
-                    className="mt-2"
-                  >
+                  <Button variant="secondary" size="sm" onClick={() => setShowCreate(true)} className="mt-2">
                     <IconPlus size={14} />
                     Crear primer paciente
                   </Button>
@@ -745,19 +710,13 @@ export default function Pacientes() {
         {/* ── DETAIL PANEL ── */}
         {hasPanel && (
           <div className="w-full flex-shrink-0 lg:w-[420px]">
-            {/* Mobile: back button */}
             <button
               onClick={() => setSelectedId(null)}
               className="mb-3 flex items-center gap-1.5 font-heading text-sm font-bold text-brand-lavender lg:hidden"
             >
               ← Lista de pacientes
             </button>
-
-            <Card
-              noPadding
-              className="sticky overflow-hidden"
-              style={{ top: '1.5rem', maxHeight: 'calc(100vh - 5rem)' }}
-            >
+            <Card noPadding className="sticky overflow-hidden" style={{ top: '1.5rem', maxHeight: 'calc(100vh - 5rem)' }}>
               <PatientDetail
                 patient={selectedPatient}
                 therapist={therapistMap[selectedPatient.terapeuta_id]}
@@ -770,7 +729,6 @@ export default function Pacientes() {
         )}
       </div>
 
-      {/* Create patient drawer (portal-style overlay) */}
       {showCreate && (
         <CreatePatientDrawer
           therapists={data.therapists}
