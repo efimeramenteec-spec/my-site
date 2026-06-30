@@ -5,6 +5,7 @@
 const { google } = require('googleapis');
 
 const ALLOWED_ORIGINS = [
+  'https://efimeramente-panel.netlify.app',
   'https://genuine-praline-0f8e70.netlify.app',
   'http://localhost:5173',
 ];
