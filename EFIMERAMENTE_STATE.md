@@ -57,7 +57,7 @@
 ## Pending / Backlog
 
 ### Immediate — next session
-- [ ] **Update calendar function CORS** — `netlify/functions/calendar.js` `ALLOWED_ORIGINS` still lists the OLD domain `genuine-praline-0f8e70.netlify.app`. After the session #9 rename, add `https://efimeramente-panel.netlify.app` or the in-browser calendar sync + `checkFreebusy` calls are CORS-blocked on the live site.
+- [x] ~~Update calendar function CORS~~ — done session #9 (commit becec56): added `https://efimeramente-panel.netlify.app` to `ALLOWED_ORIGINS` (new domain first). Verify after deploy: create/edit a session on the live site, confirm the Calendar event appears and the amber freebusy warning shows on overlap.
 - [ ] **Verify live fixes** — create a test session, confirm it appears in Lista as "Pend." immediately
 - [x] ~~Sync session estados from Google Sheet~~ — done session #9 (see Completed Features)
 
