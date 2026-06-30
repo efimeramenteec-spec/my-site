@@ -14,3 +14,7 @@ dist/assets/
 .env
 dist/logos/
 dist/manifest.webmanifest
+
+# One-off data import (patient PII) + its script — never commit
+Sesiones_Consultorio.xlsx
+sync-estados.js

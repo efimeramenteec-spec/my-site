@@ -2,7 +2,7 @@
 
 ## Project Overview
 - **Stack:** React + Vite frontend, Supabase backend, Netlify serverless functions
-- **Live URL:** https://genuine-praline-0f8e70.netlify.app
+- **Live URL:** https://efimeramente-panel.netlify.app (renamed session #9; Supabase Auth site URL updated to match)
 - **GitHub repo:** github.com/efimeramenteec-spec/my-site
 - **Supabase project ID:** vnityzpuhnkumsyfnskz
 - **Netlify function:** `/.netlify/functions/calendar`
@@ -51,12 +51,15 @@
 - [x] `SUPABASE_SERVICE_KEY` (legacy service_role JWT) saved in `~/my-site/.env` — Opus agent can do Supabase writes autonomously
 - [x] Session `estado` DB default changed to `'programada'` (was `'confirmada'`) — SQL: `ALTER TABLE sessions ALTER COLUMN estado SET DEFAULT 'programada'`
 - [x] ListView defaults to upcoming sessions (fecha >= today), "Ver historial" toggle reveals past sessions sorted newest-first — commit 275baf5
+- [x] Session cards colored by therapist (was estado) in WeekView/MonthView — commit 71bb26e
+- [x] Estado/pagado synced from Google Sheet (session #9) — 42 sessions updated: 26 marked paid, 14 cancelled, 2 confirmed. Guarded: never downgrades confirmada→programada (blank sheet cell = leave as-is) and never un-pays. One-off via `sync-estados.js` (+ `Sesiones_Consultorio.xlsx`), both now gitignored (PII); `xlsx` is a devDependency
 
 ## Pending / Backlog
 
 ### Immediate — next session
+- [ ] **Update calendar function CORS** — `netlify/functions/calendar.js` `ALLOWED_ORIGINS` still lists the OLD domain `genuine-praline-0f8e70.netlify.app`. After the session #9 rename, add `https://efimeramente-panel.netlify.app` or the in-browser calendar sync + `checkFreebusy` calls are CORS-blocked on the live site.
 - [ ] **Verify live fixes** — create a test session, confirm it appears in Lista as "Pend." immediately
-- [ ] **Sync session estados from Google Sheet** — one-time Node.js script to read old sheet, match sessions by patient+date+time, update Supabase `sessions.estado`. Use existing `GOOGLE_SERVICE_ACCOUNT_KEY` (same service account as Calendar). Nicolas must share the sheet column mapping (which columns = patient name, date, estado) at start of that session. Pure code, no clicking/screenshots.
+- [x] ~~Sync session estados from Google Sheet~~ — done session #9 (see Completed Features)
 
 ### Next modules (confirm with Nicolas before starting)
 - [ ] **Seguimiento** — analytics: retention, sessions/therapist/month, no-show rate, pending payments (recharts)
@@ -65,7 +68,7 @@
 - [ ] **Trim therapist Sesiones view** — hide pay/confirm toggles and owner-only filters from therapist role
 
 ### Known data issue
-- 300 seed sessions all have `estado = 'confirmada'` (imported from old Google Sheet). These need to be corrected to match real session states. Fix via the Google Sheet sync script above — do NOT bulk-reset them blindly.
+- Seed sessions imported from the old Google Sheet originally all had `estado = 'confirmada'`. Session #9 ran the guarded sync (`sync-estados.js`): 240 of 316 sessions matched by patient+date, 42 corrected (26 paid, 14 cancelled, 2 confirmed). 76 had no sheet match (left untouched); 14 confirmada→programada downgrades and 1 un-pay were intentionally skipped (blank sheet cell = leave as-is). Re-runnable if the sheet changes.
 
 ## Working Protocol
 
