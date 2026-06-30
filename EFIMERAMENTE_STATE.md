@@ -49,25 +49,44 @@
 - [x] Auth (login, RLS, role-gated routes — owner + 6 therapist accounts)
 - [x] Dashboard (KPIs, upcoming sessions, weekly chart)
 - [x] `SUPABASE_SERVICE_KEY` (legacy service_role JWT) saved in `~/my-site/.env` — Opus agent can do Supabase writes autonomously
+- [x] Session `estado` DB default changed to `'programada'` (was `'confirmada'`) — SQL: `ALTER TABLE sessions ALTER COLUMN estado SET DEFAULT 'programada'`
+- [x] ListView defaults to upcoming sessions (fecha >= today), "Ver historial" toggle reveals past sessions sorted newest-first — commit 275baf5
 
 ## Pending / Backlog
 
-### Next (confirm with Nicolas before starting)
+### Immediate — next session
+- [ ] **Verify live fixes** — create a test session, confirm it appears in Lista as "Pend." immediately
+- [ ] **Sync session estados from Google Sheet** — one-time Node.js script to read old sheet, match sessions by patient+date+time, update Supabase `sessions.estado`. Use existing `GOOGLE_SERVICE_ACCOUNT_KEY` (same service account as Calendar). Nicolas must share the sheet column mapping (which columns = patient name, date, estado) at start of that session. Pure code, no clicking/screenshots.
+
+### Next modules (confirm with Nicolas before starting)
 - [ ] **Seguimiento** — analytics: retention, sessions/therapist/month, no-show rate, pending payments (recharts)
 - [ ] **Finanzas** — facturas ledger, monthly totals, mark-as-paid
 - [ ] **Twilio webhook** — `netlify/functions/twilio-webhook.js`: receive Twilio POST, parse reply, update `whatsapp_messages` + session estado
 - [ ] **Trim therapist Sesiones view** — hide pay/confirm toggles and owner-only filters from therapist role
 
-### Pending (no access yet)
-- Nothing blocking — all 6 therapists are synced
+### Known data issue
+- 300 seed sessions all have `estado = 'confirmada'` (imported from old Google Sheet). These need to be corrected to match real session states. Fix via the Google Sheet sync script above — do NOT bulk-reset them blindly.
 
 ## Working Protocol
 
-### Push workflow
-- **Code changes:** Spawn Opus agent (model: opus) via Claude Code terminal at `~/my-site`
-- Opus writes → `vite build --emptyOutDir false` → `git push` (SSH credentials in `~/my-site`)
+### Agent spawning
+- Cowork (Sonnet) = project manager only: reads state, coordinates, writes prompts, updates .md
+- **Spawn Opus agents freely** for any code task — Opus is better at heavy lifting
+- Cowork can spawn agents at any model (opus, sonnet, haiku) as needed
+
+### Nicolas's role — simple
+- Nicolas works exclusively in Cowork chat. Screenshots go here. Decisions happen here.
+- The ONLY thing Nicolas does in the Claude Code terminal is paste a single `git push` command when Cowork tells him to. Nothing else.
+- Cowork gives Nicolas the exact command to paste. Nicolas does not need to know git.
+
+### Push workflow — TWO CLONES, clear roles
+- **`~/my-site`** = the canonical git repo. All pushes happen from here. Claude Code terminal has SSH credentials here.
+- **`~/Claude/Projects/New Efimeramente App 3`** = Cowork workspace. Opus agents write code here (sandbox-mounted). No network access from sandbox — cannot push directly.
+- **Correct flow:** Cowork Opus writes code to `New Efimeramente App 3` → tell Nicolas to paste in Claude Code terminal: `cd "/Users/nicolasdelatorre/Claude/Projects/New Efimeramente App 3" && git push origin main` — but ONLY after Claude Code agent has ported the change cleanly to `~/my-site` first (see two-clone divergence issue from session #8).
+- **Safer flow (avoids divergence):** Have Claude Code agent pull the changed file directly from the `New Efimeramente App 3` path, apply it to `~/my-site`, build, and push — all in one Claude Code prompt.
+- If the two clones diverge: port only the changed file(s) into `~/my-site` (do NOT rebase or force-push)
+- Build before every push: `vite build --emptyOutDir false` — fix errors before committing
 - **Never use GitHub web editor CM6 injection** — no build verification, risk of bad commits
-- Cowork (Sonnet) = project manager: prompts, memory, coordination. Opus = code maker
 
 ### Supabase writes
 - Use `SUPABASE_SERVICE_KEY` from `~/my-site/.env` (legacy service_role JWT, role: service_role)
