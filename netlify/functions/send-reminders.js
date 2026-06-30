@@ -17,6 +17,18 @@
 //   TWILIO_WHATSAPP_FROM  — sender, e.g. "whatsapp:+14155238886" (live)
 //   TWILIO_CONTENT_SID    — approved template SID "HX…" (live)
 //   (if any are missing, the send throws and is logged; the batch never crashes.)
+//   REMINDERS_LIVE        — KILL-SWITCH. The scheduled/cron run sends ONLY when
+//                           this is exactly "true". Unset / anything else ⇒ dry run:
+//                           logs the eligible count, sends NOTHING, and leaves
+//                           reminder_sent_at untouched so those sessions stay
+//                           eligible for the real run. Leave UNSET by default.
+//
+// ── MANUAL TEST PATH ──────────────────────────────────────────────────────────
+//   Invoke with  ?test_session_id=<uuid>  to send the reminder for ONLY that one
+//   session, bypassing BOTH the kill-switch AND the 23–25h window (still stamps
+//   reminder_sent_at on success). This is how we run controlled tests without
+//   flipping REMINDERS_LIVE. ⚠️ It sends a REAL WhatsApp message — point it at a
+//   test patient / your own number.
 //
 // ⚠️ MIGRATION REQUIRED FIRST: sessions.reminder_sent_at (timestamptz, nullable)
 //    must exist — see supabase/add-reminder-sent-at.sql. Until it's added, the
@@ -80,13 +92,55 @@ async function sendWhatsAppReminder({ toE164, name }) {
   return res.json()
 }
 
-exports.handler = async () => {
+// Send one reminder + stamp reminder_sent_at on success. Shared by the live
+// batch and the manual test path. Returns 'sent' | 'skipped' | 'failed' — never
+// throws, so one bad session can't crash a batch.
+async function deliverReminder(supabase, s) {
+  const name = String(s.patient?.nombre || '').trim() || 'paciente'
+  const toE164 = normalizePhone(s.patient?.telefono)
+  if (!toE164) { console.warn(`[send-reminders] skip session ${s.id}: un-normalizable phone`); return 'skipped' }
+  try {
+    await sendWhatsAppReminder({ toE164, name })
+    // Mark ONLY after a confirmed send. If marking fails, log it and accept a
+    // possible re-send rather than silently dropping the reminder.
+    const { error: upErr } = await supabase
+      .from('sessions').update({ reminder_sent_at: new Date().toISOString() }).eq('id', s.id)
+    if (upErr) { console.error(`[send-reminders] sent but mark failed for ${s.id}:`, upErr.message); return 'failed' }
+    return 'sent'
+  } catch (e) {
+    console.error(`[send-reminders] send failed for session ${s.id}:`, e.message)
+    return 'failed'
+  }
+}
+
+exports.handler = async (event) => {
   if (!SUPABASE_SERVICE_KEY) {
     console.error('[send-reminders] SUPABASE_SERVICE_KEY not set')
     return { statusCode: 500, body: 'Supabase key missing' }
   }
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
 
+  // ── Manual test path ──────────────────────────────────────────────────────────
+  // ?test_session_id=<uuid> → send ONLY that session, ignoring the kill-switch and
+  // the 23–25h window. Still stamps reminder_sent_at on success. (See header note.)
+  const testSessionId = event && event.queryStringParameters && event.queryStringParameters.test_session_id
+  if (testSessionId) {
+    const { data: s, error } = await supabase
+      .from('sessions')
+      .select('id, fecha, hora_inicio, estado, reminder_sent_at, patient:patients(nombre, apellido, telefono)')
+      .eq('id', testSessionId)
+      .single()
+    if (error || !s) {
+      console.error(`[send-reminders] TEST: session ${testSessionId} not found:`, error?.message || 'no row')
+      return { statusCode: 404, body: JSON.stringify({ test: true, test_session_id: testSessionId, error: 'session not found' }) }
+    }
+    console.log(`[send-reminders] TEST send for session ${testSessionId} (bypasses kill-switch + window)`)
+    const status = await deliverReminder(supabase, s)
+    const code = status === 'sent' ? 200 : status === 'skipped' ? 422 : 502
+    return { statusCode: code, body: JSON.stringify({ test: true, test_session_id: testSessionId, status }) }
+  }
+
+  // ── Scheduled / cron path ─────────────────────────────────────────────────────
   const now = new Date()
   const winStart = new Date(now.getTime() + WINDOW_MIN_H * 3600e3)
   const winEnd = new Date(now.getTime() + WINDOW_MAX_H * 3600e3)
@@ -115,26 +169,23 @@ exports.handler = async () => {
   })
   console.log(`[send-reminders] now=${now.toISOString()} window=${WINDOW_MIN_H}-${WINDOW_MAX_H}h candidates=${sessions?.length || 0} due=${due.length}`)
 
-  let sent = 0, failed = 0, skipped = 0
-  for (const s of due) {
-    const name = String(s.patient?.nombre || '').trim() || 'paciente'
-    const toE164 = normalizePhone(s.patient?.telefono)
-    if (!toE164) { skipped++; console.warn(`[send-reminders] skip session ${s.id}: un-normalizable phone`); continue }
-    try {
-      await sendWhatsAppReminder({ toE164, name })
-      // Only mark AFTER a confirmed send (spec). If marking fails, we log it and
-      // accept a possible re-send next hour rather than silently dropping it.
-      const { error: upErr } = await supabase
-        .from('sessions').update({ reminder_sent_at: new Date().toISOString() }).eq('id', s.id)
-      if (upErr) { failed++; console.error(`[send-reminders] sent but mark failed for ${s.id}:`, upErr.message); continue }
-      sent++
-    } catch (e) {
-      failed++
-      console.error(`[send-reminders] send failed for session ${s.id}:`, e.message)
-      // continue — one failure must not crash the batch
-    }
+  // ── Kill-switch ───────────────────────────────────────────────────────────────
+  // The scheduled/cron run sends ONLY when REMINDERS_LIVE === 'true'. Default OFF:
+  // log how many sessions WOULD have been reminded, then exit WITHOUT sending and
+  // WITHOUT touching reminder_sent_at — so they stay eligible for the real run.
+  if (process.env.REMINDERS_LIVE !== 'true') {
+    console.log(`[send-reminders] dry run — REMINDERS_LIVE not enabled, skipping ${due.length} eligible sessions`)
+    return { statusCode: 200, body: JSON.stringify({ dryRun: true, eligible: due.length, sent: 0 }) }
   }
 
-  console.log(`[send-reminders] done sent=${sent} failed=${failed} skipped=${skipped}`)
-  return { statusCode: 200, body: JSON.stringify({ candidates: sessions?.length || 0, due: due.length, sent, failed, skipped }) }
+  let sent = 0, failed = 0, skipped = 0
+  for (const s of due) {
+    const status = await deliverReminder(supabase, s)
+    if (status === 'sent') sent++
+    else if (status === 'skipped') skipped++
+    else failed++
+  }
+
+  console.log(`[send-reminders] LIVE done sent=${sent} failed=${failed} skipped=${skipped}`)
+  return { statusCode: 200, body: JSON.stringify({ live: true, candidates: sessions?.length || 0, due: due.length, sent, failed, skipped }) }
 }

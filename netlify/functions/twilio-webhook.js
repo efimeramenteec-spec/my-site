@@ -53,6 +53,12 @@ function normalizePhone(raw) {
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
 
 exports.handler = async (event) => {
+  // Safe deploy-health probe (GET ?health=1) — no side effects. Lets us confirm a
+  // deploy is live WITHOUT invoking send-reminders (whose cron path can send).
+  // The build marker bumps when send-reminders' safety logic changes.
+  if (event.httpMethod === 'GET' && event.queryStringParameters && event.queryStringParameters.health) {
+    return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok: true, build: 'reminders-killswitch' }) }
+  }
   if (event.httpMethod !== 'POST') return twiml(405)
   if (!SUPABASE_SERVICE_KEY) { console.error('[twilio-webhook] no SUPABASE_SERVICE_KEY'); return twiml(200) }
 
