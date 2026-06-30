@@ -23,11 +23,9 @@
 //    query below fails (column does not exist).
 //
 // TEMPLATE: ONE variable — {{1}} = patient name. The body has no date/time/link.
-//
-// ⚠️ APPROVAL PENDING: the live template (HXb2b458a10454fccc4408f87bc859d231) is
-//    submitted but not yet WhatsApp-approved. Sends will fail with a Twilio error
-//    until approval clears — expected in early testing, logged per-session, never
-//    crashes the batch.
+//    The approved binary quick-reply template is referenced ONLY through
+//    process.env.TWILIO_CONTENT_SID — never hardcode the template SID in source.
+//    (Netlify's secret scanner fails the build if an env var's value appears here.)
 
 const { createClient } = require('@supabase/supabase-js')
 
