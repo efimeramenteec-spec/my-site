@@ -166,11 +166,42 @@ export function MonthView({ sessions, cursor, onEdit, onCreateOn }) {
 // ─── List ───────────────────────────────────────────────────────
 
 export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid }) {
-  const rows = [...sessions].sort(byTime)
+  const [showHistory, setShowHistory] = React.useState(false)
+  const today = dateKey(new Date())
+
+  const upcoming = sessions.filter((s) => s.fecha >= today).sort(byTime)
+  const past = sessions.filter((s) => s.fecha < today).sort((a, b) => -byTime(a, b))
+  const rows = showHistory ? [...upcoming, ...past] : upcoming
+
+  const toggle = (
+    <div className="px-2 py-3 text-center">
+      <button
+        type="button"
+        onClick={() => setShowHistory((v) => !v)}
+        className="font-caption text-xs text-brand-lavender underline"
+      >
+        {showHistory ? 'Ocultar historial' : 'Ver historial'}
+      </button>
+    </div>
+  )
+
   if (rows.length === 0) {
-    return <div className="py-16 text-center font-body text-content-secondary">No hay sesiones con estos filtros.</div>
+    return (
+      <div>
+        <div className="py-16 text-center font-body text-content-secondary">
+          No hay sesiones próximas.
+          {past.length > 0 && (
+            <span className="mt-1 block font-caption text-xs text-content-muted">
+              Haz clic en “Ver historial” para ver sesiones pasadas.
+            </span>
+          )}
+        </div>
+        {past.length > 0 && toggle}
+      </div>
+    )
   }
   return (
+    <div>
     <div className="divide-y divide-stroke/50">
       {rows.map((s) => (
         <div key={s.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-2 py-3 transition-colors hover:bg-white/50">
@@ -209,6 +240,8 @@ export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid }) {
           <button onClick={() => onEdit(s)} className="rounded-full px-3 py-1.5 font-heading text-xs font-bold text-brand-lavender transition-colors hover:bg-brand-lavender/10">Editar</button>
         </div>
       ))}
+    </div>
+    {past.length > 0 && toggle}
     </div>
   )
 }
