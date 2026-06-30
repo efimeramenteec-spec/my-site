@@ -81,7 +81,7 @@ export function WeekView({ sessions, cursor, onEdit, onCreateOn }) {
                   <button
                     key={s.id}
                     onClick={() => onEdit(s)}
-                    style={{ borderLeft: `3px solid ${ESTADO_COLOR[s.estado] || '#b48ae4'}` }}
+                    style={{ borderLeft: `3px solid ${s.therapist?.color || '#b48ae4'}` }}
                     className="w-full rounded-lg border border-white/70 bg-white/85 px-2 py-1.5 text-left shadow-soft transition-all duration-200 hover:shadow-card"
                   >
                     <p className="font-heading text-xs font-bold text-content-primary leading-tight">{formatTime(s.hora_inicio)}</p>
@@ -145,10 +145,10 @@ export function MonthView({ sessions, cursor, onEdit, onCreateOn }) {
                     <button
                       key={s.id}
                       onClick={() => onEdit(s)}
-                      style={{ backgroundColor: `${ESTADO_COLOR[s.estado] || '#b48ae4'}22` }}
+                      style={{ backgroundColor: `${s.therapist?.color || '#b48ae4'}22` }}
                       className="flex w-full items-center gap-1 truncate rounded-lg px-1.5 py-0.5 text-left"
                     >
-                      <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ backgroundColor: ESTADO_COLOR[s.estado] || '#b48ae4' }} />
+                      <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ backgroundColor: s.therapist?.color || '#b48ae4' }} />
                       <span className="truncate font-caption text-[10px] font-bold text-content-primary">{formatTime(s.hora_inicio)} {s.patient?.nombre}</span>
                     </button>
                   ))}
