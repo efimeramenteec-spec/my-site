@@ -10,6 +10,12 @@
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
+# Scheduled Function — hourly 24h-before WhatsApp reminders.
+# See netlify/functions/send-reminders.js. Cron declared here (no extra dep);
+# avoids the @netlify/functions schedule() wrapper while staying v1-style.
+[functions."send-reminders"]
+  schedule = "0 * * * *"
+
 # SPA fallback — let React Router handle client-side routes.
 # Functions are matched before this rule via /.netlify/functions/*.
 [[redirects]]
