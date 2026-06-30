@@ -5,6 +5,7 @@ import { PatientSelect } from './PatientSelect.jsx'
 import { dateKey, addMinutesToTime, formatTime, fullName } from '../../lib/format.js'
 import { TIPO_FORM, MODALIDAD, DURACION_MIN, TARIFA_DEFAULT, toOptions } from '../../lib/constants.js'
 import { findConflict } from '../../lib/conflicts.js'
+import { checkFreebusy } from '../../lib/queries.js'
 
 const nativeInput =
   'w-full rounded-xl bg-white border border-stroke px-4 py-3 font-body text-content-primary ' +
@@ -43,6 +44,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
   const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
   const [submitError, setSubmitError] = useState('')
+  const [calBusy, setCalBusy] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -84,6 +86,26 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     { terapeuta_id: form.terapeuta_id, fecha: form.fecha, hora_inicio: form.hora_inicio, tipo: form.tipo },
     mode === 'edit' && initial ? initial.id : null,
   )
+
+  // Soft Google Calendar conflict check: once date, time and therapist are
+  // chosen, ask that therapist's calendar whether the window is already busy.
+  // Best-effort and NON-blocking — checkFreebusy swallows failures (returns []),
+  // a therapist without calendar_email is skipped, and an overlap only warns.
+  useEffect(() => {
+    const therapist = therapists.find((t) => t.id === form.terapeuta_id)
+    const email = therapist?.calendar_email
+    if (!open || !email || !form.fecha || !form.hora_inicio || !endTime) {
+      setCalBusy(false)
+      return
+    }
+    let alive = true
+    const handle = setTimeout(async () => {
+      const busy = await checkFreebusy(email, form.fecha, form.hora_inicio, endTime)
+      if (alive) setCalBusy(Array.isArray(busy) && busy.length > 0)
+    }, 350)
+    return () => { alive = false; clearTimeout(handle) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, form.terapeuta_id, form.fecha, form.hora_inicio, endTime, therapists])
 
   function validate() {
     const e = {}
@@ -192,6 +214,14 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
               <p className="font-heading text-sm font-bold text-rose-700">Conflicto de horario</p>
               <p className="mt-0.5 font-caption text-xs text-rose-600">
                 {fullName(conflict.therapist)} ya tiene a {fullName(conflict.patient)} de {formatTime(conflict.hora_inicio)} a {formatTime(conflict.hora_fin)}.
+              </p>
+            </div>
+          )}
+
+          {calBusy && !conflict && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="font-caption text-xs text-amber-700">
+                La terapeuta tiene un evento en Google Calendar en ese horario.
               </p>
             </div>
           )}
