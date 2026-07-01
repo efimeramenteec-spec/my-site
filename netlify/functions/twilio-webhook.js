@@ -80,7 +80,22 @@ exports.handler = async (event) => {
   // deploy is live WITHOUT invoking send-reminders (whose cron path can send).
   // The build marker bumps when send-reminders' safety logic changes.
   if (event.httpMethod === 'GET' && event.queryStringParameters && event.queryStringParameters.health) {
-    return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok: true, build: 'reminders-killswitch' }) }
+    // Presence-only env diagnostics (booleans — NEVER the values), so we can see
+    // which vars the function RUNTIME actually receives without leaking secrets.
+    const has = (k) => Boolean(process.env[k])
+    return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      ok: true, build: 'env-probe',
+      env: {
+        SUPABASE_SERVICE_KEY: has('SUPABASE_SERVICE_KEY'),
+        SUPABASE_URL: has('SUPABASE_URL'),
+        TWILIO_ACCOUNT_SID: has('TWILIO_ACCOUNT_SID'),
+        TWILIO_AUTH_TOKEN: has('TWILIO_AUTH_TOKEN'),
+        TWILIO_WHATSAPP_FROM: has('TWILIO_WHATSAPP_FROM'),
+        TWILIO_CONTENT_SID: has('TWILIO_CONTENT_SID'),
+        GOOGLE_SERVICE_ACCOUNT_KEY: has('GOOGLE_SERVICE_ACCOUNT_KEY'),
+        REMINDERS_LIVE: process.env.REMINDERS_LIVE === 'true',
+      },
+    }) }
   }
   if (event.httpMethod !== 'POST') return twiml(405)
   if (!SUPABASE_SERVICE_KEY) { console.error('[twilio-webhook] no SUPABASE_SERVICE_KEY'); return twiml(200) }
