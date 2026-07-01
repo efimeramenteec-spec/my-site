@@ -1,59 +1,34 @@
-// netlify/functions/twilio-webhook.js
+// netlify/functions/twilio-webhook.mjs
 //
-// Inbound Twilio webhook (v1 / CommonJS) — fires when a patient taps a quick-reply
-// button on the WhatsApp reminder. Finds the matching session, updates its estado,
-// and returns empty TwiML 200 (Twilio's webhook contract). Matches calendar.js
-// v1 style. Node 18+ (Netlify default).
+// Modern Netlify Function (HTTP). The single HTTP surface for the WhatsApp reminder
+// subsystem. Three paths:
+//   • GET  ?health         → presence-only env diagnostics (booleans, no secrets)
+//   • GET  ?test_session_id=<uuid> → controlled single test send (bypasses the
+//                            kill-switch AND the 23–25h window). Lives here because
+//                            scheduled functions can't be HTTP-invoked. ⚠️ REAL send.
+//   • POST                 → Twilio inbound webhook: a quick-reply button tap sets
+//                            the matching session's estado (and deletes the Google
+//                            Calendar event on cancellation). Returns empty TwiML 200.
 //
-// Twilio posts application/x-www-form-urlencoded with fields incl.:
-//   From          — "whatsapp:+593…"
-//   ButtonPayload — the payload ID configured on the tapped quick-reply button
-//   ButtonText    — the visible button label
-//
-// Wire this URL as the template's / messaging service's inbound webhook in Twilio:
+// Twilio posts application/x-www-form-urlencoded with From, ButtonPayload, ButtonText.
+// Wire this URL as the template's inbound webhook in Twilio:
 //   https://efimeramente-panel.netlify.app/.netlify/functions/twilio-webhook
-//   (or /api/twilio-webhook via the netlify.toml redirect)
 //
-// ── ENV ───────────────────────────────────────────────────────────────────────
-//   SUPABASE_URL          — defaults to the project URL below if unset
-//   SUPABASE_SERVICE_KEY  — service_role JWT (already set in Netlify env)
-//
-// BUTTON PAYLOADS (confirmed): exact ButtonPayload match —
-//   "confirmed" → estado 'confirmada',  "canceled" → estado 'cancelada'.
-//
-// ⚠️ Requires sessions.reminder_sent_at — see supabase/add-reminder-sent-at.sql.
+// BUTTON PAYLOADS (confirmed in the Twilio template): "confirmed" → 'confirmada',
+// "canceled" → 'cancelada'. ⚠️ Requires sessions.reminder_sent_at.
 
-const { createClient } = require('@supabase/supabase-js')
-
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://vnityzpuhnkumsyfnskz.supabase.co'
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY
+import { getSupabaseAdmin, normalizePhone, deliverReminder } from '../lib/whatsapp.mjs'
 
 // The Google Calendar function lives on this same Netlify deploy. Netlify injects
 // URL = the site's primary address; fall back to the known prod URL for safety.
 const CALENDAR_FN = `${process.env.URL || 'https://efimeramente-panel.netlify.app'}/.netlify/functions/calendar`
 
-// Empty TwiML — 200 + text/xml with <Response/> tells Twilio "received, no reply".
 const TWIML_EMPTY = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
-const twiml = (statusCode = 200) => ({
-  statusCode,
-  headers: { 'Content-Type': 'text/xml' },
-  body: TWIML_EMPTY,
-})
+const twiml = (status = 200) => new Response(TWIML_EMPTY, { status, headers: { 'Content-Type': 'text/xml' } })
+const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json' } })
 
 // Exact ButtonPayload → estado map (IDs confirmed in the Twilio template).
 const BUTTON_TO_ESTADO = { confirmed: 'confirmada', canceled: 'cancelada' }
-
-// Same best-effort E.164 normalization as send-reminders.js.
-function normalizePhone(raw) {
-  if (!raw) return null
-  const p = String(raw).trim().replace(/[\s()\-.]/g, '')
-  if (p.startsWith('+')) return /^\+\d{8,15}$/.test(p) ? p : null
-  if (/^\d+$/.test(p)) {
-    if (p.startsWith('593')) return `+${p}`
-    if (p.length === 9 || p.length === 10) return `+593${p.replace(/^0/, '')}`
-  }
-  return null
-}
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
 
 // Best-effort: remove the therapist's Google Calendar event when a session is
@@ -67,24 +42,23 @@ async function deleteCalendarEvent(calendarId, eventId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'delete', calendarId, eventId }),
     })
-    const json = await res.json().catch(() => ({}))
-    if (json.success) console.log(`[twilio-webhook] calendar event ${eventId} deleted`)
-    else console.warn('[twilio-webhook] calendar delete not successful:', json.error)
+    const j = await res.json().catch(() => ({}))
+    if (j.success) console.log(`[twilio-webhook] calendar event ${eventId} deleted`)
+    else console.warn('[twilio-webhook] calendar delete not successful:', j.error)
   } catch (e) {
     console.warn('[twilio-webhook] calendar delete failed (non-blocking):', e.message)
   }
 }
 
-exports.handler = async (event) => {
-  // Safe deploy-health probe (GET ?health=1) — no side effects. Lets us confirm a
-  // deploy is live WITHOUT invoking send-reminders (whose cron path can send).
-  // The build marker bumps when send-reminders' safety logic changes.
-  if (event.httpMethod === 'GET' && event.queryStringParameters && event.queryStringParameters.health) {
-    // Presence-only env diagnostics (booleans — NEVER the values), so we can see
-    // which vars the function RUNTIME actually receives without leaking secrets.
+export default async (req) => {
+  const url = new URL(req.url)
+
+  // ── Health probe (GET ?health) — presence-only env diagnostics, no secrets.
+  //    Returns BEFORE the Supabase-key check so it works even if the key is unset.
+  if (req.method === 'GET' && url.searchParams.has('health')) {
     const has = (k) => Boolean(process.env[k])
-    return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-      ok: true, build: 'env-probe',
+    return json({
+      ok: true, build: 'modern-functions',
       env: {
         SUPABASE_SERVICE_KEY: has('SUPABASE_SERVICE_KEY'),
         SUPABASE_URL: has('SUPABASE_URL'),
@@ -95,12 +69,37 @@ exports.handler = async (event) => {
         GOOGLE_SERVICE_ACCOUNT_KEY: has('GOOGLE_SERVICE_ACCOUNT_KEY'),
         REMINDERS_LIVE: process.env.REMINDERS_LIVE === 'true',
       },
-    }) }
+    })
   }
-  if (event.httpMethod !== 'POST') return twiml(405)
-  if (!SUPABASE_SERVICE_KEY) { console.error('[twilio-webhook] no SUPABASE_SERVICE_KEY'); return twiml(200) }
 
-  const params = new URLSearchParams(event.body || '')
+  const supabase = getSupabaseAdmin()
+  if (!supabase) { console.error('[twilio-webhook] no SUPABASE_SERVICE_KEY'); return twiml(200) }
+
+  // ── Manual test send (GET ?test_session_id=<uuid>) ──────────────────────────
+  // Sends the reminder for ONLY that session, bypassing the kill-switch AND the
+  // 23–25h window (still stamps reminder_sent_at). ⚠️ Sends a REAL WhatsApp —
+  // point at a test patient / your own number.
+  const testSessionId = url.searchParams.get('test_session_id')
+  if (testSessionId) {
+    const { data: s, error } = await supabase
+      .from('sessions')
+      .select('id, fecha, hora_inicio, estado, reminder_sent_at, patient:patients(nombre, apellido, telefono)')
+      .eq('id', testSessionId)
+      .single()
+    if (error || !s) {
+      console.error(`[twilio-webhook] TEST: session ${testSessionId} not found:`, error?.message || 'no row')
+      return json({ test: true, test_session_id: testSessionId, error: 'session not found' }, 404)
+    }
+    console.log(`[twilio-webhook] TEST send for session ${testSessionId} (bypasses kill-switch + window)`)
+    const status = await deliverReminder(supabase, s)
+    const code = status === 'sent' ? 200 : status === 'skipped' ? 422 : 502
+    return json({ test: true, test_session_id: testSessionId, status }, code)
+  }
+
+  if (req.method !== 'POST') return twiml(405)
+
+  // ── Inbound reply (POST, application/x-www-form-urlencoded from Twilio) ──────
+  const params = new URLSearchParams(await req.text())
   const fromRaw = (params.get('From') || '').replace(/^whatsapp:/, '')
   const buttonPayload = params.get('ButtonPayload') || ''
   const buttonText = params.get('ButtonText') || ''
@@ -109,10 +108,8 @@ exports.handler = async (event) => {
   const estado = BUTTON_TO_ESTADO[buttonPayload.trim()]
   if (!estado) { console.warn(`[twilio-webhook] unmapped ButtonPayload "${buttonPayload}" — ignoring`); return twiml(200) }
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
-
-  // 1. Match patient by phone. Robust: exact normalized E.164 OR last-9-digits,
-  //    since a handful of seed telefonos aren't clean E.164. (151 rows — cheap.)
+  // 1. Match patient by phone: exact normalized E.164 OR last-9-digits (a handful
+  //    of seed telefonos aren't clean E.164).
   const { data: patients, error: pErr } = await supabase.from('patients').select('id, telefono')
   if (pErr) { console.error('[twilio-webhook] patients fetch:', pErr.message); return twiml(200) }
   const fromNorm = normalizePhone(fromRaw)
@@ -123,8 +120,7 @@ exports.handler = async (event) => {
   })
   if (!patient) { console.warn(`[twilio-webhook] no patient matched phone ${fromRaw}`); return twiml(200) }
 
-  // 2. Soonest upcoming, already-reminded 'programada' session for this patient
-  //    (handles a patient with multiple future sessions).
+  // 2. Soonest upcoming, already-reminded 'programada' session for this patient.
   const today = new Date().toISOString().slice(0, 10)
   const { data: sess, error: sErr } = await supabase
     .from('sessions')

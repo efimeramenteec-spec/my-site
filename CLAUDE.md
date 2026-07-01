@@ -90,10 +90,15 @@ Six primitives: `Button`, `Card`, `Badge`, `Input`, `Select`, `Toggle`. Re-expor
 
 ## Netlify functions (`netlify/functions/`)
 
-Secrets live in the Netlify dashboard, never in the repo. All are v1-style CommonJS
-(`exports.handler`). Reachable at `/.netlify/functions/<name>` or `/api/<name>` (redirect).
+Secrets live in the Netlify dashboard, never in the repo. All functions use the **modern
+Netlify runtime** (`.mjs`, `export default async (req) => Response`) — NOT the legacy
+`exports.handler`. This matters: the modern runtime runs off AWS Lambda, so it has **no 4KB
+env-var limit** (the legacy Lambda-compat mode capped total function env vars at 4KB and was
+silently failing every deploy; see the migration in commit history). HTTP functions are reachable
+at `/.netlify/functions/<name>` or `/api/<name>`. Shared send logic lives in
+`netlify/lib/whatsapp.mjs` (`normalizePhone`, `sendWhatsAppReminder`, `deliverReminder`).
 
-### `calendar.js` — Google Calendar write-back
+### `calendar.mjs` — Google Calendar write-back
 POST with `{ action, calendarId, event, eventId }`. Actions: `create` | `update` | `delete` | `freebusy`.
 - Auth: `GOOGLE_SERVICE_ACCOUNT_KEY` env (base64 JSON of service account `efimeramente-calendar@…`).
 - Each therapist shares their Google Calendar with that service account; their Gmail is stored in
@@ -103,21 +108,29 @@ POST with `{ action, calendarId, event, eventId }`. Actions: `create` | `update`
 - CORS allow-list is hardcoded in the file — add new front-end origins there.
 - Timezone is Ecuador: `America/Guayaquil`, `TZ_OFFSET = '-05:00'`, no DST.
 
-### `send-reminders.js` — hourly WhatsApp reminder (SCHEDULED)
-Cron `0 * * * *` (declared in `netlify.toml`). Sends a ~24h-before reminder via Twilio Content API
-(approved quick-reply template, one variable `{{1}}` = patient name), then stamps
-`sessions.reminder_sent_at` so each session is reminded once. Window = appointments 23–25h out.
+### `send-reminders.mjs` — hourly WhatsApp reminder (SCHEDULED, cron-only)
+Cron `0 * * * *` declared **in-code** via `export const config = { schedule }` (not `netlify.toml`).
+Sends a ~24h-before reminder via Twilio Content API (approved quick-reply template, one variable
+`{{1}}` = patient name), then stamps `sessions.reminder_sent_at` so each session is reminded once.
+Window = appointments 23–25h out.
 - **KILL-SWITCH:** only sends when env `REMINDERS_LIVE === 'true'`. Default/unset ⇒ **dry run**
   (logs eligible count, sends nothing, leaves `reminder_sent_at` untouched). **Leave OFF unless intentionally going live.**
-- **Manual test:** `GET ?test_session_id=<uuid>` sends for ONLY that session, bypassing the kill-switch
-  AND the time window. ⚠️ Sends a REAL WhatsApp — point at a test patient / your own number.
+- ⚠️ **Scheduled functions are NOT HTTP-invocable** in the modern runtime. Trigger manually via the
+  Netlify UI → Functions → "Run now" (respects the kill-switch), or use the webhook's `?test_session_id`
+  path below for a controlled single send.
 - Env: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`, `TWILIO_CONTENT_SID`, `SUPABASE_SERVICE_KEY`.
   ⚠️ Never hardcode the Twilio Content SID in source — Netlify's secret scanner fails the build.
 
-### `twilio-webhook.js` — inbound reply handler
-Fires when a patient taps a quick-reply button. Matches patient by phone (normalized E.164 or last-9-digits),
-finds their soonest reminded `programada` session, sets estado: `confirmed`→`confirmada`, `canceled`→`cancelada`.
-Always returns empty TwiML 200. `GET ?health=1` is a side-effect-free deploy-health probe.
+### `twilio-webhook.mjs` — HTTP surface (health, test-send, inbound replies)
+The one HTTP-reachable WhatsApp function. Three paths:
+- `GET ?health` — presence-only env diagnostics (booleans, never values) + `build` marker.
+- `GET ?test_session_id=<uuid>` — controlled single test send, bypassing the kill-switch AND the
+  23–25h window (stamps `reminder_sent_at`). ⚠️ Sends a REAL WhatsApp — point at a test number.
+  Lives here (not on `send-reminders`) because scheduled functions can't be hit over HTTP.
+- `POST` — Twilio inbound: a quick-reply tap matches the patient by phone (normalized E.164 or
+  last-9-digits), finds their soonest reminded `programada` session, sets estado
+  (`confirmed`→`confirmada`, `canceled`→`cancelada`), and on cancellation also deletes the Google
+  Calendar event. Always returns empty TwiML 200.
 
 ---
 
