@@ -64,6 +64,8 @@
 ## Pending / Backlog
 
 ### Immediate — next session
+- [ ] **GO-LIVE toggle — the only step left:** set `REMINDERS_LIVE=true` in Netlify (scope: **Functions**, **Production**), then Deploys → **Trigger deploy**. Verify at `…/twilio-webhook?health=1` → `"REMINDERS_LIVE": true`. As of session end the kill-switch is still **OFF** (safe default); Claude can't set Netlify env vars, so this is a dashboard action for Nicolas/Cowork.
+- [ ] **Fake test patients per therapist** (requested, NOT done): BLOCKED by the `patients.telefono` UNIQUE constraint — six patients can't share +593968029896 (all inserts failed `patients_telefono_key`). Options: **(a)** drop/relax that unique constraint via SQL, then create `PacienteFalso <Therapist>` per therapist — but the inbound webhook resolves phone→patient by first match, so with several sharing a number, test ONE therapist at a time; **(b)** skip it — the single **"Nicolas QA-TEST"** patient (+593968029896) already tests every therapist via per-SESSION `terapeuta_id` (calendar + reminders key off the session's therapist, not the patient's). QA session `08a16ef9…` (2026-07-08) reset to `programada` + reminder cleared, reusable via `?test_session_id`.
 - [x] ~~Update calendar function CORS~~ — done session #9 (commit becec56): added `https://efimeramente-panel.netlify.app` to `ALLOWED_ORIGINS` (new domain first). Verify after deploy: create/edit a session on the live site, confirm the Calendar event appears and the amber freebusy warning shows on overlap.
 - [ ] **Verify live fixes** — create a test session, confirm it appears in Lista as "Pend." immediately
 - [x] ~~Sync session estados from Google Sheet~~ — done session #9 (see Completed Features)
