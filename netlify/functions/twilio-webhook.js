@@ -28,6 +28,10 @@ const { createClient } = require('@supabase/supabase-js')
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://vnityzpuhnkumsyfnskz.supabase.co'
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY
 
+// The Google Calendar function lives on this same Netlify deploy. Netlify injects
+// URL = the site's primary address; fall back to the known prod URL for safety.
+const CALENDAR_FN = `${process.env.URL || 'https://efimeramente-panel.netlify.app'}/.netlify/functions/calendar`
+
 // Empty TwiML — 200 + text/xml with <Response/> tells Twilio "received, no reply".
 const TWIML_EMPTY = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
 const twiml = (statusCode = 200) => ({
@@ -51,6 +55,25 @@ function normalizePhone(raw) {
   return null
 }
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
+
+// Best-effort: remove the therapist's Google Calendar event when a session is
+// cancelled via WhatsApp, mirroring the in-app cancel (queries.js updateSession).
+// Never throws — a calendar hiccup must not break the Twilio 200 contract.
+async function deleteCalendarEvent(calendarId, eventId) {
+  if (!calendarId || !eventId) return
+  try {
+    const res = await fetch(CALENDAR_FN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', calendarId, eventId }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (json.success) console.log(`[twilio-webhook] calendar event ${eventId} deleted`)
+    else console.warn('[twilio-webhook] calendar delete not successful:', json.error)
+  } catch (e) {
+    console.warn('[twilio-webhook] calendar delete failed (non-blocking):', e.message)
+  }
+}
 
 exports.handler = async (event) => {
   // Safe deploy-health probe (GET ?health=1) — no side effects. Lets us confirm a
@@ -90,7 +113,7 @@ exports.handler = async (event) => {
   const today = new Date().toISOString().slice(0, 10)
   const { data: sess, error: sErr } = await supabase
     .from('sessions')
-    .select('id, fecha, hora_inicio')
+    .select('id, fecha, hora_inicio, google_event_id, therapist:therapists(calendar_email)')
     .eq('patient_id', patient.id)
     .eq('estado', 'programada')
     .not('reminder_sent_at', 'is', null)
@@ -104,8 +127,14 @@ exports.handler = async (event) => {
 
   // 3. Apply the estado from the button tap.
   const { error: uErr } = await supabase.from('sessions').update({ estado }).eq('id', session.id)
-  if (uErr) console.error('[twilio-webhook] update failed:', uErr.message)
-  else console.log(`[twilio-webhook] session ${session.id} → ${estado} (patient ${patient.id})`)
+  if (uErr) { console.error('[twilio-webhook] update failed:', uErr.message); return twiml(200) }
+  console.log(`[twilio-webhook] session ${session.id} → ${estado} (patient ${patient.id})`)
+
+  // 4. On cancellation, also remove the Google Calendar event (best-effort), so a
+  //    WhatsApp cancel matches an in-app cancel. Confirmations keep the event.
+  if (estado === 'cancelada') {
+    await deleteCalendarEvent(session.therapist?.calendar_email, session.google_event_id)
+  }
 
   return twiml(200) // always 200 empty TwiML, even on no-match, per Twilio contract
 }
