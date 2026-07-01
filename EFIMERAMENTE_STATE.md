@@ -1,5 +1,10 @@
 # Efimeramente Dashboard — State File
 
+> **Read `CLAUDE.md` first** — it's the stable architecture/orientation doc (auto-loaded each session).
+> This file is the **living backlog + session log** only. As of 2026-07-01 the workflow is simplified to a
+> **single clone** (`~/my-site`) worked directly with Claude Code; the "two-clone / Cowork / spawn-Opus"
+> protocol in the sections below is **retired** — kept only for historical context.
+
 ## Project Overview
 - **Stack:** React + Vite frontend, Supabase backend, Netlify serverless functions
 - **Live URL:** https://efimeramente-panel.netlify.app (renamed session #9; Supabase Auth site URL updated to match)
@@ -64,7 +69,7 @@
 ### Next modules (confirm with Nicolas before starting)
 - [ ] **Seguimiento** — analytics: retention, sessions/therapist/month, no-show rate, pending payments (recharts)
 - [ ] **Finanzas** — facturas ledger, monthly totals, mark-as-paid
-- [ ] **Twilio webhook** — `netlify/functions/twilio-webhook.js`: receive Twilio POST, parse reply, update `whatsapp_messages` + session estado
+- [x] ~~**Twilio webhook**~~ — DONE (commits 8a8f47c, fc84adb). Full WhatsApp reminder flow shipped: hourly `send-reminders.js` (kill-switch `REMINDERS_LIVE`, default OFF/dry-run + `?test_session_id` manual path) + inbound `twilio-webhook.js` (button tap → session estado) + `supabase/add-reminder-sent-at.sql` migration. See CLAUDE.md § Netlify functions.
 - [ ] **Trim therapist Sesiones view** — hide pay/confirm toggles and owner-only filters from therapist role
 
 ### Known data issue
