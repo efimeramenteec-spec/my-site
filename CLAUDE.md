@@ -166,4 +166,5 @@ on their own sessions. Anon/service_role grants already applied.
 - Keep all enum→label logic in `constants.js`, not in components.
 - Calendar/reminder sync must stay best-effort — never let it block or fail a core DB write.
 - No TypeScript, no tests, no linter — verify by building and running.
+- **Modern-runtime Response gotcha:** HTTP 204/205/304 are null-body statuses — return `new Response(null, {status:204})`, never `Response('', …)`, or the constructor throws and the function 502s (this silently broke the calendar CORS preflight once). Also test CORS-protected functions via an actual OPTIONS preflight, not just the POST — curl a POST works even when the preflight is broken, but browsers won't.
 ```
