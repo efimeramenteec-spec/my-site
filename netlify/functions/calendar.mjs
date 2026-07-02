@@ -3,8 +3,7 @@
 // Secrets never reach the browser. POST { action, calendarId, event, eventId }.
 // Actions: create | update | delete | freebusy.
 
-import googleapis from 'googleapis'
-const { google } = googleapis
+import { getCalendarClient, queryFreebusy } from '../lib/calendar.mjs'
 
 const ALLOWED_ORIGINS = [
   'https://efimeramente-panel.netlify.app',
@@ -41,18 +40,12 @@ export default async (req) => {
   const { action, calendarId, eventId, event: calEvent } = body || {}
   if (!action || !calendarId) return json({ success: false, error: 'Missing required fields: action, calendarId' })
 
-  const keyB64 = process.env.GOOGLE_SERVICE_ACCOUNT_KEY
-  if (!keyB64) return json({ success: false, error: 'Server misconfiguration: missing service account key' })
-
-  let credentials
+  let calendar
   try {
-    credentials = JSON.parse(Buffer.from(keyB64, 'base64').toString('utf8'))
-  } catch {
-    return json({ success: false, error: 'Server misconfiguration: could not parse service account key' })
+    calendar = getCalendarClient()
+  } catch (err) {
+    return json({ success: false, error: err.message })
   }
-
-  const auth = new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/calendar'] })
-  const calendar = google.calendar({ version: 'v3', auth })
 
   try {
     if (action === 'create') {
@@ -76,8 +69,7 @@ export default async (req) => {
     if (action === 'freebusy') {
       const { timeMin, timeMax } = body
       if (!timeMin || !timeMax) return json({ success: false, error: 'Missing timeMin or timeMax for freebusy' })
-      const res = await calendar.freebusy.query({ requestBody: { timeMin, timeMax, items: [{ id: calendarId }] } })
-      const busy = (res.data.calendars[calendarId] && res.data.calendars[calendarId].busy) || []
+      const busy = await queryFreebusy(calendar, calendarId, timeMin, timeMax)
       return json({ success: true, busy })
     }
 

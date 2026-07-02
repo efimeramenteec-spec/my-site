@@ -318,6 +318,55 @@ export async function updatePatient(id, patch) {
 }
 
 
+// ─── Agenda pública (per-therapist booking config, owner-edited) ────────────
+
+const THERAPIST_BOOKING_SELECT =
+  'id,nombre,apellido,color,activo,booking_enabled,booking_availability'
+
+// Only the booking config may be written from the availability editor.
+const THERAPIST_BOOKING_COLUMNS = ['booking_enabled', 'booking_availability']
+const pickBookingColumns = (obj) =>
+  Object.fromEntries(THERAPIST_BOOKING_COLUMNS.filter((k) => k in obj).map((k) => [k, obj[k]]))
+
+export async function getTherapistsBooking() {
+  if (isSupabaseConfigured) {
+    try {
+      const res = await supabase
+        .from('therapists')
+        .select(THERAPIST_BOOKING_SELECT)
+        .order('nombre', { ascending: true })
+      if (res.error) throw res.error
+      return { source: 'live', therapists: res.data || [] }
+    } catch (err) {
+      console.warn('[efimeramente] Supabase unavailable, showing demo data:', err?.message || err)
+    }
+  }
+  const store = getDemoStore()
+  return {
+    source: 'demo',
+    therapists: store.therapists.map((t) => ({ booking_enabled: false, booking_availability: {}, ...t })),
+  }
+}
+
+export async function updateTherapistBooking(id, patch) {
+  const data = pickBookingColumns(patch)
+  if (isSupabaseConfigured) {
+    try {
+      const res = await supabase
+        .from('therapists')
+        .update(data)
+        .eq('id', id)
+        .select(THERAPIST_BOOKING_SELECT)
+        .single()
+      if (res.error) throw res.error
+      return { ok: true, data: res.data }
+    } catch (err) {
+      return { ok: false, error: err?.message || 'No se pudo guardar la disponibilidad.' }
+    }
+  }
+  return { ok: true, data: { id, ...data } }
+}
+
 export async function checkFreebusy(calendarEmail, fecha, horaInicio, horaFin) {
   if (!calendarEmail) return []
   // Google freebusy needs full RFC3339 timestamps — ensure HH:MM:SS. The DB

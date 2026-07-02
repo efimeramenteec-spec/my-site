@@ -9,6 +9,8 @@ import Pacientes from './pages/Pacientes.jsx'
 import Seguimiento from './pages/Seguimiento.jsx'
 import Finanzas from './pages/Finanzas.jsx'
 import DesignSystem from './pages/DesignSystem.jsx'
+import AgendaPublica from './pages/AgendaPublica.jsx'
+import PublicBooking from './pages/PublicBooking.jsx'
 
 function Splash() {
   return (
@@ -33,6 +35,7 @@ function Gate() {
             <Route path="pacientes" element={<Pacientes />} />
             <Route path="seguimiento" element={<Seguimiento />} />
             <Route path="finanzas" element={<Finanzas />} />
+            <Route path="agenda-publica" element={<AgendaPublica />} />
             <Route path="ds" element={<DesignSystem />} />
           </>
         ) : (
@@ -52,7 +55,12 @@ export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <Gate />
+        <Routes>
+          {/* Public booking page — no auth, no app chrome. Talks only to the
+              public-booking Netlify function, never to Supabase directly. */}
+          <Route path="/agendar/*" element={<PublicBooking />} />
+          <Route path="/*" element={<Gate />} />
+        </Routes>
       </BrowserRouter>
     </AuthProvider>
   )

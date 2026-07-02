@@ -8,6 +8,7 @@ import {
   IconUsers,
   IconPulse,
   IconWallet,
+  IconClock,
   IconSparkle,
 } from './icons.jsx'
 
@@ -17,6 +18,7 @@ export const NAV = [
   { to: '/pacientes', label: 'Pacientes', icon: IconUsers, ownerOnly: true },
   { to: '/seguimiento', label: 'Seguimiento', icon: IconPulse, ownerOnly: true },
   { to: '/finanzas', label: 'Finanzas', icon: IconWallet, ownerOnly: true },
+  { to: '/agenda-publica', label: 'Llamadas', icon: IconClock, ownerOnly: true },
 ]
 
 const itemClass = ({ isActive }) =>

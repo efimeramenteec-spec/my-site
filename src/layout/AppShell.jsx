@@ -9,6 +9,7 @@ const TITLES = {
   '/pacientes': 'Pacientes',
   '/seguimiento': 'Seguimiento',
   '/finanzas': 'Finanzas',
+  '/agenda-publica': 'Agenda pública',
   '/ds': 'Design System',
 }
 

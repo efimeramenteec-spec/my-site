@@ -69,21 +69,47 @@
 
 - [x] **Fixed recurring "stale build" problem — orphaned service worker** (2026-07-02, commit f8460d2). Symptom: after every deploy Nicolas's browser kept showing the old app (couldn't see new features), while a fresh `curl` of the live bundle already had the new code. Root cause (diagnosed with Cowork): an early deploy registered a PWA service worker; the current build ships none, so browsers stuck with the old SW served a cached stale app shell forever — the SW's `/sw.js` update check hit the SPA fallback (HTML), which browsers reject, so the orphan never died. Fix: shipped a **self-destroying `public/sw.js`** (skipWaiting → clear all caches → `unregister()` → reload open tabs) + `public/_headers` pinning `/sw.js` to `Cache-Control: no-cache`. The app uses **no** service worker by design (always-online tool, needs fresh data) — do NOT re-add `vite-plugin-pwa`. Verified live: `/sw.js` serves `application/javascript` + `no-cache`. See CLAUDE.md § Conventions & gotchas. **Tip:** to check a deploy is really live, grep the served bundle for a known-new string — Netlify's build hash differs from a local build, so hash comparison gives false alarms.
 
+- [x] **Public booking page / "Llamada" — BUILT** (2026-07-02, Fable 5, per `PUBLIC_BOOKING_SPEC.md`).
+  The last Calendly replacement. **⚠️ NOT live until Nicolas runs `supabase/public-booking.sql` in the
+  Supabase SQL editor** (adds `llamada` to the `sessions.tipo` check, `therapists.booking_enabled` +
+  `booking_availability` jsonb, and the `booking_attempts` rate-limit table — verified missing in prod
+  before build). What shipped:
+  - **`netlify/functions/public-booking.mjs`** — the first public/unauthenticated surface; service-key
+    only (NO anon RLS opened). `GET ?action=therapists` (public-safe fields only: id/nombre/apellido/color),
+    `GET ?action=slots&therapist&date` (configured weekly windows − Google freebusy − existing sessions,
+    30-min cadence, 10-min calls, 12h min notice, 14-day horizon, Ecuador tz; freebusy failures FAIL
+    CLOSED), `POST ?action=book` (honeypot → fake 200; rate limits 2/phone/day + 5/IP/hour via
+    `booking_attempts`, fail-open if ledger breaks; strict validation; slot re-verified server-side →
+    409 `slot_taken`; patient reused by phone match [same norm/last-9 logic as the Twilio webhook] or
+    created; session tipo=`llamada`, modalidad=`en_linea` (verified real enum value), monto 0; Google
+    Calendar event `Llamada — {nombre} · 10 min` best-effort).
+  - **`netlify/lib/calendar.mjs`** — shared Google auth + freebusy, factored out of `calendar.mjs`
+    (which now imports it; behavior unchanged).
+  - **`send-reminders.mjs`** hardened with `.neq('tipo','llamada')` — llamadas NEVER get a WhatsApp
+    reminder however created. (Checked: no NULL-tipo rows in prod, so `.neq` drops nothing else.)
+  - **`/agendar` public page** (`src/pages/PublicBooking.jsx`) — outside `Gate`, no auth/chrome, only
+    fetches the function. Therapist cards → date strip (14 days) → slot grid → intake form (Nombre,
+    Apellido, Teléfono +593, Email/motivo opcionales, hidden `website` honeypot) → confirmation. Deep
+    link `/agendar?terapeuta=<id>` skips step 1. 409 → toast + slot re-fetch; 429 → friendly message.
+  - **Owner editor** `/agenda-publica` (nav "Llamadas", owner-only; `src/pages/AgendaPublica.jsx`) —
+    per-therapist Visible toggle (saves immediately), weekly hour ranges per day (mon..sun jsonb,
+    add/remove + Guardar), copy buttons for `/agendar` and per-therapist links. Data via new
+    `getTherapistsBooking` / `updateTherapistBooking` in `queries.js` (write whitelist: only the two
+    booking columns).
+  - `constants.js`: `llamada` in `TIPO_SESION`/`TIPO_FORM` ("Llamada (10 min)"), `DURACION_MIN`=10 —
+    internal drawer can also schedule llamadas (auto 10-min end; set monto 0 manually there).
+
 ## Pending / Backlog
 
-### Next build — Public booking page / "Llamada" (SPEC READY — for Fable 5)
-- [ ] **Public patient-facing booking page** — the last Calendly replacement (marketing funnel entry).
-  Full build brief written to **`PUBLIC_BOOKING_SPEC.md`** (repo root, 2026-07-02). A public,
-  unauthenticated page where a prospective patient picks a therapist, sees only that therapist's free
-  10-min slots (Google Calendar freebusy + existing sessions), fills an intake form, and books a free
-  **`llamada`** (new event type). **Decisions locked:** (1) per-therapist configurable bookable hours +
-  enable toggle, owner-edited; (2) NO WhatsApp reminder for llamadas (calendar event + on-screen
-  confirmation only); (3) baseline anti-abuse (honeypot + rate limit + validation). **Key architecture:**
-  first public/unauthenticated surface — all writes go through a NEW service-key Netlify function
-  (`public-booking.mjs`), never anon RLS. Requires DDL (add `llamada` to `sessions.tipo`; add
-  `therapists.booking_enabled` + `booking_availability` jsonb) run by hand in Supabase. **Intended to be
-  built on Claude Fable 5** — hand it `PUBLIC_BOOKING_SPEC.md` as the brief, run at high/xhigh effort.
-  See spec §G for build order.
+### Go-live steps for public booking (Nicolas)
+- [ ] **Run `supabase/public-booking.sql`** in the Supabase SQL editor (idempotent).
+- [ ] Deploy (push already done) → in the app, open **Llamadas**, set each therapist's hours + toggle
+      Visible, copy the link.
+- [ ] Live test per spec §F: book from `/agendar` on a phone (incognito), confirm patient + session +
+      Google Calendar event appear, retry same slot in a second tab → "acaba de ocuparse" (409), and
+      confirm the llamada is NOT picked up by send-reminders (tipo filter).
+- [ ] Add the marketing site origin to `ALLOWED_ORIGINS` in `public-booking.mjs` if the page is ever
+      embedded/linked cross-origin (list currently mirrors `calendar.mjs`).
 
 ### Immediate — next session
 - [ ] **Minor UI / aesthetic polish** (non-blocking, per Nicolas 2026-07-01): assorted cosmetic/UI bugs remain across the app — collect specifics at the start of next session. Core architecture (scheduling, Google Calendar sync, freebusy, WhatsApp reminders, auth/roles) is verified working, so these are low-priority.

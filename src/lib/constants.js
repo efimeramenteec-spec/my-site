@@ -25,21 +25,25 @@ export const TIPO_SESION = {
   familia:    'Familia',
   grupo:      'Grupo',
   evaluacion: 'Evaluación',
+  llamada:    'Llamada',
 }
 
 // Types offered in the scheduling form (simplified per practice).
 export const TIPO_FORM = {
   individual: 'Individual',
   pareja:     'Pareja',
+  llamada:    'Llamada (10 min)',
 }
 
 // Session duration in minutes, including a 15-min buffer for overruns.
+// Exception: llamada is the free intro call — exactly 10 min, no buffer.
 export const DURACION_MIN = {
   individual: 75,
   pareja:     105,
   familia:    75,
   grupo:      75,
   evaluacion: 75,
+  llamada:    10,
 }
 
 // sessions.modalidad

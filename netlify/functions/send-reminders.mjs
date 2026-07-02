@@ -45,10 +45,14 @@ export default async () => {
   const fromDate = dayStr(now)
   const toDate = dayStr(new Date(now.getTime() + 48 * 3600e3))
 
+  // tipo <> 'llamada': free intro calls booked from the public /agendar page get
+  // NO WhatsApp reminder (calendar event + on-screen confirmation only), no
+  // matter how the row was created.
   const { data: sessions, error } = await supabase
     .from('sessions')
     .select('id, fecha, hora_inicio, estado, reminder_sent_at, patient:patients(nombre, apellido, telefono)')
     .eq('estado', 'programada')
+    .neq('tipo', 'llamada')
     .is('reminder_sent_at', null)
     .gte('fecha', fromDate)
     .lte('fecha', toDate)
