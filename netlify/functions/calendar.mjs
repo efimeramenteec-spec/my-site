@@ -29,7 +29,10 @@ export default async (req) => {
   const json = (obj, status = 200) =>
     new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json', ...cors } })
 
-  if (req.method === 'OPTIONS') return new Response('', { status: 204, headers: cors })
+  // 204 = No Content: the body MUST be null. Passing '' throws in the modern
+  // runtime (web Response constructor), which surfaced as a 502 on CORS preflight
+  // and silently blocked every browser call to this function.
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors })
   if (req.method !== 'POST') return json({ success: false, error: 'Method not allowed' }, 405)
 
   let body
