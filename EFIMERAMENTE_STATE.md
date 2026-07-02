@@ -71,6 +71,20 @@
 
 ## Pending / Backlog
 
+### Next build — Public booking page / "Llamada" (SPEC READY — for Fable 5)
+- [ ] **Public patient-facing booking page** — the last Calendly replacement (marketing funnel entry).
+  Full build brief written to **`PUBLIC_BOOKING_SPEC.md`** (repo root, 2026-07-02). A public,
+  unauthenticated page where a prospective patient picks a therapist, sees only that therapist's free
+  10-min slots (Google Calendar freebusy + existing sessions), fills an intake form, and books a free
+  **`llamada`** (new event type). **Decisions locked:** (1) per-therapist configurable bookable hours +
+  enable toggle, owner-edited; (2) NO WhatsApp reminder for llamadas (calendar event + on-screen
+  confirmation only); (3) baseline anti-abuse (honeypot + rate limit + validation). **Key architecture:**
+  first public/unauthenticated surface — all writes go through a NEW service-key Netlify function
+  (`public-booking.mjs`), never anon RLS. Requires DDL (add `llamada` to `sessions.tipo`; add
+  `therapists.booking_enabled` + `booking_availability` jsonb) run by hand in Supabase. **Intended to be
+  built on Claude Fable 5** — hand it `PUBLIC_BOOKING_SPEC.md` as the brief, run at high/xhigh effort.
+  See spec §G for build order.
+
 ### Immediate — next session
 - [ ] **Minor UI / aesthetic polish** (non-blocking, per Nicolas 2026-07-01): assorted cosmetic/UI bugs remain across the app — collect specifics at the start of next session. Core architecture (scheduling, Google Calendar sync, freebusy, WhatsApp reminders, auth/roles) is verified working, so these are low-priority.
 - [ ] **Optional polish:** `src/features/sesiones/views.jsx` still uses `#b48ae4` as the therapist-color fallback (an old status color) — consider a neutral gray so a therapist-less session can't masquerade. Cosmetic only; every session currently has a therapist.
