@@ -1,0 +1,5 @@
+# Never let a browser serve the service-worker script from HTTP cache — the SW
+# update check must always see the current /sw.js (the self-destroying cleanup
+# worker). See public/sw.js.
+/sw.js
+  Cache-Control: no-cache
