@@ -99,15 +99,38 @@
   - `constants.js`: `llamada` in `TIPO_SESION`/`TIPO_FORM` ("Llamada (10 min)"), `DURACION_MIN`=10 —
     internal drawer can also schedule llamadas (auto 10-min end; set monto 0 manually there).
 
+- [x] **Public booking VERIFIED LIVE end-to-end** (2026-07-02). Migration `supabase/public-booking.sql`
+  run + verified by Cowork (tipo check, booking columns, `booking_attempts` RLS on/no policies).
+  Deployed function verified: OPTIONS preflight 204, therapists endpoint (no PII), slots math
+  cross-checked EXACTLY against Daniela's real Google freebusy (busy 09:00–10:15 + 16:00–17:15 EC
+  correctly removed from her 09:00–17:00 Friday window), horizon + no-hours cases correct. Nicolas
+  ran the real booking test: "works beautifully on all ends." Note: Nicolas toggled all 6 therapists
+  visible while testing — only therapists WITH hours configured show slots; the rest show "no hay
+  horarios" publicly until hours are set (or they're toggled off).
+
+- [x] **Disponibilidad module (renamed from "Llamadas") now therapist-accessible** (2026-07-02).
+  Route `/agenda-publica` → **`/disponibilidad`**, page `src/pages/Disponibilidad.jsx`, nav label
+  "Disponibilidad" (no longer ownerOnly). Owner sees/edits all therapists; a therapist sees ONLY her
+  own card (filtered by `useAuth().terapeutaId`). **⚠️ Requires `supabase/therapist-availability.sql`**
+  (new RLS policy `therapists_self_update`: therapist may UPDATE her own therapists row) — until it's
+  run, therapist saves fail with an RLS error (owner unaffected). Caveat noted in the .sql: row-level
+  policy means a therapist could technically update other columns of her own row via the API; the app
+  only writes the two booking columns — accepted for this internal tool.
+
+- [x] **Therapist color palette reassigned per Nicolas** (2026-07-02, DB-only, no deploy needed):
+  Camila **pink `#EC4899`**, Carolina **yellow `#EAB308`**, Daniela **red `#EF4444`**, Francisco
+  **dark green `#15803D`**, Maria Gracia **orange `#F97316`**, Mariana **blue `#3B82F6`**.
+  (Supersedes the 2026-07-01 palette. Heads-up: Carolina's yellow is close to the Pendiente status
+  yellow `#ffd84a` — explicitly Nicolas's choice.)
+
 ## Pending / Backlog
 
-### Go-live steps for public booking (Nicolas)
-- [ ] **Run `supabase/public-booking.sql`** in the Supabase SQL editor (idempotent).
-- [ ] Deploy (push already done) → in the app, open **Llamadas**, set each therapist's hours + toggle
-      Visible, copy the link.
-- [ ] Live test per spec §F: book from `/agendar` on a phone (incognito), confirm patient + session +
-      Google Calendar event appear, retry same slot in a second tab → "acaba de ocuparse" (409), and
-      confirm the llamada is NOT picked up by send-reminders (tipo filter).
+### Immediate — go-live remainder (public booking)
+- [ ] **Run `supabase/therapist-availability.sql`** in the Supabase SQL editor (idempotent) — unblocks
+      therapists saving their own hours in Disponibilidad.
+- [ ] Each therapist (or Nicolas) sets real hours in **Disponibilidad**; toggle OFF anyone who
+      shouldn't appear publicly yet (all 6 are currently visible from testing; 5 have no hours).
+- [ ] Clean up the test llamada/patient from Nicolas's live test if not already cancelled.
 - [ ] Add the marketing site origin to `ALLOWED_ORIGINS` in `public-booking.mjs` if the page is ever
       embedded/linked cross-origin (list currently mirrors `calendar.mjs`).
 

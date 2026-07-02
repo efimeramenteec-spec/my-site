@@ -18,7 +18,7 @@ export const NAV = [
   { to: '/pacientes', label: 'Pacientes', icon: IconUsers, ownerOnly: true },
   { to: '/seguimiento', label: 'Seguimiento', icon: IconPulse, ownerOnly: true },
   { to: '/finanzas', label: 'Finanzas', icon: IconWallet, ownerOnly: true },
-  { to: '/agenda-publica', label: 'Llamadas', icon: IconClock, ownerOnly: true },
+  { to: '/disponibilidad', label: 'Disponibilidad', icon: IconClock },
 ]
 
 const itemClass = ({ isActive }) =>

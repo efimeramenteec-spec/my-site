@@ -9,7 +9,7 @@ import Pacientes from './pages/Pacientes.jsx'
 import Seguimiento from './pages/Seguimiento.jsx'
 import Finanzas from './pages/Finanzas.jsx'
 import DesignSystem from './pages/DesignSystem.jsx'
-import AgendaPublica from './pages/AgendaPublica.jsx'
+import Disponibilidad from './pages/Disponibilidad.jsx'
 import PublicBooking from './pages/PublicBooking.jsx'
 
 function Splash() {
@@ -35,14 +35,15 @@ function Gate() {
             <Route path="pacientes" element={<Pacientes />} />
             <Route path="seguimiento" element={<Seguimiento />} />
             <Route path="finanzas" element={<Finanzas />} />
-            <Route path="agenda-publica" element={<AgendaPublica />} />
+            <Route path="disponibilidad" element={<Disponibilidad />} />
             <Route path="ds" element={<DesignSystem />} />
           </>
         ) : (
-          // Therapists: scheduling only.
+          // Therapists: scheduling + their own public-booking availability.
           <>
             <Route index element={<Navigate to="/sesiones" replace />} />
             <Route path="sesiones" element={<Sesiones />} />
+            <Route path="disponibilidad" element={<Disponibilidad />} />
           </>
         )}
       </Route>

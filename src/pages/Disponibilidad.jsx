@@ -8,11 +8,14 @@ import { Toggle } from '../components/Toggle/Toggle.jsx'
 
 import { getTherapistsBooking, updateTherapistBooking } from '../lib/queries.js'
 import { fullName } from '../lib/format.js'
+import { useAuth } from '../lib/auth.jsx'
 import { IconPlus, IconX } from '../layout/icons.jsx'
 
-// Owner-only editor for the public /agendar booking page: per-therapist enable
+// Availability editor for the public /agendar booking page: per-therapist enable
 // toggle + weekly bookable hours (therapists.booking_availability, keys mon..sun,
 // each day = array of [start, end] HH:MM ranges in hora de Ecuador).
+// Owner sees and edits every therapist; a therapist sees only her own card
+// (RLS: therapists_self_update — see supabase/therapist-availability.sql).
 
 const DAYS = [
   ['mon', 'Lunes'],
@@ -189,8 +192,9 @@ function TherapistCard({ therapist, onSaved }) {
   )
 }
 
-export default function AgendaPublica() {
+export default function Disponibilidad() {
   const { setDataSource } = useOutletContext()
+  const { fullAccess, terapeutaId } = useAuth()
   const [therapists, setTherapists] = useState(null)
 
   useEffect(() => {
@@ -205,6 +209,11 @@ export default function AgendaPublica() {
 
   const onSaved = (updated) =>
     setTherapists((list) => list.map((t) => (t.id === updated.id ? { ...t, ...updated } : t)))
+
+  // Therapists manage only their own availability; the owner manages everyone's.
+  const visible = therapists === null
+    ? null
+    : fullAccess ? therapists : therapists.filter((t) => t.id === terapeutaId)
 
   const publicUrl = `${window.location.origin}/agendar`
 
@@ -227,12 +236,18 @@ export default function AgendaPublica() {
         </div>
       </Card>
 
-      {therapists === null ? (
+      {visible === null ? (
         <Card>
           <p className="font-body text-sm text-content-muted">Cargando terapeutas…</p>
         </Card>
+      ) : visible.length === 0 ? (
+        <Card>
+          <p className="font-body text-sm text-content-muted">
+            Tu perfil no está vinculado a una terapeuta. Pídele a Nicolas que lo revise.
+          </p>
+        </Card>
       ) : (
-        therapists.map((t) => <TherapistCard key={t.id} therapist={t} onSaved={onSaved} />)
+        visible.map((t) => <TherapistCard key={t.id} therapist={t} onSaved={onSaved} />)
       )}
     </div>
   )

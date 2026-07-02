@@ -45,9 +45,11 @@ and, for behavior, checking the running app. Always build before committing.
 ## Architecture
 
 ### App shell & routing (`src/App.jsx`)
-`AuthProvider` → `BrowserRouter` → `Gate`. Routes are **role-gated**:
-- **owner** (`fullAccess`): Dashboard, Sesiones, Pacientes, Seguimiento, Finanzas, DS.
-- **therapist**: Sesiones only (redirected there from `/`).
+`AuthProvider` → `BrowserRouter` → Routes. `/agendar` is **public** (no auth, no chrome — the
+patient-facing booking page `PublicBooking.jsx`; it talks ONLY to the `public-booking` Netlify
+function, never Supabase). Everything else goes through `Gate` and is **role-gated**:
+- **owner** (`fullAccess`): Dashboard, Sesiones, Pacientes, Seguimiento, Finanzas, Disponibilidad, DS.
+- **therapist**: Sesiones (redirected there from `/`) + Disponibilidad (their own availability only).
 
 ### Demo-mode fallback (important — this shapes the whole data layer)
 `src/lib/supabase.js` exports `isSupabaseConfigured` (true only when BOTH `VITE_SUPABASE_URL`
@@ -107,6 +109,18 @@ POST with `{ action, calendarId, event, eventId }`. Actions: `create` | `update`
   and never blocks a session save.** Event title: `Sesión — {patient} · {En línea|Presencial}`.
 - CORS allow-list is hardcoded in the file — add new front-end origins there.
 - Timezone is Ecuador: `America/Guayaquil`, `TZ_OFFSET = '-05:00'`, no DST.
+
+### `public-booking.mjs` — public "llamada" booking (the ONLY unauthenticated surface)
+Serves `/agendar`: `GET ?action=therapists` (bookable therapists, public-safe fields only),
+`GET ?action=slots&therapist&date` (owner/therapist-configured weekly windows − Google freebusy −
+existing sessions; 30-min cadence, 10-min calls, 12h min notice, 14-day horizon, Ecuador tz;
+freebusy failure ⇒ FAIL CLOSED, no slots), `POST ?action=book` (honeypot; rate limits via the
+`booking_attempts` table; strict validation; slot re-verified server-side → 409 `slot_taken`;
+patient reused by phone or created; session `tipo='llamada'`, monto 0; best-effort Calendar event).
+Uses `SUPABASE_SERVICE_KEY` — **never open anon RLS on patients/sessions for this.** Shared Google
+auth/freebusy lives in `netlify/lib/calendar.mjs`. Llamadas get NO WhatsApp reminder (excluded in
+`send-reminders`). Availability is edited in the app's **Disponibilidad** page (owner: everyone;
+therapist: own row via RLS `therapists_self_update`).
 
 ### `send-reminders.mjs` — hourly WhatsApp reminder (SCHEDULED, cron-only)
 Cron `0 * * * *` declared **in-code** via `export const config = { schedule }` (not `netlify.toml`).
