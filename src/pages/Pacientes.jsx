@@ -91,8 +91,9 @@ function PatientRow({ patient, therapist, isSelected, onClick }) {
 
 // ─── Patient detail panel ───────────────────────────────────────
 
-function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
+function PatientDetail({ patient, therapist, therapists = [], sessions, onClose, onSave }) {
   const [form, setForm] = useState({
+    terapeuta_id: patient.terapeuta_id || '',
     tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
     metodo_pago: patient.metodo_pago || 'transferencia',
     estado_general: patient.estado_general || 'activo',
@@ -104,6 +105,7 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
 
   useEffect(() => {
     setForm({
+      terapeuta_id: patient.terapeuta_id || '',
       tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
       metodo_pago: patient.metodo_pago || 'transferencia',
       estado_general: patient.estado_general || 'activo',
@@ -119,6 +121,7 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
     setSaving(true)
     setError(null)
     const res = await onSave(patient.id, {
+      terapeuta_id: form.terapeuta_id || null,
       tarifa: parseFloat(form.tarifa) || TARIFA_DEFAULT,
       metodo_pago: form.metodo_pago,
       estado_general: form.estado_general,
@@ -197,6 +200,19 @@ function PatientDetail({ patient, therapist, sessions, onClose, onSave }) {
         {/* Editable settings */}
         <section className="space-y-3">
           <SectionTitle>Configuración</SectionTitle>
+          <Select
+            label="Terapeuta"
+            value={form.terapeuta_id}
+            onChange={(e) => set('terapeuta_id', e.target.value)}
+            options={therapists.map((t) => ({ value: t.id, label: fullName(t) }))}
+            placeholder="Sin asignar…"
+          />
+          {form.terapeuta_id !== (patient.terapeuta_id || '') && (
+            <p className="font-caption text-xs text-amber-600">
+              Reasignar solo cambia el terapeuta del paciente. Las sesiones ya
+              agendadas siguen con el terapeuta anterior.
+            </p>
+          )}
           <Input
             label="Tarifa por sesión (USD)"
             type="number"
@@ -720,6 +736,7 @@ export default function Pacientes() {
               <PatientDetail
                 patient={selectedPatient}
                 therapist={therapistMap[selectedPatient.terapeuta_id]}
+                therapists={data.therapists}
                 sessions={patientSessions}
                 onClose={() => setSelectedId(null)}
                 onSave={handleUpdate}
