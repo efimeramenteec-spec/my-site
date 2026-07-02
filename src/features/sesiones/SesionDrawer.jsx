@@ -39,12 +39,19 @@ function blankForm(defaultDate, therapists) {
   }
 }
 
-export function SesionDrawer({ open, mode = 'create', initial, defaultDate, patients = [], therapists = [], sessions = [], onClose, onSubmit }) {
+const blankPatient = () => ({ nombre: '', apellido: '', telefono: '+593', email: '', motivo_consulta: '' })
+
+export function SesionDrawer({ open, mode = 'create', initial, defaultDate, patients = [], therapists = [], sessions = [], fullAccess = true, terapeutaId = null, onClose, onSubmit, onCreatePatient }) {
   const [form, setForm] = useState(() => blankForm(defaultDate, therapists))
   const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [calBusy, setCalBusy] = useState(false)
+  // Inline "crear paciente" mini-form (null = closed).
+  const [newPatient, setNewPatient] = useState(null)
+  const [npErrors, setNpErrors] = useState({})
+  const [npSaving, setNpSaving] = useState(false)
+  const [npError, setNpError] = useState('')
 
   useEffect(() => {
     if (!open) return
@@ -63,10 +70,48 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     }
     setErrors({})
     setSubmitError('')
+    setNewPatient(null)
+    setNpErrors({})
+    setNpError('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode, initial])
 
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }))
+  const setNp = (key, val) => setNewPatient((p) => ({ ...p, [key]: val }))
+
+  // Create a patient inline, auto-assigned to the right therapist, then select
+  // them into the session. Therapists get themselves; the owner gets whichever
+  // therapist the session is currently set to. Tarifa/método use DB defaults.
+  async function handleCreatePatient() {
+    const e = {}
+    if (!newPatient.nombre.trim()) e.nombre = 'Requerido'
+    if (!newPatient.apellido.trim()) e.apellido = 'Requerido'
+    if (!newPatient.telefono.trim() || newPatient.telefono.trim() === '+593') e.telefono = 'Requerido'
+    setNpErrors(e)
+    if (Object.keys(e).length) return
+
+    const assignTo = fullAccess ? form.terapeuta_id : terapeutaId
+    if (!assignTo) { setNpError('No se pudo determinar el terapeuta.'); return }
+
+    setNpSaving(true)
+    setNpError('')
+    const res = await onCreatePatient({
+      nombre: newPatient.nombre.trim(),
+      apellido: newPatient.apellido.trim(),
+      telefono: newPatient.telefono.trim(),
+      email: newPatient.email.trim() || null,
+      motivo_consulta: newPatient.motivo_consulta.trim() || null,
+      terapeuta_id: assignTo,
+    })
+    setNpSaving(false)
+    if (res?.ok && res.data) {
+      onPatient(res.data.id)
+      setNewPatient(null)
+      setNpErrors({})
+    } else {
+      setNpError(res?.error || 'No se pudo crear el paciente.')
+    }
+  }
 
   // Picking a patient pre-fills their fixed rate (still editable).
   const onPatient = (id) => {
@@ -178,7 +223,13 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-6">
-          <PatientSelect patients={patients} value={form.patient_id} onChange={onPatient} error={errors.patient_id} />
+          <PatientSelect
+            patients={patients}
+            value={form.patient_id}
+            onChange={onPatient}
+            error={errors.patient_id}
+            onCreateNew={onCreatePatient ? () => { setNewPatient(blankPatient()); setNpErrors({}); setNpError('') } : undefined}
+          />
 
           {form.patient_id ? (
             <Field label="Terapeuta">
@@ -246,6 +297,73 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
             {saving ? 'Guardando…' : mode === 'edit' ? 'Guardar cambios' : 'Crear sesión'}
           </Button>
         </div>
+
+        {/* Inline "crear paciente" overlay — covers the drawer while open. */}
+        {newPatient && (
+          <div className="absolute inset-0 z-10 flex flex-col bg-white/95 backdrop-blur-xl">
+            <div className="flex items-center justify-between border-b border-stroke/60 px-6 py-5">
+              <h3 className="font-serif text-xl font-bold text-content-primary">Nuevo paciente</h3>
+              <button
+                type="button"
+                onClick={() => setNewPatient(null)}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-content-muted transition-colors hover:bg-surface-warm hover:text-content-primary"
+                aria-label="Cerrar"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="flex-1 space-y-4 overflow-y-auto px-6 py-6">
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Nombre" error={npErrors.nombre}>
+                  <input autoFocus className={nativeInput} value={newPatient.nombre} onChange={(e) => setNp('nombre', e.target.value)} />
+                </Field>
+                <Field label="Apellido" error={npErrors.apellido}>
+                  <input className={nativeInput} value={newPatient.apellido} onChange={(e) => setNp('apellido', e.target.value)} />
+                </Field>
+              </div>
+
+              <Field label="Teléfono" error={npErrors.telefono}>
+                <input type="tel" className={nativeInput} value={newPatient.telefono} onChange={(e) => setNp('telefono', e.target.value)} placeholder="+593…" />
+              </Field>
+
+              <Field label="Email">
+                <input type="email" className={nativeInput} value={newPatient.email} onChange={(e) => setNp('email', e.target.value)} />
+              </Field>
+
+              <Field label="Motivo de consulta">
+                <textarea
+                  value={newPatient.motivo_consulta}
+                  onChange={(e) => setNp('motivo_consulta', e.target.value)}
+                  rows={2}
+                  placeholder="Ej. Ansiedad, duelo, terapia de pareja…"
+                  className="w-full resize-none rounded-xl border border-stroke bg-white px-4 py-3 font-body text-content-primary placeholder:text-content-muted focus:border-brand-lavender focus:outline-none focus:ring-2 focus:ring-brand-lavender/20"
+                />
+              </Field>
+
+              <p className="font-caption text-xs text-content-muted">
+                {(() => {
+                  const assignTo = fullAccess ? form.terapeuta_id : terapeutaId
+                  const t = therapists.find((x) => x.id === assignTo)
+                  return t
+                    ? `Se asigna a ${fullName(t)}. La tarifa y el método de pago se establecen luego.`
+                    : 'La tarifa y el método de pago se establecen luego.'
+                })()}
+              </p>
+
+              {npError && <p className="rounded-xl bg-red-50 px-4 py-3 font-caption text-sm text-red-600">{npError}</p>}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-stroke/60 px-6 py-4">
+              <Button type="button" variant="secondary" onClick={() => setNewPatient(null)} disabled={npSaving}>Cancelar</Button>
+              <Button type="button" variant="primary" onClick={handleCreatePatient} disabled={npSaving}>
+                {npSaving ? 'Creando…' : 'Crear paciente'}
+              </Button>
+            </div>
+          </div>
+        )}
       </form>
     </div>
   )

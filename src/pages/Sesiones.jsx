@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom'
 import { Card } from '../components/Card/Card.jsx'
 import { Button } from '../components/Button/Button.jsx'
 import { Select } from '../components/Select/Select.jsx'
-import { getSessionsData, createSession, updateSession } from '../lib/queries.js'
+import { getSessionsData, createSession, updateSession, createPatient } from '../lib/queries.js'
 import { WeekView, MonthView, ListView } from '../features/sesiones/views.jsx'
 import { SesionDrawer } from '../features/sesiones/SesionDrawer.jsx'
 import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName, formatTime } from '../lib/format.js'
@@ -72,6 +72,12 @@ export default function Sesiones() {
       return { ok: false, error: `Choca con ${fullName(conflict.patient)} (${formatTime(conflict.hora_inicio)}–${formatTime(conflict.hora_fin)}).` }
     }
     const res = drawer.mode === 'edit' ? await updateSession(drawer.initial.id, payload) : await createSession(payload)
+    if (res.ok) await loadData()
+    return res
+  }
+
+  async function handleCreatePatient(payload) {
+    const res = await createPatient(payload)
     if (res.ok) await loadData()
     return res
   }
@@ -187,8 +193,11 @@ export default function Sesiones() {
         }
         therapists={data?.therapists || []}
         sessions={data?.sessions || []}
+        fullAccess={fullAccess}
+        terapeutaId={terapeutaId}
         onClose={closeDrawer}
         onSubmit={handleSubmit}
+        onCreatePatient={handleCreatePatient}
       />
     </div>
   )

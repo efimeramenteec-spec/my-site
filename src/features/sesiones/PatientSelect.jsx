@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { fullName, initials } from '../../lib/format.js'
 
 /** Searchable patient combobox styled to match the DS glass inputs. */
-export function PatientSelect({ patients = [], value, onChange, error }) {
+export function PatientSelect({ patients = [], value, onChange, error, onCreateNew }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const ref = useRef(null)
@@ -61,6 +61,20 @@ export function PatientSelect({ patients = [], value, onChange, error }) {
                 className="w-full rounded-xl border border-stroke bg-white px-3 py-2 font-body text-sm text-content-primary placeholder:text-content-muted focus:border-brand-lavender focus:outline-none focus:ring-2 focus:ring-brand-lavender/20"
               />
             </div>
+            {onCreateNew && (
+              <button
+                type="button"
+                onClick={() => {
+                  onCreateNew()
+                  setOpen(false)
+                  setQuery('')
+                }}
+                className="flex w-full items-center gap-2.5 border-b border-stroke/50 px-4 py-2.5 text-left font-heading text-sm font-bold text-purple-600 transition-colors hover:bg-brand-lavender/10"
+              >
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-lavender/15 text-base leading-none text-purple-600">+</span>
+                Crear paciente nuevo
+              </button>
+            )}
             <ul className="max-h-56 overflow-auto py-1">
               {filtered.length === 0 && (
                 <li className="px-4 py-3 font-caption text-sm text-content-muted">Sin resultados</li>
