@@ -219,35 +219,51 @@
   `twilio-webhook?test_session_id=08a16ef9-fb81-4071-a3ef-4f4cda785428` (sends a REAL WhatsApp to
   Nicolas's test phone, bypasses kill-switch + 23–25h window).
 
-## Pending / Backlog
+- [x] **Push system 100% VERIFIED — all triggers, all therapists** (2026-07-03 session 2).
+  Carolina confirmed the toggle push arrived (closed the last device question). /agendar trigger
+  re-tested with all 6 subscribed: agent booked a test llamada (Daniela, via the live function),
+  Nicolas + Daniela received "Nueva llamada agendada 📞", test cleaned up (session + calendar
+  event deleted; the reusable "Nicolas QA-TEST" patient was reused, not duplicated, and kept).
+  Trigger scoreboard: WhatsApp confirm/cancel ✅, in-app toggle ✅, /agendar booking ✅,
+  /reservar booking ✅ (see below). Also noted: therapists set their own hours — 5 of 6 now have
+  weekly windows in Disponibilidad (all but Carolina).
 
-### Immediate — next session (2026-07-04+)
-- [ ] **Confirm Carolina received the toggle push** (last open push item). Her session
-      `f1b1f379…` was toggled to confirmada 2026-07-03 ~20:05 UTC on the post-fix deploy;
-      Apple accepted the send and her device provably displays pushes (direct test arrived),
-      but she hadn't answered Nicolas by session end. If she did NOT get it: her device settings
-      (Focus mode / Ajustes→Notificaciones→banner style) or a re-added Home-Screen icon
-      (fix: deactivate + reactivate in Disponibilidad, then I re-test with a direct send).
-- [ ] **Quick re-test of the /agendar trigger** now that all 6 therapists are subscribed (it was
-      only ever fired when nobody but the owner had a subscription). Book a test llamada, confirm
-      the therapist + owner pushes, then clean up (patient row + session + calendar event).
-- [ ] Push triggers verified so far: WhatsApp quick-reply confirm/cancel ✅ (Nicolas + therapists),
-      in-app toggle ✅ (Nicolas + Mariana; Carolina pending above). /agendar pending re-test.
+- [x] **/reservar — public booking of REAL sessions — BUILT + VERIFIED LIVE** (2026-07-03
+  session 2, commit 0567f28). Per Nicolas: same self-scheduling flow as /agendar but for actual
+  therapy sessions; rarely used (therapists normally schedule), shared privately when practical.
+  Decisions (Nicolas): open to ANYONE (unknown phone creates a patient, same honeypot + rate
+  limits), **individual only** (75 min = DURACION_MIN.individual incl. buffer), **patient picks
+  modalidad** (presencial/en línea), separate route **/reservar** (+ `?terapeuta=<id>` deep link).
+  No DDL needed. Implementation — one shared function + one shared component, parameterized:
+  - `public-booking.mjs`: `KINDS` map (llamada 10 min / sesion 75 min), duration-aware
+    `computeSlots`, `kind` on slots+book, modalidad validated server-side, tipo=`individual`,
+    monto = existing patient's tarifa (else 39 default), calendar title uses the internal
+    `Sesión — {nombre} · {modalidad}` format, push "Nueva sesión agendada 📅". Sessions enter
+    the normal 24h WhatsApp reminder flow (only tipo=llamada is excluded) — intended.
+  - `PublicBooking.jsx`: `kind` prop drives all copy + a modalidad pill picker; mounted at
+    `/reservar/*` in App.jsx. `/agendar` behavior unchanged.
+  - Disponibilidad: per-therapist "Enlace sesión" copy button next to "Enlace llamada"; both
+    flows share the same weekly `booking_availability` windows.
+  Verified live end-to-end: 75-min slot math exact vs Daniela's real calendar (subset of
+  llamada slots; window-end + busy collisions both respected), test booking created
+  11:30–12:45 / individual / presencial / monto 39 / estado programada / Google event created,
+  new session correctly blocked overlapping slots on re-fetch, pushes received, test cleaned up.
+
+## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
 - [x] ~~Nicolas: set `VAPID_PRIVATE_KEY` in Netlify~~ — DONE 2026-07-02: verified live via the
       `?health` probe (`"VAPID_PRIVATE_KEY": true`). Push sending is fully operational server-side.
-- [ ] **Therapist push onboarding** — each therapist: open the app in Safari (iPhone) → Compartir →
-      "Agregar a pantalla de inicio" → open from the icon → Disponibilidad → "Activar
-      notificaciones". Needs iOS 16.4+. Android: just tap the button in Chrome. Re-activation
-      needed if they delete the Home-Screen icon.
+- [x] ~~Therapist push onboarding~~ — DONE 2026-07-03: all 6 subscribed (Francisco Android/FCM,
+      rest iOS/Apple) and receipt verified for every trigger. Re-activation still needed if a
+      therapist deletes the Home-Screen icon (subscription gets pruned on next send).
 - [x] ~~Run `supabase/therapist-availability.sql`~~ — RESOLVED 2026-07-02: verified via the Supabase
       connector that `therapists_self_update` already exists in `pg_policies` (1 row, cmd=UPDATE,
       using/with check = `my_terapeuta_id()`). It had been applied earlier; nothing was re-run.
-- [ ] Each therapist (or Nicolas) sets real hours in **Disponibilidad**. Prod state 2026-07-02:
-      all 6 visible, only Daniela has hours (fri 09:00–17:00). **Decision (Nicolas, 2026-07-02
-      evening): leave all 6 `booking_enabled=true`** — the 5 without hours show "no hay horarios"
-      publicly until they set hours; do NOT toggle them off.
+- [ ] Each therapist (or Nicolas) sets real hours in **Disponibilidad**. Prod state 2026-07-03:
+      all 6 visible, 5 of 6 have weekly hours — only **Carolina's is still empty** (she shows
+      "no hay horarios" publicly). **Decision (Nicolas, 2026-07-02 evening): leave all 6
+      `booking_enabled=true`**; do NOT toggle her off.
 - [x] ~~Clean up the test llamada/patient~~ — done 2026-07-02 (see verification pass above).
 - [ ] Add the marketing site origin to `ALLOWED_ORIGINS` in `public-booking.mjs` if the page is ever
       embedded/linked cross-origin (list currently mirrors `calendar.mjs`).

@@ -118,13 +118,19 @@ POST with `{ action, calendarId, event, eventId }`. Actions: `create` | `update`
 - CORS allow-list is hardcoded in the file — add new front-end origins there.
 - Timezone is Ecuador: `America/Guayaquil`, `TZ_OFFSET = '-05:00'`, no DST.
 
-### `public-booking.mjs` — public "llamada" booking (the ONLY unauthenticated surface)
-Serves `/agendar`: `GET ?action=therapists` (bookable therapists, public-safe fields only),
-`GET ?action=slots&therapist&date` (owner/therapist-configured weekly windows − Google freebusy −
-existing sessions; 30-min cadence, 10-min calls, 12h min notice, 14-day horizon, Ecuador tz;
-freebusy failure ⇒ FAIL CLOSED, no slots), `POST ?action=book` (honeypot; rate limits via the
-`booking_attempts` table; strict validation; slot re-verified server-side → 409 `slot_taken`;
-patient reused by phone or created; session `tipo='llamada'`, monto 0; best-effort Calendar event).
+### `public-booking.mjs` — public booking (the ONLY unauthenticated surface)
+Serves TWO patient-facing flows, parameterized by `kind` (`?kind=` on slots, body field on book):
+**`/agendar`** (kind=`llamada`, default) — free 10-min intro call, linked publicly — and
+**`/reservar`** (kind=`sesion`) — real 75-min individual session (patient picks modalidad;
+monto = patient tarifa or 39; enters the normal 24h WhatsApp reminder flow), link shared
+privately by the practice. Both use the same page component (`PublicBooking.jsx`, `kind` prop),
+the same weekly Disponibilidad windows, and per-therapist deep links (`?terapeuta=<id>`).
+Endpoints: `GET ?action=therapists` (bookable therapists, public-safe fields only),
+`GET ?action=slots&therapist&date[&kind]` (configured weekly windows − Google freebusy −
+existing sessions; 30-min cadence, duration per kind, 12h min notice, 14-day horizon, Ecuador
+tz; freebusy failure ⇒ FAIL CLOSED, no slots), `POST ?action=book` (honeypot; rate limits via
+the `booking_attempts` table; strict validation; slot re-verified server-side → 409 `slot_taken`;
+patient reused by phone or created; estado always `programada`; best-effort Calendar event).
 Uses `SUPABASE_SERVICE_KEY` — **never open anon RLS on patients/sessions for this.** Shared Google
 auth/freebusy lives in `netlify/lib/calendar.mjs`. Llamadas get NO WhatsApp reminder (excluded in
 `send-reminders`). Availability is edited in the app's **Disponibilidad** page (owner: everyone;
