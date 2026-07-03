@@ -18,6 +18,7 @@
 // "canceled" → 'cancelada'. ⚠️ Requires sessions.reminder_sent_at.
 
 import { getSupabaseAdmin, normalizePhone, deliverReminder } from '../lib/whatsapp.mjs'
+import { notifyTherapist } from '../lib/push.mjs'
 
 // The Google Calendar function lives on this same Netlify deploy. Netlify injects
 // URL = the site's primary address; fall back to the known prod URL for safety.
@@ -110,7 +111,7 @@ export default async (req) => {
 
   // 1. Match patient by phone: exact normalized E.164 OR last-9-digits (a handful
   //    of seed telefonos aren't clean E.164).
-  const { data: patients, error: pErr } = await supabase.from('patients').select('id, telefono')
+  const { data: patients, error: pErr } = await supabase.from('patients').select('id, telefono, nombre, apellido')
   if (pErr) { console.error('[twilio-webhook] patients fetch:', pErr.message); return twiml(200) }
   const fromNorm = normalizePhone(fromRaw)
   const from9 = last9(fromRaw)
@@ -124,7 +125,7 @@ export default async (req) => {
   const today = new Date().toISOString().slice(0, 10)
   const { data: sess, error: sErr } = await supabase
     .from('sessions')
-    .select('id, fecha, hora_inicio, google_event_id, therapist:therapists(calendar_email)')
+    .select('id, fecha, hora_inicio, google_event_id, terapeuta_id, therapist:therapists(calendar_email)')
     .eq('patient_id', patient.id)
     .eq('estado', 'programada')
     .not('reminder_sent_at', 'is', null)
@@ -146,6 +147,15 @@ export default async (req) => {
   if (estado === 'cancelada') {
     await deleteCalendarEvent(session.therapist?.calendar_email, session.google_event_id)
   }
+
+  // 5. Push-notify the therapist (best-effort — notifyTherapist never throws).
+  const patientName = [patient.nombre, patient.apellido].filter(Boolean).join(' ') || 'Paciente'
+  const [, mm, dd] = String(session.fecha).split('-')
+  await notifyTherapist(supabase, session.terapeuta_id, {
+    title: estado === 'confirmada' ? 'Sesión confirmada ✅' : 'Sesión cancelada ❌',
+    body: `${patientName} — ${dd}/${mm} ${String(session.hora_inicio || '').slice(0, 5)}`,
+    url: '/sesiones',
+  })
 
   return twiml(200) // always 200 empty TwiML, even on no-match, per Twilio contract
 }

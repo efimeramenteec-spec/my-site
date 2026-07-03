@@ -18,6 +18,7 @@
 
 import { getSupabaseAdmin, normalizePhone } from '../lib/whatsapp.mjs'
 import { getCalendarClient, queryFreebusy } from '../lib/calendar.mjs'
+import { notifyTherapist } from '../lib/push.mjs'
 
 const ALLOWED_ORIGINS = [
   'https://efimeramente-panel.netlify.app',
@@ -272,6 +273,16 @@ export default async (req) => {
     if (sErr) {
       console.error('[public-booking] session insert:', sErr.message)
       return json({ error: 'booking_failed' }, 500)
+    }
+
+    // Push-notify the therapist about her new llamada (best-effort — never throws).
+    {
+      const [, mm, dd] = date.split('-')
+      await notifyTherapist(supabase, t.id, {
+        title: 'Nueva llamada agendada 📞',
+        body: `${nombre} ${apellido} — ${dd}/${mm} ${startTime} (10 min)`,
+        url: '/sesiones',
+      })
     }
 
     // Google Calendar event — best-effort, NEVER blocks the booking. No WhatsApp

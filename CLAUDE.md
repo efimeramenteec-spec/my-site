@@ -37,8 +37,12 @@ and, for behavior, checking the running app. Always build before committing.
 - `main` auto-deploys to Netlify. To ship: build → commit → push `main`.
 - Ignore any older "two-clone / Cowork / port-between-workspaces" instructions in `EFIMERAMENTE_STATE.md`;
   that workflow has been retired in favor of this single-clone flow.
-- DDL (schema changes) can NOT go through the API — run `.sql` files by hand in the Supabase SQL editor.
-- Data writes (rows) CAN be done with the `SUPABASE_SERVICE_KEY` in `~/my-site/.env` (service_role). Never print it.
+- **Supabase access:** the Claude **Supabase connector** (MCP, enabled 2026-07-02) can run SQL directly —
+  reads, row writes, and DDL via `apply_migration` — against project `vnityzpuhnkumsyfnskz`. Check for the
+  `mcp__*Supabase*` tools at session start. **Tell Nicolas before running any DDL.** Keep each migration
+  mirrored as a `.sql` file in `supabase/`.
+- Fallback when the connector is absent: DDL by hand in the Supabase SQL editor; row writes with the
+  `SUPABASE_SERVICE_KEY` in `~/my-site/.env` (service_role). Never print it.
 
 ---
 
@@ -146,11 +150,29 @@ The one HTTP-reachable WhatsApp function. Three paths:
   (`confirmed`→`confirmada`, `canceled`→`cancelada`), and on cancellation also deletes the Google
   Calendar event. Always returns empty TwiML 200.
 
+### Web Push notifications (therapists' phones)
+Therapists get a push on: patient **confirms** (Twilio reply), patient **cancels** (Twilio reply),
+and **new llamada** booked on `/agendar`. Pieces:
+- `netlify/lib/push.mjs` — `notifyTherapist(supabase, terapeutaId, {title, body, url})` via the
+  `web-push` package. Never throws (best-effort like calendar sync). Prunes dead subscriptions
+  (push service 404/410 — e.g. PWA deleted from the Home Screen). Callers: `twilio-webhook.mjs`
+  (after estado update) and `public-booking.mjs` (after session insert).
+- **VAPID keys:** public half committed in `src/lib/push-public-key.js` (safe by design); private
+  half ONLY in the Netlify env var `VAPID_PRIVATE_KEY` — pushes are silently skipped (with a log)
+  until it's set.
+- Client: `src/lib/push.js` (subscribe/unsubscribe/status) + opt-in card in `Disponibilidad.jsx`
+  (per-device; therapists only — the owner has no `terapeuta_id`). SW registration in `main.jsx`.
+- Subscriptions live in `push_subscriptions` (see `supabase/push-subscriptions.sql`).
+- **iOS reality:** needs iOS 16.4+ AND the PWA installed to the Home Screen; permission must be
+  requested from a tap. Deleting the Home-Screen icon silently kills the subscription (it gets
+  pruned on next send; the therapist must reinstall + re-activate).
+
 ---
 
 ## Database & migrations (`supabase/`)
 
-Tables in active use: **`patients`**, **`sessions`**, **`therapists`**, **`profiles`** (auth role linkage).
+Tables in active use: **`patients`**, **`sessions`**, **`therapists`**, **`profiles`** (auth role linkage),
+**`push_subscriptions`** (Web Push, per-device), **`booking_attempts`** (public-booking rate limits).
 - `auth-setup.sql` — GO-LIVE migration: adds `patients.tarifa`/`metodo_pago`, `profiles` table, RLS policies,
   and `is_owner()` / `my_terapeuta_id()` helpers. Idempotent (guarded). Run once in SQL editor.
 - `add-reminder-sent-at.sql` — adds `sessions.reminder_sent_at` (+ partial index). **Required** for the
@@ -170,7 +192,7 @@ on their own sessions. Anon/service_role grants already applied.
 - `.env` (local, gitignored): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (browser); plus
   `SUPABASE_SERVICE_KEY` used by Claude Code for autonomous row writes. See `.env.example`.
 - Netlify dashboard (functions only): `SUPABASE_SERVICE_KEY`, `GOOGLE_SERVICE_ACCOUNT_KEY`, the Twilio
-  vars, and `REMINDERS_LIVE`. Never put these in the repo.
+  vars, `REMINDERS_LIVE`, and `VAPID_PRIVATE_KEY` (Web Push). Never put these in the repo.
 
 ## Conventions & gotchas
 
@@ -181,5 +203,5 @@ on their own sessions. Anon/service_role grants already applied.
 - Calendar/reminder sync must stay best-effort — never let it block or fail a core DB write.
 - No TypeScript, no tests, no linter — verify by building and running.
 - **Modern-runtime Response gotcha:** HTTP 204/205/304 are null-body statuses — return `new Response(null, {status:204})`, never `Response('', …)`, or the constructor throws and the function 502s (this silently broke the calendar CORS preflight once). Also test CORS-protected functions via an actual OPTIONS preflight, not just the POST — curl a POST works even when the preflight is broken, but browsers won't.
-- **No service worker — and keep it that way.** This is an always-online tool; it must serve fresh data, not a cached offline shell. An early deploy once registered a PWA service worker, and orphaned copies kept serving users a stale app shell after every deploy (fresh `curl` saw new code, the browser didn't). Fix shipped: a self-destroying `public/sw.js` (skipWaiting → clear caches → unregister → reload tabs) + a `public/_headers` rule pinning `/sw.js` to `Cache-Control: no-cache`. **Leave both in place** so late stragglers still get evicted, and **do not add `vite-plugin-pwa` / register a SW** without a deliberate caching strategy. `manifest.webmanifest` is fine (installability only; registers nothing). To verify a deploy is actually live, grep the served bundle for a known-new string rather than comparing hashes (Netlify's build hash differs from a local build).
+- **Service worker: PUSH-ONLY — never add a `fetch` handler.** This is an always-online tool; it must serve fresh data, not a cached offline shell. History: an early deploy registered a caching SW whose orphans served users a stale app shell after every deploy; it was killed with a self-destroying SW. Since 2026-07-02, `public/sw.js` is a **push-only** worker (Web Push notifications for therapists — `push` + `notificationclick` listeners, activate-time cache wipe). Because it has **no `fetch` handler**, the browser goes straight to the network for everything, so the stale-shell failure is structurally impossible — and that's the invariant to protect: **never add a `fetch` handler or `vite-plugin-pwa`** without a deliberate caching strategy. `public/_headers` keeps `/sw.js` at `Cache-Control: no-cache` so SW updates always propagate. To verify a deploy is actually live, grep the served bundle for a known-new string rather than comparing hashes (Netlify's build hash differs from a local build).
 ```

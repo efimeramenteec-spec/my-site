@@ -132,25 +132,54 @@
   single llamada session (2026-07-03 13:00), and the Google Calendar event on Daniela's calendar
   all deleted (calendar via the deployed function, rows via service key).
 
-- **Supabase connector heads-up** (2026-07-02): Nicolas enabled the Claude **Supabase connector**
-  (suggested by Cowork). It did NOT surface in the running Claude Code session (tool lists are
-  fixed at session start; claude.ai connectors do propagate — Gmail/Drive/Calendar were visible).
-  **Check at next session start** (`/mcp` or tool search). If present, it can execute SQL directly →
-  no more "run DDL by hand in the SQL editor" and agents can verify RLS/`pg_policies` themselves.
-  Until confirmed, keep the manual-DDL protocol.
+- [x] **Supabase connector CONFIRMED WORKING** (2026-07-02 evening session, Fable 5). The
+  `mcp__claude_ai_Supabase__*` tools surfaced and work: `execute_sql` for reads/row writes,
+  `apply_migration` for DDL. The "DDL by hand in the SQL editor" rule is **lifted** while the
+  connector is present — but the agent must **tell Nicolas before running any DDL**, and mirror
+  every migration as a `.sql` file in `supabase/`. First uses this session: verified
+  `therapists_self_update` in `pg_policies` (1 row, cmd=UPDATE — the .sql had already been applied;
+  nothing to re-run) and created the `push_subscriptions` table (migration
+  `create_push_subscriptions`).
+
+- [x] **Web Push notifications for therapists — BUILT** (2026-07-02 evening, Fable 5). Therapists
+  get real push notifications on their phones for: **paciente confirma** (Twilio quick reply),
+  **paciente cancela** (Twilio quick reply), **nueva llamada agendada** (/agendar). No Wallet-pass
+  hack needed — Web Push works in installed PWAs on iOS 16.4+ and Android. What shipped:
+  - `public/sw.js` replaced: self-destroying SW → **push-only SW** (`push` + `notificationclick`,
+    **NO fetch handler** so the old stale-shell bug is structurally impossible; keeps activate-time
+    cache wipe). Registered in `main.jsx`. CLAUDE.md gotcha updated accordingly.
+  - `push_subscriptions` table (+ RLS `push_subs_self`: therapist ↔ own rows via
+    `my_terapeuta_id()`, owner all) — applied via connector, mirrored in
+    `supabase/push-subscriptions.sql`.
+  - VAPID pair generated: public key committed (`src/lib/push-public-key.js`); **private key must
+    be set by Nicolas as Netlify env var `VAPID_PRIVATE_KEY`** (pushes are skipped with a log
+    until then).
+  - `netlify/lib/push.mjs` — `notifyTherapist()` (never throws; prunes dead subscriptions on
+    404/410). Wired into `twilio-webhook.mjs` (step 5, after estado update) and
+    `public-booking.mjs` (after session insert). `web-push` added to dependencies.
+  - Opt-in UI: "Notificaciones en este dispositivo" card at the top of **Disponibilidad**
+    (therapists only — owner has no terapeuta_id). Per-device activation; iOS shows the
+    add-to-Home-Screen hint when opened in a Safari tab.
+  - **Not covered (v1):** llamadas/sessions created in-app by owner/therapist don't push (client-side
+    writes; the therapist is the one acting anyway). Owner (Nicolas) gets no pushes — no terapeuta row.
 
 ## Pending / Backlog
 
-### Immediate — go-live remainder (public booking)
-- [ ] **Run `supabase/therapist-availability.sql`** in the Supabase SQL editor (idempotent) — unblocks
-      therapists saving their own hours in Disponibilidad. Could not be verified from the terminal
-      (2026-07-02); safe to re-run. Verify after: `select policyname, cmd from pg_policies where
-      tablename='therapists' and policyname='therapists_self_update';` → 1 row, cmd=UPDATE.
-      (If the Supabase connector works next session, the agent can run + verify this itself.)
-- [ ] Each therapist (or Nicolas) sets real hours in **Disponibilidad**; toggle OFF anyone who
-      shouldn't appear publicly yet. Verified in prod 2026-07-02: all 6 visible, only Daniela has
-      hours (fri 09:00–17:00) — Camila, Carolina, Francisco, Maria Gracia, Mariana show "no hay
-      horarios" publicly until hours are set or they're toggled off.
+### Immediate — go-live remainder (public booking + push)
+- [ ] **Nicolas: set `VAPID_PRIVATE_KEY` in Netlify** (env var, functions scope) — the Web Push
+      private key generated 2026-07-02 (Fable gave Nicolas the value in-session). Until set,
+      pushes are silently skipped (function logs a warning). Then redeploy/trigger a deploy.
+- [ ] **Therapist push onboarding** — each therapist: open the app in Safari (iPhone) → Compartir →
+      "Agregar a pantalla de inicio" → open from the icon → Disponibilidad → "Activar
+      notificaciones". Needs iOS 16.4+. Android: just tap the button in Chrome. Re-activation
+      needed if they delete the Home-Screen icon.
+- [x] ~~Run `supabase/therapist-availability.sql`~~ — RESOLVED 2026-07-02: verified via the Supabase
+      connector that `therapists_self_update` already exists in `pg_policies` (1 row, cmd=UPDATE,
+      using/with check = `my_terapeuta_id()`). It had been applied earlier; nothing was re-run.
+- [ ] Each therapist (or Nicolas) sets real hours in **Disponibilidad**. Prod state 2026-07-02:
+      all 6 visible, only Daniela has hours (fri 09:00–17:00). **Decision (Nicolas, 2026-07-02
+      evening): leave all 6 `booking_enabled=true`** — the 5 without hours show "no hay horarios"
+      publicly until they set hours; do NOT toggle them off.
 - [x] ~~Clean up the test llamada/patient~~ — done 2026-07-02 (see verification pass above).
 - [ ] Add the marketing site origin to `ALLOWED_ORIGINS` in `public-booking.mjs` if the page is ever
       embedded/linked cross-origin (list currently mirrors `calendar.mjs`).
@@ -201,8 +230,11 @@
 - **Never use GitHub web editor CM6 injection** — no build verification, risk of bad commits
 
 ### Supabase writes
-- Use `SUPABASE_SERVICE_KEY` from `~/my-site/.env` (legacy service_role JWT, role: service_role)
-- Opus agent reads it in-process, never prints it
+- **Preferred (since 2026-07-02): Claude Supabase connector** (`mcp__claude_ai_Supabase__*` tools) —
+  reads, row writes, and DDL (`apply_migration`) directly against project `vnityzpuhnkumsyfnskz`.
+  Tell Nicolas before any DDL; mirror migrations in `supabase/*.sql`.
+- Fallback: `SUPABASE_SERVICE_KEY` from `~/my-site/.env` (legacy service_role JWT) — read in-process,
+  never print it; DDL by hand in the SQL editor.
 - Grants already applied: service_role has full access to all public tables
 
 ### DB grants (already applied)

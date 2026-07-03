@@ -10,6 +10,7 @@ import { getTherapistsBooking, updateTherapistBooking } from '../lib/queries.js'
 import { fullName } from '../lib/format.js'
 import { useAuth } from '../lib/auth.jsx'
 import { IconPlus, IconX } from '../layout/icons.jsx'
+import { getPushStatus, subscribeToPush, unsubscribeFromPush, isIOS } from '../lib/push.js'
 
 // Availability editor for the public /agendar booking page: per-therapist enable
 // toggle + weekly bookable hours (therapists.booking_availability, keys mon..sun,
@@ -51,6 +52,89 @@ function CopyLink({ url, label = 'Copiar enlace' }) {
     <Button variant="secondary" size="sm" onClick={copy}>
       {copied ? '¡Copiado!' : label}
     </Button>
+  )
+}
+
+// Web Push opt-in for the logged-in therapist (one card per DEVICE — each
+// phone/browser subscribes separately). Notifies on: paciente confirma,
+// paciente cancela (Twilio quick replies) y nueva llamada agendada (/agendar).
+function NotificationsCard({ terapeutaId }) {
+  const [status, setStatus] = useState('loading') // loading|unsupported|denied|subscribed|idle
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    getPushStatus().then((s) => { if (alive) setStatus(s) })
+    return () => { alive = false }
+  }, [])
+
+  const activate = async () => {
+    setBusy(true)
+    setError('')
+    const res = await subscribeToPush(terapeutaId)
+    setBusy(false)
+    if (res.ok) setStatus('subscribed')
+    else {
+      setError(res.error)
+      setStatus(await getPushStatus())
+    }
+  }
+
+  const deactivate = async () => {
+    setBusy(true)
+    setError('')
+    const res = await unsubscribeFromPush()
+    setBusy(false)
+    if (res.ok) setStatus('idle')
+    else setError(res.error)
+  }
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-heading text-lg font-bold text-content-primary">Notificaciones en este dispositivo</h3>
+          <p className="mt-1 font-body text-sm text-content-secondary">
+            Recibe una notificación cuando un paciente confirme o cancele una sesión por WhatsApp,
+            o cuando alguien agende una llamada contigo. Actívalas en cada teléfono o computadora
+            donde quieras recibirlas.
+          </p>
+        </div>
+        {status === 'subscribed' && <Badge variant="lavender">Activadas</Badge>}
+      </div>
+
+      <div className="mt-4">
+        {status === 'loading' && (
+          <p className="font-caption text-xs text-content-muted">Comprobando…</p>
+        )}
+        {status === 'unsupported' && (
+          <p className="font-body text-sm text-content-secondary">
+            {isIOS
+              ? 'En iPhone: abre esta página en Safari, toca Compartir → “Agregar a pantalla de inicio” y vuelve a entrar desde el ícono de Efimeramente. Necesitas iOS 16.4 o más reciente.'
+              : 'Este navegador no soporta notificaciones push.'}
+          </p>
+        )}
+        {status === 'denied' && (
+          <p className="font-body text-sm text-content-secondary">
+            Las notificaciones están bloqueadas para esta app. Actívalas en los ajustes de
+            notificaciones de tu teléfono o navegador y recarga la página.
+          </p>
+        )}
+        {status === 'idle' && (
+          <Button size="sm" onClick={activate} disabled={busy}>
+            {busy ? 'Activando…' : 'Activar notificaciones'}
+          </Button>
+        )}
+        {status === 'subscribed' && (
+          <Button variant="secondary" size="sm" onClick={deactivate} disabled={busy}>
+            {busy ? 'Desactivando…' : 'Desactivar en este dispositivo'}
+          </Button>
+        )}
+      </div>
+
+      {error && <p className="mt-3 font-caption text-xs text-red-500">{error}</p>}
+    </Card>
   )
 }
 
@@ -235,6 +319,8 @@ export default function Disponibilidad() {
           <CopyLink url={publicUrl} />
         </div>
       </Card>
+
+      {terapeutaId && <NotificationsCard terapeutaId={terapeutaId} />}
 
       {visible === null ? (
         <Card>
