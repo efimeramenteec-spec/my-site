@@ -68,6 +68,7 @@ export default async (req) => {
         TWILIO_WHATSAPP_FROM: has('TWILIO_WHATSAPP_FROM'),
         TWILIO_CONTENT_SID: has('TWILIO_CONTENT_SID'),
         GOOGLE_SERVICE_ACCOUNT_KEY: has('GOOGLE_SERVICE_ACCOUNT_KEY'),
+        VAPID_PRIVATE_KEY: has('VAPID_PRIVATE_KEY'),
         REMINDERS_LIVE: process.env.REMINDERS_LIVE === 'true',
       },
     })

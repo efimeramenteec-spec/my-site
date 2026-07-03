@@ -163,6 +163,13 @@
   - **Not covered (v1):** llamadas/sessions created in-app by owner/therapist don't push (client-side
     writes; the therapist is the one acting anyway). Owner (Nicolas) gets no pushes — no terapeuta row.
 
+- **Netlify connector heads-up** (2026-07-02 evening): Nicolas enabled the Claude **Netlify
+  connector** mid-session, so it could NOT be used this session (tool lists are fixed at session
+  start — same thing that happened with the Supabase connector). **Next instance: check for
+  `mcp__*Netlify*` tools at session start** — if present, you can read deploy status, function
+  logs, and env vars (e.g. verify `VAPID_PRIVATE_KEY`/`REMINDERS_LIVE`) yourself instead of asking
+  Nicolas or curling the `?health` probe.
+
 ## Pending / Backlog
 
 ### Immediate — go-live remainder (public booking + push)

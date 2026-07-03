@@ -37,6 +37,10 @@ and, for behavior, checking the running app. Always build before committing.
 - `main` auto-deploys to Netlify. To ship: build → commit → push `main`.
 - Ignore any older "two-clone / Cowork / port-between-workspaces" instructions in `EFIMERAMENTE_STATE.md`;
   that workflow has been retired in favor of this single-clone flow.
+- **Netlify access:** Nicolas enabled the Claude **Netlify connector** (MCP) on 2026-07-02, AFTER the
+  running session started — tool lists are fixed at session start, so it first becomes usable in the
+  NEXT session. Check for `mcp__*Netlify*` tools at session start; if present, the agent can inspect
+  deploys/env vars/logs directly instead of asking Nicolas to check the dashboard.
 - **Supabase access:** the Claude **Supabase connector** (MCP, enabled 2026-07-02) can run SQL directly —
   reads, row writes, and DDL via `apply_migration` — against project `vnityzpuhnkumsyfnskz`. Check for the
   `mcp__*Supabase*` tools at session start. **Tell Nicolas before running any DDL.** Keep each migration
