@@ -194,7 +194,9 @@ export async function getSessionsData() {
 }
 
 export async function createSession(payload) {
-  const data = pickColumns(payload)
+  // Hard rule (Nicolas, 2026-07-03): every session is born Pendiente, no
+  // exceptions — estado only ever changes via the toggle after creation.
+  const data = { ...pickColumns(payload), estado: 'programada' }
   if (isSupabaseConfigured) {
     try {
       const res = await supabase.from('sessions').insert(data).select(SESSION_SELECT).single()
