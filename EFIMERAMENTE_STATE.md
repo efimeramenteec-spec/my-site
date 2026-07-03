@@ -123,14 +123,35 @@
   (Supersedes the 2026-07-01 palette. Heads-up: Carolina's yellow is close to the Pendiente status
   yellow `#ffd84a` — explicitly Nicolas's choice.)
 
+- [x] **Loose-end verification pass** (2026-07-02 PM, Fable 5): **(1)** `therapists_self_update`
+  RLS policy could NOT be verified from the terminal (REST API can't read `pg_policies`; no
+  psql/supabase CLI installed) — SQL re-given to Nicolas, idempotent, pending re-run (see backlog).
+  **(2)** Confirmed prod booking state: all 6 therapists `booking_enabled=true`, ONLY Daniela has
+  hours (fri 09:00–17:00) — the other 5 show "no hay horarios" publicly. **(3)** Nicolas's live-test
+  llamada was NOT cleaned up → cleaned by agent: patient "Prueba Daniela" (+593987196498), its
+  single llamada session (2026-07-03 13:00), and the Google Calendar event on Daniela's calendar
+  all deleted (calendar via the deployed function, rows via service key).
+
+- **Supabase connector heads-up** (2026-07-02): Nicolas enabled the Claude **Supabase connector**
+  (suggested by Cowork). It did NOT surface in the running Claude Code session (tool lists are
+  fixed at session start; claude.ai connectors do propagate — Gmail/Drive/Calendar were visible).
+  **Check at next session start** (`/mcp` or tool search). If present, it can execute SQL directly →
+  no more "run DDL by hand in the SQL editor" and agents can verify RLS/`pg_policies` themselves.
+  Until confirmed, keep the manual-DDL protocol.
+
 ## Pending / Backlog
 
 ### Immediate — go-live remainder (public booking)
 - [ ] **Run `supabase/therapist-availability.sql`** in the Supabase SQL editor (idempotent) — unblocks
-      therapists saving their own hours in Disponibilidad.
+      therapists saving their own hours in Disponibilidad. Could not be verified from the terminal
+      (2026-07-02); safe to re-run. Verify after: `select policyname, cmd from pg_policies where
+      tablename='therapists' and policyname='therapists_self_update';` → 1 row, cmd=UPDATE.
+      (If the Supabase connector works next session, the agent can run + verify this itself.)
 - [ ] Each therapist (or Nicolas) sets real hours in **Disponibilidad**; toggle OFF anyone who
-      shouldn't appear publicly yet (all 6 are currently visible from testing; 5 have no hours).
-- [ ] Clean up the test llamada/patient from Nicolas's live test if not already cancelled.
+      shouldn't appear publicly yet. Verified in prod 2026-07-02: all 6 visible, only Daniela has
+      hours (fri 09:00–17:00) — Camila, Carolina, Francisco, Maria Gracia, Mariana show "no hay
+      horarios" publicly until hours are set or they're toggled off.
+- [x] ~~Clean up the test llamada/patient~~ — done 2026-07-02 (see verification pass above).
 - [ ] Add the marketing site origin to `ALLOWED_ORIGINS` in `public-booking.mjs` if the page is ever
       embedded/linked cross-origin (list currently mirrors `calendar.mjs`).
 
@@ -145,9 +166,12 @@
 - [ ] **Verify live fixes** — create a test session, confirm it appears in Lista as "Pend." immediately
 - [x] ~~Sync session estados from Google Sheet~~ — done session #9 (see Completed Features)
 
-### Next modules (confirm with Nicolas before starting)
+### Next modules (confirm with Nicolas before starting — he will pick at session start)
 - [ ] **Seguimiento** — analytics: retention, sessions/therapist/month, no-show rate, pending payments (recharts)
 - [ ] **Finanzas** — facturas ledger, monthly totals, mark-as-paid
+- Both are still 14-line placeholders (`src/pages/Seguimiento.jsx`, `src/pages/Finanzas.jsx`).
+  Architecture/building only — NO cosmetics/polish (deferred to cheaper models post-architecture).
+  Confirm scope with Nicolas before writing code.
 - [x] ~~**Twilio webhook**~~ — DONE (commits 8a8f47c, fc84adb). Full WhatsApp reminder flow shipped: hourly `send-reminders.js` (kill-switch `REMINDERS_LIVE`, default OFF/dry-run + `?test_session_id` manual path) + inbound `twilio-webhook.js` (button tap → session estado) + `supabase/add-reminder-sent-at.sql` migration. See CLAUDE.md § Netlify functions.
 - ~~**Trim therapist Sesiones view**~~ — WON'T DO (per Nicolas 2026-07-02): therapists keep the
   pay/confirm toggles; having them use these is useful to the practice. Do not hide them.
