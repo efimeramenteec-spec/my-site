@@ -154,9 +154,15 @@ The one HTTP-reachable WhatsApp function. Three paths:
   (`confirmed`→`confirmada`, `canceled`→`cancelada`), and on cancellation also deletes the Google
   Calendar event. Always returns empty TwiML 200.
 
-### Web Push notifications (therapists' phones)
-Therapists get a push on: patient **confirms** (Twilio reply), patient **cancels** (Twilio reply),
-and **new llamada** booked on `/agendar`. Pieces:
+### Web Push notifications (therapists' + owner's phones)
+Pushes fire on: patient **confirms** (Twilio reply), patient **cancels** (Twilio reply),
+**new llamada** booked on `/agendar`, and **in-app estado changes** to Confirmado/Cancelado
+(toggle or drawer edit → `notify-estado` function). Pieces:
+- `netlify/functions/notify-estado.mjs` — POST `{session_id}` + `Authorization: Bearer <Supabase
+  access token>`. Verifies the token, rebuilds the notification from the DB row (client input is
+  just the id), and excludes the ACTING user's own devices (owner action → therapist notified,
+  and vice versa). Called fire-and-forget from `queries.js#notifySessionEstado` (hooked in
+  `Sesiones.jsx` where estado actually changes).
 - `netlify/lib/push.mjs` — `notifyTherapist(supabase, terapeutaId, {title, body, url})` via the
   `web-push` package. Sends to the therapist's subscriptions AND all owner subscriptions
   (`terapeuta_id IS NULL` rows = the owner, who receives EVERYTHING; RLS lets only `is_owner()`

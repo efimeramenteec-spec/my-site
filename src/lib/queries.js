@@ -129,6 +129,26 @@ async function callCalendar(action, calendarId, calEvent, eventId) {
   }
 }
 
+// ─── Web Push on in-app estado changes (best-effort, fire-and-forget) ───────
+// Call AFTER a successful update that changed estado to confirmada/cancelada.
+// The server rebuilds the notification from the DB row and excludes the acting
+// user's own devices; it needs the caller's access token to know who acted.
+export async function notifySessionEstado(sessionId) {
+  if (!isSupabaseConfigured || !sessionId) return
+  try {
+    const { data } = await supabase.auth.getSession()
+    const token = data?.session?.access_token
+    if (!token) return
+    fetch('/.netlify/functions/notify-estado', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ session_id: sessionId }),
+    }).catch(() => {})
+  } catch (err) {
+    console.warn('[push] notify failed (non-blocking):', err?.message)
+  }
+}
+
 export async function getDashboardData() {
   const now = new Date()
   if (isSupabaseConfigured) {

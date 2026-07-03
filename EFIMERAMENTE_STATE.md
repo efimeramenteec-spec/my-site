@@ -162,10 +162,16 @@
     add-to-Home-Screen hint when opened in a Safari tab.
   - **Not covered (v1):** llamadas/sessions created in-app by owner/therapist don't push (client-side
     writes; the therapist is the one acting anyway).
-  - **v1.1 same session (commit follows):** OWNER receives ALL notifications. `terapeuta_id` made
+  - **v1.1 same session (commit 82aa12b):** OWNER receives ALL notifications. `terapeuta_id` made
     nullable (migration `push_subscriptions_owner_rows`); NULL row = owner subscription; RLS already
     restricts NULL rows to `is_owner()`. `notifyTherapist` sends to therapist subs + all NULL subs.
     The Disponibilidad card now also renders for the owner ("recibe TODAS las notificaciones").
+  - **v1.2 same session:** in-app estado changes ALSO push (per Nicolas). New
+    `netlify/functions/notify-estado.mjs` (JWT-verified; rebuilds payload from the DB row; excludes
+    the acting user's own devices). Hooked in `Sesiones.jsx` — the Confirmado/Cancelado toggle and
+    drawer edits that change estado — via fire-and-forget `queries.js#notifySessionEstado`.
+    Note: in-app and patient-initiated pushes read the same ("Sesión confirmada ✅") — differentiate
+    later if it matters.
 
 - **Netlify connector heads-up** (2026-07-02 evening): Nicolas enabled the Claude **Netlify
   connector** mid-session, so it could NOT be used this session (tool lists are fixed at session

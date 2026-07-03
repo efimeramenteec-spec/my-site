@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom'
 import { Card } from '../components/Card/Card.jsx'
 import { Button } from '../components/Button/Button.jsx'
 import { Select } from '../components/Select/Select.jsx'
-import { getSessionsData, createSession, updateSession, createPatient } from '../lib/queries.js'
+import { getSessionsData, createSession, updateSession, createPatient, notifySessionEstado } from '../lib/queries.js'
 import { WeekView, MonthView, ListView } from '../features/sesiones/views.jsx'
 import { SesionDrawer } from '../features/sesiones/SesionDrawer.jsx'
 import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName, formatTime } from '../lib/format.js'
@@ -72,7 +72,17 @@ export default function Sesiones() {
       return { ok: false, error: `Choca con ${fullName(conflict.patient)} (${formatTime(conflict.hora_inicio)}–${formatTime(conflict.hora_fin)}).` }
     }
     const res = drawer.mode === 'edit' ? await updateSession(drawer.initial.id, payload) : await createSession(payload)
-    if (res.ok) await loadData()
+    if (res.ok) {
+      // Drawer edits can change estado too — push like the toggle does.
+      if (
+        drawer.mode === 'edit' &&
+        payload.estado !== drawer.initial.estado &&
+        (payload.estado === 'confirmada' || payload.estado === 'cancelada')
+      ) {
+        notifySessionEstado(drawer.initial.id)
+      }
+      await loadData()
+    }
     return res
   }
 
@@ -84,8 +94,12 @@ export default function Sesiones() {
 
   async function handleSetEstado(s, estado) {
     const res = await updateSession(s.id, { estado })
-    if (res.ok) await loadData()
-    else window.alert(res.error || 'No se pudo actualizar la confirmación.')
+    if (res.ok) {
+      if (estado !== s.estado && (estado === 'confirmada' || estado === 'cancelada')) {
+        notifySessionEstado(s.id)
+      }
+      await loadData()
+    } else window.alert(res.error || 'No se pudo actualizar la confirmación.')
   }
 
   async function handleTogglePaid(s, paid) {
