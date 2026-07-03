@@ -79,6 +79,9 @@ export default function PublicBooking({ kind = 'llamada' }) {
   const copy = COPY[kind]
   const [searchParams] = useSearchParams()
   const preselectedId = searchParams.get('terapeuta')
+  // Marketing attribution: per-campaign links append ?c=<slug>. Invisible to
+  // the patient; echoed on book so the server can stamp the campaign.
+  const campaign = searchParams.get('c') || ''
 
   // 'therapist' → 'slot' → 'form' → 'done'
   const [step, setStep] = useState('therapist')
@@ -161,6 +164,7 @@ export default function PublicBooking({ kind = 'llamada' }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           kind,
+          campaign: campaign || undefined,
           modalidad: kind === 'sesion' ? modalidad : undefined,
           therapist_id: therapist.id,
           date,

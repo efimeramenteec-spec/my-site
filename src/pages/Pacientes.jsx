@@ -14,6 +14,7 @@ import {
   METODO_PAGO,
   TIPO_SESION,
   ESTADO_SESION,
+  FUENTE_PACIENTE,
   toOptions,
   TARIFA_DEFAULT,
 } from '../lib/constants.js'
@@ -91,12 +92,14 @@ function PatientRow({ patient, therapist, isSelected, onClick }) {
 
 // ─── Patient detail panel ───────────────────────────────────────
 
-function PatientDetail({ patient, therapist, therapists = [], sessions, onClose, onSave }) {
+function PatientDetail({ patient, therapist, therapists = [], campaigns = [], sessions, onClose, onSave }) {
   const [form, setForm] = useState({
     terapeuta_id: patient.terapeuta_id || '',
     tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
     metodo_pago: patient.metodo_pago || 'transferencia',
     estado_general: patient.estado_general || 'activo',
+    fuente: patient.fuente || '',
+    campaign_id: patient.campaign_id || '',
     notas: patient.notas || '',
   })
   const [saving, setSaving] = useState(false)
@@ -109,6 +112,8 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, onClose,
       tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
       metodo_pago: patient.metodo_pago || 'transferencia',
       estado_general: patient.estado_general || 'activo',
+      fuente: patient.fuente || '',
+      campaign_id: patient.campaign_id || '',
       notas: patient.notas || '',
     })
     setSaved(false)
@@ -125,6 +130,9 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, onClose,
       tarifa: parseFloat(form.tarifa) || TARIFA_DEFAULT,
       metodo_pago: form.metodo_pago,
       estado_general: form.estado_general,
+      fuente: form.fuente || null,
+      // A campaign only makes sense for ads-acquired patients.
+      campaign_id: (form.fuente === 'ads' && form.campaign_id) || null,
       notas: form.notas.trim() || null,
     })
     setSaving(false)
@@ -235,6 +243,23 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, onClose,
             options={toOptions(ESTADO_PACIENTE)}
             placeholder={null}
           />
+          <Select
+            label="Fuente"
+            value={form.fuente}
+            onChange={(e) => set('fuente', e.target.value)}
+            options={toOptions(FUENTE_PACIENTE)}
+            placeholder="Sin registrar…"
+            hint="Cómo llegó el paciente — alimenta el módulo Marketing."
+          />
+          {form.fuente === 'ads' && campaigns.length > 0 && (
+            <Select
+              label="Campaña"
+              value={form.campaign_id}
+              onChange={(e) => set('campaign_id', e.target.value)}
+              options={campaigns.map((c) => ({ value: c.id, label: c.nombre }))}
+              placeholder="Sin campaña…"
+            />
+          )}
           {error && <p className="font-caption text-xs text-red-500">{error}</p>}
           <Button
             variant="secondary"
@@ -737,6 +762,7 @@ export default function Pacientes() {
                 patient={selectedPatient}
                 therapist={therapistMap[selectedPatient.terapeuta_id]}
                 therapists={data.therapists}
+                campaigns={data.campaigns || []}
                 sessions={patientSessions}
                 onClose={() => setSelectedId(null)}
                 onSave={handleUpdate}

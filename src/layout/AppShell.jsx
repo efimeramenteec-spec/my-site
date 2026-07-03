@@ -9,6 +9,7 @@ const TITLES = {
   '/pacientes': 'Pacientes',
   '/seguimiento': 'Seguimiento',
   '/finanzas': 'Finanzas',
+  '/marketing': 'Marketing',
   '/disponibilidad': 'Disponibilidad',
   '/ds': 'Design System',
 }

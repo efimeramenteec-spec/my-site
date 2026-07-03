@@ -137,6 +137,13 @@ export const IconPhone = (p) => (
   </Svg>
 )
 
+export const IconMegaphone = (p) => (
+  <Svg {...p}>
+    <path d="M3 10.5v3a1.5 1.5 0 0 0 1.5 1.5H7l11 5V4.5L7 9.5H4.5A1.5 1.5 0 0 0 3 10.5Z" />
+    <path d="M21 10v4M8 15.5l1.2 4A1.5 1.5 0 0 0 10.6 20.5h.9a1 1 0 0 0 1-1.3l-1-3.7" />
+  </Svg>
+)
+
 export const IconMail = (p) => (
   <Svg {...p}>
     <rect x="2.5" y="5" width="19" height="14" rx="2.5" />

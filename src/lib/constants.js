@@ -75,6 +75,15 @@ export const RESPUESTA_CITA = {
   reprogramar: { label: 'Reprogramar', badge: 'orange' },
 }
 
+// patients.fuente — acquisition source (Marketing module). 'ads' is stamped
+// automatically by public-booking when a booking arrives via /agendar?c=<slug>.
+export const FUENTE_PACIENTE = {
+  ads:      'Campaña (ads)',
+  referido: 'Referido',
+  organico: 'Orgánico',
+  otro:     'Otro',
+}
+
 // Default per-session rate (USD) when a patient has none set.
 export const TARIFA_DEFAULT = 39
 

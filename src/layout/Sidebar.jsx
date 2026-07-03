@@ -10,6 +10,7 @@ import {
   IconWallet,
   IconClock,
   IconSparkle,
+  IconMegaphone,
 } from './icons.jsx'
 
 export const NAV = [
@@ -18,6 +19,7 @@ export const NAV = [
   { to: '/pacientes', label: 'Pacientes', icon: IconUsers, ownerOnly: true },
   { to: '/seguimiento', label: 'Seguimiento', icon: IconPulse, ownerOnly: true },
   { to: '/finanzas', label: 'Finanzas', icon: IconWallet, ownerOnly: true },
+  { to: '/marketing', label: 'Marketing', icon: IconMegaphone, ownerOnly: true },
   { to: '/disponibilidad', label: 'Disponibilidad', icon: IconClock },
 ]
 
