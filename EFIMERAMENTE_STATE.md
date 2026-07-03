@@ -172,6 +172,10 @@
     drawer edits that change estado — via fire-and-forget `queries.js#notifySessionEstado`.
     Note: in-app and patient-initiated pushes read the same ("Sesión confirmada ✅") — differentiate
     later if it matters.
+  - Session commits: e32260c (v1) → 5d2d5e7 (health probe + docs) → 82aa12b (owner-all) →
+    7d37685 (in-app estado). All deploys verified live (sw.js content, bundle grep, health probe
+    `VAPID_PRIVATE_KEY:true`, notify-estado OPTIONS 204 + unauthenticated POST 401).
+  - ⚠️ Nicolas reported "some bugs already" at session end, details deferred — see backlog top.
 
 - **Netlify connector heads-up** (2026-07-02 evening): Nicolas enabled the Claude **Netlify
   connector** mid-session, so it could NOT be used this session (tool lists are fixed at session
@@ -182,10 +186,21 @@
 
 ## Pending / Backlog
 
-### Immediate — go-live remainder (public booking + push)
-- [ ] **Nicolas: set `VAPID_PRIVATE_KEY` in Netlify** (env var, functions scope) — the Web Push
-      private key generated 2026-07-02 (Fable gave Nicolas the value in-session). Until set,
-      pushes are silently skipped (function logs a warning). Then redeploy/trigger a deploy.
+### Immediate — next session (2026-07-03)
+- [ ] **BUGS reported by Nicolas end of 2026-07-02 evening session — details pending.** He noticed
+      "some bugs already" right after the Web Push v1.2 deploy but deferred them. **Ask him FIRST
+      what he saw** (screenshots in chat). Likely areas: the new push flow (subscribe card states,
+      notify-estado), Disponibilidad card, or Sesiones toggle behavior after the hooks.
+- [ ] **Verify push end-to-end on real phones** — nobody had subscribed yet as of session end.
+      Nicolas + at least Daniela: install PWA, Activar notificaciones, then test all 4 triggers
+      (WhatsApp confirm, WhatsApp cancel, /agendar booking, in-app toggle — remember the actor's
+      own devices are excluded on in-app changes). Clean up any test bookings after.
+- [ ] The **Netlify connector** should be usable from next session (see heads-up below) — use it
+      for deploy status / function logs instead of curling `?health`.
+
+### Go-live remainder (public booking + push)
+- [x] ~~Nicolas: set `VAPID_PRIVATE_KEY` in Netlify~~ — DONE 2026-07-02: verified live via the
+      `?health` probe (`"VAPID_PRIVATE_KEY": true`). Push sending is fully operational server-side.
 - [ ] **Therapist push onboarding** — each therapist: open the app in Safari (iPhone) → Compartir →
       "Agregar a pantalla de inicio" → open from the icon → Disponibilidad → "Activar
       notificaciones". Needs iOS 16.4+. Android: just tap the button in Chrome. Re-activation
