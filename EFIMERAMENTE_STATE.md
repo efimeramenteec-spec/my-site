@@ -316,6 +316,14 @@
       embedded/linked cross-origin (list currently mirrors `calendar.mjs`).
 
 ### Immediate — next session
+- [ ] **Next module: Seguimiento or Finanzas** (Nicolas picks at session start) — the last two
+      14-line placeholders. Marketing is DONE and live.
+- [ ] **Marketing follow-ups (when campaigns start running):** create the first real campaign in
+      /marketing and start using its ?c= links; patients created in-app (drawer/Pacientes) have
+      no fuente by default — set it manually when known. Watch the "≈ sin atribución" estimates.
+- [ ] **"Prueba Marte" test data** (+593983701092, session Jul 4 19:30, Mariana, created by
+      Nicolas 2026-07-03): its 24h WhatsApp reminder fired ~19:05 EC 2026-07-03. Patient +
+      session (+ any calendar event) still need deletion once Nicolas is done testing.
 - [ ] **Minor UI / aesthetic polish — DEFERRED** (per Nicolas 2026-07-02): do NOT spend building
   sessions on cosmetics. All aesthetic/UI-bug work waits until the whole architecture is finished,
   and will be done with cheaper models. Building sessions (Fable) are for new modules only.
