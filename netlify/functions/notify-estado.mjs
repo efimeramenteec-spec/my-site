@@ -8,8 +8,9 @@
 // only supplies the session id.
 //
 // Auth: requires a valid Supabase access token (owner or therapist). The
-// acting user's own devices are excluded — nobody needs a push about their
-// own tap; the therapist still hears about the owner's changes and vice versa.
+// session's therapist AND the owner are notified regardless of who acted —
+// per Nicolas (2026-07-03): the actor's own devices are NOT excluded, so the
+// flow is testable end-to-end from any account.
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
 import { notifyTherapist } from '../lib/push.mjs'
@@ -71,18 +72,10 @@ export default async (req) => {
 
   const patientName = [s.patient?.nombre, s.patient?.apellido].filter(Boolean).join(' ') || 'Paciente'
   const [, mm, dd] = String(s.fecha).split('-')
-  await notifyTherapist(
-    supabase,
-    s.terapeuta_id,
-    {
-      title: s.estado === 'confirmada' ? 'Sesión confirmada ✅' : 'Sesión cancelada ❌',
-      body: `${patientName} — ${dd}/${mm} ${String(s.hora_inicio || '').slice(0, 5)}`,
-      url: '/sesiones',
-    },
-    {
-      skipOwner: profile.role === 'owner',
-      skipTerapeutaId: profile.terapeuta_id || null,
-    },
-  )
+  await notifyTherapist(supabase, s.terapeuta_id, {
+    title: s.estado === 'confirmada' ? 'Sesión confirmada ✅' : 'Sesión cancelada ❌',
+    body: `${patientName} — ${dd}/${mm} ${String(s.hora_inicio || '').slice(0, 5)}`,
+    url: '/sesiones',
+  })
   return json({ ok: true })
 }

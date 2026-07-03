@@ -159,10 +159,12 @@ Pushes fire on: patient **confirms** (Twilio reply), patient **cancels** (Twilio
 **new llamada** booked on `/agendar`, and **in-app estado changes** to Confirmado/Cancelado
 (toggle or drawer edit → `notify-estado` function). Pieces:
 - `netlify/functions/notify-estado.mjs` — POST `{session_id}` + `Authorization: Bearer <Supabase
-  access token>`. Verifies the token, rebuilds the notification from the DB row (client input is
-  just the id), and excludes the ACTING user's own devices (owner action → therapist notified,
-  and vice versa). Called fire-and-forget from `queries.js#notifySessionEstado` (hooked in
-  `Sesiones.jsx` where estado actually changes).
+  access token>`. Verifies the token and rebuilds the notification from the DB row (client input
+  is just the id). Notifies the session's therapist + owner regardless of who acted (the
+  actor-exclusion shipped in v1.2 was removed 2026-07-03 per Nicolas — it made testing
+  impossible). Called fire-and-forget from `queries.js#notifySessionEstado` (hooked in
+  `Sesiones.jsx` where estado actually changes — note: only on estado CHANGE; creating a session
+  already set to confirmada does not push).
 - `netlify/lib/push.mjs` — `notifyTherapist(supabase, terapeutaId, {title, body, url})` via the
   `web-push` package. Sends to the therapist's subscriptions AND all owner subscriptions
   (`terapeuta_id IS NULL` rows = the owner, who receives EVERYTHING; RLS lets only `is_owner()`
