@@ -248,6 +248,7 @@
   llamada slots; window-end + busy collisions both respected), test booking created
   11:30–12:45 / individual / presencial / monto 39 / estado programada / Google event created,
   new session correctly blocked overlapping slots on re-fetch, pushes received, test cleaned up.
+  **Nicolas confirmed at session end: "the feature works perfectly."** Nothing pending on it.
 
 ## Pending / Backlog
 
