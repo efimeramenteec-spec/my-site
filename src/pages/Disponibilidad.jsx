@@ -55,10 +55,11 @@ function CopyLink({ url, label = 'Copiar enlace' }) {
   )
 }
 
-// Web Push opt-in for the logged-in therapist (one card per DEVICE — each
-// phone/browser subscribes separately). Notifies on: paciente confirma,
-// paciente cancela (Twilio quick replies) y nueva llamada agendada (/agendar).
-function NotificationsCard({ terapeutaId }) {
+// Web Push opt-in (one card per DEVICE — each phone/browser subscribes
+// separately). Notifies on: paciente confirma, paciente cancela (Twilio quick
+// replies) y nueva llamada agendada (/agendar). A therapist gets only her own
+// events; the owner (terapeutaId null → NULL subscription row) gets ALL.
+function NotificationsCard({ terapeutaId, isOwner }) {
   const [status, setStatus] = useState('loading') // loading|unsupported|denied|subscribed|idle
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -96,9 +97,10 @@ function NotificationsCard({ terapeutaId }) {
         <div className="min-w-0 flex-1">
           <h3 className="font-heading text-lg font-bold text-content-primary">Notificaciones en este dispositivo</h3>
           <p className="mt-1 font-body text-sm text-content-secondary">
-            Recibe una notificación cuando un paciente confirme o cancele una sesión por WhatsApp,
-            o cuando alguien agende una llamada contigo. Actívalas en cada teléfono o computadora
-            donde quieras recibirlas.
+            {isOwner
+              ? 'Recibe TODAS las notificaciones de la práctica: cada confirmación o cancelación por WhatsApp y cada llamada agendada, de todas las terapeutas.'
+              : 'Recibe una notificación cuando un paciente confirme o cancele una sesión por WhatsApp, o cuando alguien agende una llamada contigo.'}{' '}
+            Actívalas en cada teléfono o computadora donde quieras recibirlas.
           </p>
         </div>
         {status === 'subscribed' && <Badge variant="lavender">Activadas</Badge>}
@@ -320,7 +322,9 @@ export default function Disponibilidad() {
         </div>
       </Card>
 
-      {terapeutaId && <NotificationsCard terapeutaId={terapeutaId} />}
+      {(terapeutaId || fullAccess) && (
+        <NotificationsCard terapeutaId={terapeutaId} isOwner={!terapeutaId && fullAccess} />
+      )}
 
       {visible === null ? (
         <Card>

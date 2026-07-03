@@ -35,9 +35,11 @@ export async function getPushStatus() {
   }
 }
 
-export async function subscribeToPush(terapeutaId) {
+// terapeutaId null = OWNER subscription: receives ALL notifications. RLS
+// rejects a NULL row from anyone who isn't the owner, so a therapist with a
+// broken profile can't accidentally subscribe to everything.
+export async function subscribeToPush(terapeutaId = null) {
   if (!isSupabaseConfigured) return { ok: false, error: 'Disponible solo en la app en vivo.' }
-  if (!terapeutaId) return { ok: false, error: 'Tu perfil no está vinculado a una terapeuta.' }
   try {
     // iOS requires this call to happen inside a user gesture (the button tap).
     const permission = await Notification.requestPermission()
@@ -51,7 +53,7 @@ export async function subscribeToPush(terapeutaId) {
     })
     const { keys } = sub.toJSON()
     const { error } = await supabase.from('push_subscriptions').upsert(
-      { terapeuta_id: terapeutaId, endpoint: sub.endpoint, p256dh: keys.p256dh, auth: keys.auth },
+      { terapeuta_id: terapeutaId || null, endpoint: sub.endpoint, p256dh: keys.p256dh, auth: keys.auth },
       { onConflict: 'endpoint' },
     )
     if (error) throw error

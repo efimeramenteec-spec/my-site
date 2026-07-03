@@ -161,7 +161,11 @@
     (therapists only — owner has no terapeuta_id). Per-device activation; iOS shows the
     add-to-Home-Screen hint when opened in a Safari tab.
   - **Not covered (v1):** llamadas/sessions created in-app by owner/therapist don't push (client-side
-    writes; the therapist is the one acting anyway). Owner (Nicolas) gets no pushes — no terapeuta row.
+    writes; the therapist is the one acting anyway).
+  - **v1.1 same session (commit follows):** OWNER receives ALL notifications. `terapeuta_id` made
+    nullable (migration `push_subscriptions_owner_rows`); NULL row = owner subscription; RLS already
+    restricts NULL rows to `is_owner()`. `notifyTherapist` sends to therapist subs + all NULL subs.
+    The Disponibilidad card now also renders for the owner ("recibe TODAS las notificaciones").
 
 - **Netlify connector heads-up** (2026-07-02 evening): Nicolas enabled the Claude **Netlify
   connector** mid-session, so it could NOT be used this session (tool lists are fixed at session

@@ -9,9 +9,10 @@ import { VAPID_PUBLIC_KEY } from '../../src/lib/push-public-key.js'
 // VAPID subject: contact for push services. A stable https URL is fine.
 const VAPID_SUBJECT = 'https://efimeramente-panel.netlify.app'
 
-// Send { title, body, url } to every device subscription of one therapist.
-// Dead subscriptions (push service says 404/410 — e.g. the PWA was deleted
-// from the Home Screen) are pruned so we stop paying for them.
+// Send { title, body, url } to every device subscription of one therapist,
+// PLUS every owner subscription (terapeuta_id NULL — the owner gets all
+// notifications). Dead subscriptions (push service says 404/410 — e.g. the
+// PWA was deleted from the Home Screen) are pruned so we stop paying for them.
 export async function notifyTherapist(supabase, terapeutaId, { title, body, url = '/' }) {
   try {
     const priv = process.env.VAPID_PRIVATE_KEY
@@ -19,13 +20,12 @@ export async function notifyTherapist(supabase, terapeutaId, { title, body, url 
       console.warn('[push] VAPID_PRIVATE_KEY unset — skipping notification')
       return
     }
-    if (!terapeutaId) return
     webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, priv)
 
     const { data: subs, error } = await supabase
       .from('push_subscriptions')
       .select('id, endpoint, p256dh, auth')
-      .eq('terapeuta_id', terapeutaId)
+      .or(terapeutaId ? `terapeuta_id.eq.${terapeutaId},terapeuta_id.is.null` : 'terapeuta_id.is.null')
     if (error) {
       console.warn('[push] subscriptions fetch failed:', error.message)
       return

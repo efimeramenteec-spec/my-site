@@ -158,14 +158,17 @@ The one HTTP-reachable WhatsApp function. Three paths:
 Therapists get a push on: patient **confirms** (Twilio reply), patient **cancels** (Twilio reply),
 and **new llamada** booked on `/agendar`. Pieces:
 - `netlify/lib/push.mjs` — `notifyTherapist(supabase, terapeutaId, {title, body, url})` via the
-  `web-push` package. Never throws (best-effort like calendar sync). Prunes dead subscriptions
+  `web-push` package. Sends to the therapist's subscriptions AND all owner subscriptions
+  (`terapeuta_id IS NULL` rows = the owner, who receives EVERYTHING; RLS lets only `is_owner()`
+  hold NULL rows). Never throws (best-effort like calendar sync). Prunes dead subscriptions
   (push service 404/410 — e.g. PWA deleted from the Home Screen). Callers: `twilio-webhook.mjs`
   (after estado update) and `public-booking.mjs` (after session insert).
 - **VAPID keys:** public half committed in `src/lib/push-public-key.js` (safe by design); private
   half ONLY in the Netlify env var `VAPID_PRIVATE_KEY` — pushes are silently skipped (with a log)
   until it's set.
 - Client: `src/lib/push.js` (subscribe/unsubscribe/status) + opt-in card in `Disponibilidad.jsx`
-  (per-device; therapists only — the owner has no `terapeuta_id`). SW registration in `main.jsx`.
+  (per-device; therapists AND the owner — the owner subscribes with `terapeuta_id` null).
+  SW registration in `main.jsx`.
 - Subscriptions live in `push_subscriptions` (see `supabase/push-subscriptions.sql`).
 - **iOS reality:** needs iOS 16.4+ AND the PWA installed to the Home Screen; permission must be
   requested from a tap. Deleting the Home-Screen icon silently kills the subscription (it gets
