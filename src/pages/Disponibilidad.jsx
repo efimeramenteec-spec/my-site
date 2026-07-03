@@ -12,7 +12,8 @@ import { useAuth } from '../lib/auth.jsx'
 import { IconPlus, IconX } from '../layout/icons.jsx'
 import { getPushStatus, subscribeToPush, unsubscribeFromPush, isIOS } from '../lib/push.js'
 
-// Availability editor for the public /agendar booking page: per-therapist enable
+// Availability editor for the public booking pages (/agendar llamadas and
+// /reservar sesiones share the same weekly windows): per-therapist enable
 // toggle + weekly bookable hours (therapists.booking_availability, keys mon..sun,
 // each day = array of [start, end] HH:MM ranges in hora de Ecuador).
 // Owner sees and edits every therapist; a therapist sees only her own card
@@ -148,6 +149,7 @@ function TherapistCard({ therapist, onSaved }) {
   const [error, setError] = useState('')
 
   const bookingUrl = `${window.location.origin}/agendar?terapeuta=${therapist.id}`
+  const sessionUrl = `${window.location.origin}/reservar?terapeuta=${therapist.id}`
 
   const toggleEnabled = async (next) => {
     setEnabled(next) // optimistic; revert on failure
@@ -211,7 +213,8 @@ function TherapistCard({ therapist, onSaved }) {
         <h3 className="font-heading text-lg font-bold text-content-primary">{fullName(therapist)}</h3>
         {!therapist.activo && <Badge variant="neutral">Inactiva</Badge>}
         <div className="ml-auto flex items-center gap-3">
-          <CopyLink url={bookingUrl} label="Copiar su enlace" />
+          <CopyLink url={bookingUrl} label="Enlace llamada" />
+          <CopyLink url={sessionUrl} label="Enlace sesión" />
           <Toggle checked={enabled} onChange={toggleEnabled} label={enabled ? 'Visible' : 'Oculta'} />
         </div>
       </div>
@@ -315,7 +318,9 @@ export default function Disponibilidad() {
                 {publicUrl}
               </a>
               . Solo aparecen las terapeutas visibles, con sus horarios libres (Google Calendar + sesiones).
-              Horarios en hora de Ecuador.
+              Horarios en hora de Ecuador. También existe <span className="font-bold">/reservar</span>: el
+              mismo flujo pero para sesiones individuales reales (75 min) — compártelo en privado cuando
+              convenga; usa el botón «Enlace sesión» de cada terapeuta.
             </p>
           </div>
           <CopyLink url={publicUrl} />

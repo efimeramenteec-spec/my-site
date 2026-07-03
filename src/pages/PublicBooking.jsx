@@ -6,14 +6,39 @@ import { Button } from '../components/Button/Button.jsx'
 import { Input } from '../components/Input/Input.jsx'
 import { Logo } from '../layout/Logo.jsx'
 
-// Public, unauthenticated booking page (/agendar) — the Calendly replacement.
-// Prospective patients pick a therapist, a free 10-min slot, and register via
-// the intake form. ALL data comes from the public-booking Netlify function
-// (service key, server-side validation); this page never touches Supabase.
-// Deep link: /agendar?terapeuta=<id> preselects a therapist.
+// Public, unauthenticated booking page — the Calendly replacement. Two routes
+// share this component via the `kind` prop:
+//   /agendar  (kind='llamada') — free 10-min intro call, linked publicly.
+//   /reservar (kind='sesion')  — real 75-min individual session; the practice
+//                                shares this link privately when useful.
+// Patients pick a therapist, a free slot, and register via the intake form.
+// ALL data comes from the public-booking Netlify function (service key,
+// server-side validation); this page never touches Supabase.
+// Deep link: ?terapeuta=<id> preselects a therapist on either route.
 
 const FN = '/.netlify/functions/public-booking'
 const HORIZON_DAYS = 14 // keep in sync with public-booking.mjs
+
+const COPY = {
+  llamada: {
+    title: 'Agenda tu llamada',
+    subtitle: 'Una llamada gratuita de 10 minutos para conocernos y resolver tus dudas.',
+    what: 'Llamada',
+    submit: 'Confirmar llamada',
+    failed: 'No pudimos agendar tu llamada.',
+    doneWhat: 'Tu llamada',
+    doneNote: 'Nos pondremos en contacto contigo a esa hora.',
+  },
+  sesion: {
+    title: 'Reserva tu sesión',
+    subtitle: 'Agenda una sesión individual con tu terapeuta.',
+    what: 'Sesión',
+    submit: 'Confirmar sesión',
+    failed: 'No pudimos agendar tu sesión.',
+    doneWhat: 'Tu sesión',
+    doneNote: 'Un día antes te enviaremos un recordatorio por WhatsApp.',
+  },
+}
 
 const dayKeyFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' })
 const dayLabelFmt = new Intl.DateTimeFormat('es-EC', {
@@ -50,7 +75,8 @@ function BackLink({ onClick, children }) {
   )
 }
 
-export default function PublicBooking() {
+export default function PublicBooking({ kind = 'llamada' }) {
+  const copy = COPY[kind]
   const [searchParams] = useSearchParams()
   const preselectedId = searchParams.get('terapeuta')
 
@@ -63,6 +89,7 @@ export default function PublicBooking() {
   const [slots, setSlots] = useState(null) // null = loading
   const [slot, setSlot] = useState(null)
   const [form, setForm] = useState({ nombre: '', apellido: '', telefono: '+593', email: '', motivo: '', website: '' })
+  const [modalidad, setModalidad] = useState('en_linea') // sesión only
   const [errors, setErrors] = useState({})
   const [notice, setNotice] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -91,7 +118,7 @@ export default function PublicBooking() {
   const fetchSlots = (t, d) => {
     setSlots(null)
     setSlot(null)
-    fetch(`${FN}?action=slots&therapist=${encodeURIComponent(t.id)}&date=${d}`)
+    fetch(`${FN}?action=slots&therapist=${encodeURIComponent(t.id)}&date=${d}&kind=${kind}`)
       .then((r) => r.json())
       .then((data) => setSlots(data.slots || []))
       .catch(() => setSlots([]))
@@ -133,6 +160,8 @@ export default function PublicBooking() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          kind,
+          modalidad: kind === 'sesion' ? modalidad : undefined,
           therapist_id: therapist.id,
           date,
           start_time: slot,
@@ -157,10 +186,10 @@ export default function PublicBooking() {
       } else if (res.status === 429) {
         setNotice('Has hecho demasiados intentos. Inténtalo de nuevo más tarde.')
       } else {
-        setNotice('No pudimos agendar tu llamada. Inténtalo de nuevo en unos minutos.')
+        setNotice(`${copy.failed} Inténtalo de nuevo en unos minutos.`)
       }
     } catch {
-      setNotice('No pudimos agendar tu llamada. Revisa tu conexión e inténtalo de nuevo.')
+      setNotice(`${copy.failed} Revisa tu conexión e inténtalo de nuevo.`)
     } finally {
       setSubmitting(false)
     }
@@ -178,10 +207,8 @@ export default function PublicBooking() {
         <div className="flex flex-col items-center gap-3 text-center">
           <Logo variant="largo" className="max-h-14" />
           <div>
-            <h1 className="font-display text-3xl font-bold text-content-primary">Agenda tu llamada</h1>
-            <p className="mt-1 font-body text-sm text-content-secondary">
-              Una llamada gratuita de 10 minutos para conocernos y resolver tus dudas.
-            </p>
+            <h1 className="font-display text-3xl font-bold text-content-primary">{copy.title}</h1>
+            <p className="mt-1 font-body text-sm text-content-secondary">{copy.subtitle}</p>
           </div>
         </div>
 
@@ -294,13 +321,35 @@ export default function PublicBooking() {
               <BackLink onClick={() => { setStep('slot'); setNotice('') }}>Cambiar horario</BackLink>
               <StepHeading>Tus datos</StepHeading>
               <p className="font-body text-sm text-content-secondary">
-                Llamada con <span className="font-bold">{fullName(therapist)}</span> el{' '}
+                {copy.what} con <span className="font-bold">{fullName(therapist)}</span> el{' '}
                 <span className="font-bold capitalize">{longDateFmt.format(new Date(`${date}T12:00:00-05:00`))}</span> a las{' '}
                 <span className="font-bold">{slot}</span> (hora de Ecuador).
               </p>
             </div>
 
             <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+              {kind === 'sesion' && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="font-heading text-sm font-bold text-content-secondary">Modalidad</span>
+                  <div className="flex gap-2">
+                    {[['en_linea', 'En línea'], ['presencial', 'Presencial']].map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setModalidad(value)}
+                        className={[
+                          'rounded-pill px-4 py-2 font-caption text-sm font-bold transition-all duration-200',
+                          modalidad === value
+                            ? 'bg-brand-gradient text-white shadow-soft'
+                            : 'border border-stroke bg-white/80 text-content-secondary hover:text-content-primary',
+                        ].join(' ')}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="grid gap-4 sm:grid-cols-2">
                 <Input label="Nombre" value={form.nombre} error={errors.nombre}
                   onChange={(e) => set('nombre', e.target.value)} autoComplete="given-name" />
@@ -339,7 +388,7 @@ export default function PublicBooking() {
               </div>
 
               <Button type="submit" disabled={submitting} className="mt-1">
-                {submitting ? 'Agendando…' : 'Confirmar llamada'}
+                {submitting ? 'Agendando…' : copy.submit}
               </Button>
             </form>
           </Card>
@@ -353,13 +402,13 @@ export default function PublicBooking() {
             </span>
             <h2 className="font-display text-2xl font-bold text-content-primary">¡Listo!</h2>
             <p className="max-w-sm font-body text-content-secondary">
-              Tu llamada con <span className="font-bold">{confirmation.therapist_name}</span> quedó agendada para el{' '}
+              {copy.doneWhat} con <span className="font-bold">{confirmation.therapist_name}</span> quedó agendada para el{' '}
               <span className="font-bold capitalize">
                 {longDateFmt.format(new Date(`${confirmation.date}T12:00:00-05:00`))}
               </span>{' '}
               a las <span className="font-bold">{confirmation.start_time}</span> (hora de Ecuador).
             </p>
-            <p className="font-caption text-xs text-content-muted">Nos pondremos en contacto contigo a esa hora.</p>
+            <p className="font-caption text-xs text-content-muted">{copy.doneNote}</p>
           </Card>
         )}
 

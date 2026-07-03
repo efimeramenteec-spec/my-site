@@ -57,9 +57,12 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Public booking page — no auth, no app chrome. Talks only to the
-              public-booking Netlify function, never to Supabase directly. */}
+          {/* Public booking pages — no auth, no app chrome. They talk only to
+              the public-booking Netlify function, never to Supabase directly.
+              /agendar = free 10-min llamada; /reservar = real individual
+              session (link shared privately by the practice). */}
           <Route path="/agendar/*" element={<PublicBooking />} />
+          <Route path="/reservar/*" element={<PublicBooking kind="sesion" />} />
           <Route path="/*" element={<Gate />} />
         </Routes>
       </BrowserRouter>
