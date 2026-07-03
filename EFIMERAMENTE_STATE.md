@@ -264,6 +264,38 @@
     left in place — it fires at the ~00:00 UTC cron (~19:05 EC 2026-07-03); patient+session+event
     still need cleanup once he's done with it.
 
+- [x] **MARKETING module — BUILT** (2026-07-03 session 3, commit 03f304c, Fable 5). Owner-only
+  acquisition-funnel tracker per Nicolas's spec: **Meta Ads impresiones → WhatsApp conversaciones
+  → llamada 10 min → paciente**, with CPA / LTV / LTV:CAC / ROAS. Architecture only, no cosmetics.
+  - **DDL** (migration `marketing_campaigns`, mirrored `supabase/marketing-campaigns.sql`):
+    `campaigns` (totals for spend/impressions/clicks/conversations live HERE), `campaign_metrics`
+    (daily rows from CSV imports, unique (campaign_id,fecha)), `patients.fuente` +
+    `patients.campaign_id`, `sessions.campaign_id`. RLS owner-only on both new tables.
+  - **Attribution (3 layers):** (1) per-campaign links `/agendar?c=<slug>` + `/reservar?c=<slug>`
+    — PublicBooking echoes `c`, public-booking.mjs stamps session.campaign_id and, for new
+    patients (or known patients with NULL fuente), fuente='ads' + campaign_id; never overwrites
+    an existing attribution; unknown slugs ignored (attribution never blocks a booking).
+    (2) Fuente/Campaña selects in Pacientes → Configuración (FUENTE_PACIENTE: ads/referido/
+    organico/otro). (3) Patients created in the campaign window with no fuente → amber "≈"
+    estimate on the campaign card, kept separate from exact numbers.
+  - **/marketing page:** KPI header (Inversión, CPA global, LTV global = ingreso PAGADO promedio
+    por paciente con ≥1 sesión real, LTV:CAC con meta 3x), conversión llamada→paciente histórica,
+    campaign cards (funnel con % por etapa, gasto/CPA/ingreso atribuido/LTV/ROAS/leads,
+    Toggle activa, copy de ambos enlaces, editor manual de cifras, import CSV), y
+    **Llamadas sin sesión** (lista de seguimiento: llamada hecha, sin sesión real después).
+  - **Meta CSV import** (`src/lib/metaCsv.js`, dependency-free): EN/ES headers by substring,
+    BOM/quotes/CRLF safe, daily breakdown required ("Day"/"Día"), summary rows skipped, localized
+    numbers ("1.234,56"/"1,234.56") handled, same-day rows collapsed; upsert by fecha then
+    campaign totals recomputed from ALL daily rows (import overwrites manual totals).
+  - **Verified LIVE:** build green; parser unit-tested EN+ES (incl. localized "1.234,56" numbers
+    and Meta's dateless summary row); deploy confirmed by bundle grep; **attribution tested
+    end-to-end against the live function** — booked a llamada with `campaign:'qa-test'` →
+    session.campaign_id stamped AND the existing null-fuente patient got fuente='ads' +
+    campaign_id, exactly as designed. All test artifacts cleaned (session, Daniela's calendar
+    event, qa-test campaign, QA patient's fuente reset to NULL, booking_attempts cleared).
+    Note: agent cleared +593968029896's booking_attempts twice during testing (Nicolas's earlier
+    tests had used up the 2/day phone cap).
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)

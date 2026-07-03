@@ -56,7 +56,7 @@ and, for behavior, checking the running app. Always build before committing.
 `AuthProvider` → `BrowserRouter` → Routes. `/agendar` is **public** (no auth, no chrome — the
 patient-facing booking page `PublicBooking.jsx`; it talks ONLY to the `public-booking` Netlify
 function, never Supabase). Everything else goes through `Gate` and is **role-gated**:
-- **owner** (`fullAccess`): Dashboard, Sesiones, Pacientes, Seguimiento, Finanzas, Disponibilidad, DS.
+- **owner** (`fullAccess`): Dashboard, Sesiones, Pacientes, Seguimiento, Finanzas, Marketing, Disponibilidad, DS.
 - **therapist**: Sesiones (redirected there from `/`) + Disponibilidad (their own availability only).
 
 ### Demo-mode fallback (important — this shapes the whole data layer)
@@ -87,9 +87,30 @@ Key detail: session `estado` is `programada` (Pendiente) | `confirmada` | `cance
 - `auth.jsx` — `AuthProvider` / `useAuth`; loads the `profiles` row to get `role` + `terapeuta_id`.
 
 ### Pages (`src/pages/`)
-- **Built:** `Dashboard`, `Sesiones`, `Pacientes` (largest, full expediente), `Login`, `DesignSystem`.
+- **Built:** `Dashboard`, `Sesiones`, `Pacientes` (largest, full expediente), `Marketing` (owner-only
+  acquisition funnel — see below), `Login`, `DesignSystem`.
 - **Placeholders (14 lines each — NOT built yet):** `Seguimiento`, `Finanzas`. These are next-up backlog.
 - Session create/edit UI lives in `src/features/sesiones/` (`SesionDrawer.jsx`, `views.jsx`, `PatientSelect.jsx`).
+
+### Marketing module (owner-only, `src/pages/Marketing.jsx`)
+Tracks the acquisition funnel **Meta Ads impresiones → WhatsApp conversaciones → llamada 10 min →
+paciente** per campaign, plus CPA / LTV / LTV:CAC / ROAS. Hybrid data model:
+- **Top of funnel (manual):** `campaigns` table holds per-campaign TOTALS (spend/impressions/
+  clicks/conversations) — edited inline ("Actualizar cifras") or recomputed by importing a Meta Ads
+  CSV report (`src/lib/metaCsv.js` parses EN/ES headers; daily rows upsert into `campaign_metrics`
+  by (campaign_id, fecha) so re-imports never double-count; totals = sum of daily rows, so an
+  import overwrites manual totals). The CSV must include a daily breakdown ("Day"/"Día").
+- **Bottom of funnel (automatic):** llamadas/pacientes/ingreso derive live from sessions+patients
+  via attribution: per-campaign booking links `/agendar?c=<slug>` (PublicBooking echoes `c`,
+  public-booking.mjs stamps `sessions.campaign_id` + patient `fuente='ads'`/`campaign_id` — never
+  overwriting an existing fuente), or the manual **Fuente/Campaña** selects in Pacientes →
+  Configuración (`FUENTE_PACIENTE` in constants.js: ads/referido/organico/otro).
+- LTV = total PAID revenue ÷ patients with ≥1 real (non-llamada, non-cancelled) session; a
+  campaign "paciente" = attributed patient with ≥1 real session. Patients created during a
+  campaign window with no fuente show as an amber "≈ estimate", never mixed into exact numbers.
+- Also renders "Llamadas sin sesión" — patients whose last llamada has no real session after it
+  (the follow-up list). RLS: campaigns/campaign_metrics owner-only; migration
+  `supabase/marketing-campaigns.sql`.
 
 ### Design system (`src/components/`)
 Six primitives: `Button`, `Card`, `Badge`, `Input`, `Select`, `Toggle`. Re-exported from
@@ -193,7 +214,8 @@ Pushes fire on: patient **confirms** (Twilio reply), patient **cancels** (Twilio
 ## Database & migrations (`supabase/`)
 
 Tables in active use: **`patients`**, **`sessions`**, **`therapists`**, **`profiles`** (auth role linkage),
-**`push_subscriptions`** (Web Push, per-device), **`booking_attempts`** (public-booking rate limits).
+**`push_subscriptions`** (Web Push, per-device), **`booking_attempts`** (public-booking rate limits),
+**`campaigns`** + **`campaign_metrics`** (Marketing module, owner-only — `marketing-campaigns.sql`).
 - `auth-setup.sql` — GO-LIVE migration: adds `patients.tarifa`/`metodo_pago`, `profiles` table, RLS policies,
   and `is_owner()` / `my_terapeuta_id()` helpers. Idempotent (guarded). Run once in SQL editor.
 - `add-reminder-sent-at.sql` — adds `sessions.reminder_sent_at` (+ partial index). **Required** for the
