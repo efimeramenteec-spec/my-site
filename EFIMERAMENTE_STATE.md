@@ -250,6 +250,20 @@
   new session correctly blocked overlapping slots on re-fetch, pushes received, test cleaned up.
   **Nicolas confirmed at session end: "the feature works perfectly."** Nothing pending on it.
 
+- [x] **24h reminder cron VERIFIED FIRING in production** (2026-07-03 session 3). Nicolas suspected
+  the 23–25h reminder wasn't firing — investigated and proven healthy, NO code change needed:
+  - Evidence: cron ran 16:02 UTC (sent the first 2 real patient reminders ever — Cinthya Perez +
+    Camila Padilla, both Jul 4; Padilla then tapped "Confirmo" → `confirmada`, full loop worked in
+    prod) and 22:04 UTC (live test: QA session moved into the window → real WhatsApp received by
+    Nicolas). Netlify cron has ~2–5 min jitter past the hour.
+  - Why it LOOKED dead: reminders go ONLY to estado `programada` (Pendiente) — **confirmed by
+    Nicolas as intended, do not change**. Sessions confirmed in-app before the 24h window, or
+    created <23h before start, never get one. Jul 1–2 simply had zero eligible sessions.
+  - QA session `08a16ef9-…` reset afterwards (Jul 8 10:00, Mariana, `programada`, stamp cleared) —
+    still reusable. Nicolas's own "Prueba Marte" test (+593983701092, Jul 4 19:30, Mariana) was
+    left in place — it fires at the ~00:00 UTC cron (~19:05 EC 2026-07-03); patient+session+event
+    still need cleanup once he's done with it.
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
