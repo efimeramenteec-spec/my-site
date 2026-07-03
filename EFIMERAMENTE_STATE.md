@@ -177,26 +177,62 @@
     `VAPID_PRIVATE_KEY:true`, notify-estado OPTIONS 204 + unauthenticated POST 401).
   - ⚠️ Nicolas reported "some bugs already" at session end, details deferred — see backlog top.
 
-- **Netlify connector heads-up** (2026-07-02 evening): Nicolas enabled the Claude **Netlify
-  connector** mid-session, so it could NOT be used this session (tool lists are fixed at session
-  start — same thing that happened with the Supabase connector). **Next instance: check for
-  `mcp__*Netlify*` tools at session start** — if present, you can read deploy status, function
-  logs, and env vars (e.g. verify `VAPID_PRIVATE_KEY`/`REMINDERS_LIVE`) yourself instead of asking
-  Nicolas or curling the `?health` probe.
+- [x] **Netlify connector CONFIRMED WORKING** (2026-07-03, Fable 5). `mcp__claude_ai_Netlify__*`
+  tools work: deploy status/details (`netlify-deploy-services-reader`, incl. per-function bundle
+  hashes — useful to verify a function really redeployed), env vars READ+WRITE
+  (`netlify-project-services-updater` → `manage-env-vars` with `getAllEnvVars:true`; secret-marked
+  values come back masked, but `VAPID_PRIVATE_KEY`/`REMINDERS_LIVE` are readable). Site id
+  `f8418788-d4a9-4c79-88e1-767545c5de32`. **Limitation: NO function-log access via MCP** (readers
+  only cover projects/deploys/teams/user/extensions/forms) — for runtime behavior, test directly
+  (send a push with the VAPID key, curl the function) instead of hunting for logs.
+
+- [x] **Web Push "bugs" diagnosed + fixed — system fully working** (2026-07-03, Fable 5).
+  Nicolas's "therapists receive nothing" report had NO code bug behind it. Root causes found:
+  **(1) Subscription timing** — last night's tests fired pushes BEFORE the therapists subscribed
+  (owner 01:42 UTC, test booking 01:43, Camila 01:54, Daniela 02:38 — nothing to deliver to).
+  **(2) Actor exclusion (v1.2 design)** — Nicolas toggled from his own owner account, whose
+  devices were deliberately excluded, so HE never saw toggle pushes and assumed failure.
+  Diagnostics that proved the pipeline: direct `web-push` sends from the Mac using the prod
+  VAPID key (read via Netlify connector) → Apple 201 for Camila/Daniela/Carolina, all received
+  "Prueba técnica 🔧"; browser-driven toggle test via Claude-in-Chrome (owner login, Lista view)
+  → `notify-estado` POST 200 → Mariana received the push. **Change shipped (f10cc32): the actor
+  exclusion is REMOVED per Nicolas** — `notify-estado` now notifies the session's therapist +
+  all owner devices on EVERY estado change to confirmada/cancelada, regardless of who acted
+  (he needs self-testability; "no restrictions"). CLAUDE.md updated. All 6 therapists are now
+  subscribed (Francisco on Android/FCM, rest iOS/Apple). Verified received by Nicolas + Mariana;
+  Carolina's toggle-push receipt was still unconfirmed at session end (her direct-send DID
+  arrive, so expected fine — see backlog).
+
+- [x] **"Born Pendiente" rule audited + hard-enforced** (2026-07-03, commit 8d813e9). Nicolas's
+  rule: EVERY session is created estado `programada`, zero exceptions. Audit: already true
+  everywhere (drawer create hardcodes it and has NO estado field — estado is ONLY changeable via
+  the Lista toggle; drawer edit preserves initial estado; public-booking hardcodes it; DB default
+  is `programada`). Added a belt-and-braces override in `queries.js#createSession` so no future
+  UI change can bypass it. Corollary: the "created-as-confirmada doesn't push" gap mentioned in
+  v1.2 notes does NOT exist — there is no such path.
+
+- [x] **Test-data cleanup** (2026-07-03). Deleted 13 test sessions + 5 test patients (PRUEBA
+  UNO/FRANCISCO/CAROLINA, Prueba DE, "prueba tres") and their 7 Google Calendar events (3 deleted
+  via the calendar function; 4 were already gone — cancel flows remove events). KEPT: patient
+  **"Nicolas QA-TEST"** (+593968029896) with ONE reusable QA session `08a16ef9-…` (2026-07-08
+  10:00, Mariana) reset to `programada` + `reminder_sent_at` cleared — reusable via
+  `twilio-webhook?test_session_id=08a16ef9-fb81-4071-a3ef-4f4cda785428` (sends a REAL WhatsApp to
+  Nicolas's test phone, bypasses kill-switch + 23–25h window).
 
 ## Pending / Backlog
 
-### Immediate — next session (2026-07-03)
-- [ ] **BUGS reported by Nicolas end of 2026-07-02 evening session — details pending.** He noticed
-      "some bugs already" right after the Web Push v1.2 deploy but deferred them. **Ask him FIRST
-      what he saw** (screenshots in chat). Likely areas: the new push flow (subscribe card states,
-      notify-estado), Disponibilidad card, or Sesiones toggle behavior after the hooks.
-- [ ] **Verify push end-to-end on real phones** — nobody had subscribed yet as of session end.
-      Nicolas + at least Daniela: install PWA, Activar notificaciones, then test all 4 triggers
-      (WhatsApp confirm, WhatsApp cancel, /agendar booking, in-app toggle — remember the actor's
-      own devices are excluded on in-app changes). Clean up any test bookings after.
-- [ ] The **Netlify connector** should be usable from next session (see heads-up below) — use it
-      for deploy status / function logs instead of curling `?health`.
+### Immediate — next session (2026-07-04+)
+- [ ] **Confirm Carolina received the toggle push** (last open push item). Her session
+      `f1b1f379…` was toggled to confirmada 2026-07-03 ~20:05 UTC on the post-fix deploy;
+      Apple accepted the send and her device provably displays pushes (direct test arrived),
+      but she hadn't answered Nicolas by session end. If she did NOT get it: her device settings
+      (Focus mode / Ajustes→Notificaciones→banner style) or a re-added Home-Screen icon
+      (fix: deactivate + reactivate in Disponibilidad, then I re-test with a direct send).
+- [ ] **Quick re-test of the /agendar trigger** now that all 6 therapists are subscribed (it was
+      only ever fired when nobody but the owner had a subscription). Book a test llamada, confirm
+      the therapist + owner pushes, then clean up (patient row + session + calendar event).
+- [ ] Push triggers verified so far: WhatsApp quick-reply confirm/cancel ✅ (Nicolas + therapists),
+      in-app toggle ✅ (Nicolas + Mariana; Carolina pending above). /agendar pending re-test.
 
 ### Go-live remainder (public booking + push)
 - [x] ~~Nicolas: set `VAPID_PRIVATE_KEY` in Netlify~~ — DONE 2026-07-02: verified live via the
