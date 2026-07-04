@@ -338,6 +338,18 @@
   **Gotcha for future panels:** don't rely on an `h-full` chain through `Card` — clamp heights
   inside the child itself.
 
+- [x] **"Cancelada nunca se cobra" rule enforced** (2026-07-04, commit c34203b). Per Nicolas:
+  a cancelled session by definition didn't happen, so it can never be pagado. Enforced at
+  every layer: `updateSession` forces `pagado=false` whenever estado becomes cancelada/no_show
+  (covers Lista toggle, drawer, cancelSession, in-app cancel of a PREPAID session) and rejects
+  "mark as paid" on a cancelled row at the query level (`.not estado in (cancelada,no_show)` →
+  friendly error); Lista disables the pago toggle on cancelled rows (monto struck through,
+  "No se cobra"); `twilio-webhook.mjs` WhatsApp-cancel also clears pagado. Findings during the
+  audit: Dashboard "Sesiones por cobrar" ALREADY excluded cancelled via `isActive()` (no bug
+  there), and prod had ZERO cancelada+pagado rows — no data repair needed. Note for later:
+  that dashboard metric only fetches sessions from the current week's Monday onward, so unpaid
+  sessions OLDER than this week never appear in "por cobrar" — flagged to Nicolas, not changed.
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
