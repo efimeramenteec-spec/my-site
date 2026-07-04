@@ -165,49 +165,45 @@ export function MonthView({ sessions, cursor, onEdit, onCreateOn }) {
 
 // ─── List ───────────────────────────────────────────────────────
 
+// WhatsApp-reminder status legend. Llamadas are excluded from the reminder
+// cron, so they never show one. "No enviado aún" only makes sense for future
+// Pendiente sessions (only estado=programada gets reminders); past sessions
+// without a stamp show nothing to avoid noise on historical rows.
+function ReminderLegend({ s, today }) {
+  if (s.tipo === 'llamada') return null
+  const estado = normEstado(s.estado)
+  if (s.reminder_sent_at) {
+    const pending = estado === 'programada'
+    return (
+      <p className={`mt-0.5 font-caption text-[11px] ${pending ? 'text-amber-600' : 'text-content-muted'}`}>
+        {pending ? 'WhatsApp enviado · sin respuesta' : 'WhatsApp enviado'}
+      </p>
+    )
+  }
+  if (s.fecha >= today && estado === 'programada') {
+    return <p className="mt-0.5 font-caption text-[11px] text-content-muted">WhatsApp no enviado aún</p>
+  }
+  return null
+}
+
 export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid }) {
-  const [showHistory, setShowHistory] = React.useState(false)
   const today = dateKey(new Date())
 
-  const upcoming = sessions.filter((s) => s.fecha >= today).sort(byTime)
-  const past = sessions.filter((s) => s.fecha < today).sort((a, b) => -byTime(a, b))
-  const rows = showHistory ? [...upcoming, ...past] : upcoming
-
-  const toggle = (
-    <div className="px-2 py-3 text-center">
-      <button
-        type="button"
-        onClick={() => setShowHistory((v) => !v)}
-        className="font-caption text-xs text-brand-lavender underline"
-      >
-        {showHistory ? 'Ocultar historial' : 'Ver historial'}
-      </button>
-    </div>
-  )
+  // Single continuous list: furthest-future first, scrolling down goes
+  // through today and into the past.
+  const rows = [...sessions].sort((a, b) => -byTime(a, b))
 
   if (rows.length === 0) {
-    return (
-      <div>
-        <div className="py-16 text-center font-body text-content-secondary">
-          No hay sesiones próximas.
-          {past.length > 0 && (
-            <span className="mt-1 block font-caption text-xs text-content-muted">
-              Haz clic en “Ver historial” para ver sesiones pasadas.
-            </span>
-          )}
-        </div>
-        {past.length > 0 && toggle}
-      </div>
-    )
+    return <div className="py-16 text-center font-body text-content-secondary">No hay sesiones.</div>
   }
   return (
     <div>
     <div className="divide-y divide-stroke/50">
       {rows.map((s) => (
         <div key={s.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-2 py-3 transition-colors hover:bg-white/50">
-          <div className="w-24 flex-shrink-0">
-            <p className="font-heading text-sm font-bold text-content-primary">{capitalize(new Intl.DateTimeFormat('es-EC', { weekday: 'short', day: 'numeric' }).format(toDate(s.fecha)))}</p>
-            <p className="font-caption text-xs text-content-muted">{formatTime(s.hora_inicio)}</p>
+          <div className="w-28 flex-shrink-0">
+            <p className="font-heading text-sm font-bold text-content-primary">{capitalize(new Intl.DateTimeFormat('es-EC', { weekday: 'short', day: 'numeric', month: 'short' }).format(toDate(s.fecha)))}</p>
+            <p className="font-caption text-xs text-content-muted">{toDate(s.fecha).getFullYear()} · {formatTime(s.hora_inicio)}</p>
           </div>
 
           <div className="min-w-[150px] flex-1">
@@ -225,6 +221,7 @@ export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid }) {
                 </>
               )}
             </div>
+            <ReminderLegend s={s} today={today} />
           </div>
 
           <ConfSeg value={s.estado} onChange={(estado) => onSetEstado(s, estado)} />
@@ -241,7 +238,6 @@ export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid }) {
         </div>
       ))}
     </div>
-    {past.length > 0 && toggle}
     </div>
   )
 }

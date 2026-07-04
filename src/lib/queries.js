@@ -15,7 +15,7 @@ const isActive = (s) => s.estado !== 'cancelada' && s.estado !== 'no_show'
 
 // Joined select used everywhere we need patient + therapist names/colors.
 const SESSION_SELECT =
-  'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,metodo_pago,notas,google_event_id,' +
+  'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,metodo_pago,notas,google_event_id,reminder_sent_at,' +
   'patient:patients(id,nombre,apellido,telefono),therapist:therapists(id,nombre,apellido,color,calendar_email)'
 
 // Only real columns may be written to the sessions table.

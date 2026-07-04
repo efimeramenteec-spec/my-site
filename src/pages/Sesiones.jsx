@@ -18,12 +18,33 @@ const VIEWS = [
   ['lista', 'Lista'],
 ]
 
+// UI state survives page reloads (e.g. the phone discarding the backgrounded
+// PWA) via sessionStorage, so coming back doesn't reset the view/filters.
+const UI_KEY = 'sesiones-ui'
+function loadUi() {
+  try {
+    return JSON.parse(sessionStorage.getItem(UI_KEY)) || {}
+  } catch {
+    return {}
+  }
+}
+
 export default function Sesiones() {
   const ctx = useOutletContext()
   const [data, setData] = useState(null)
-  const [view, setView] = useState('semana')
-  const [cursor, setCursor] = useState(new Date())
-  const [filters, setFilters] = useState({ terapeuta: '', estado: '' })
+  const [view, setView] = useState(() => loadUi().view || 'semana')
+  const [cursor, setCursor] = useState(() => {
+    const saved = loadUi().cursor && new Date(loadUi().cursor)
+    return saved && !isNaN(saved) ? saved : new Date()
+  })
+  const [filters, setFilters] = useState(() => ({ terapeuta: '', estado: '', pago: '', ...loadUi().filters }))
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(UI_KEY, JSON.stringify({ view, filters, cursor: cursor.toISOString() }))
+    } catch { /* storage unavailable — non-fatal */ }
+  }, [view, filters, cursor])
+
   const [drawer, setDrawer] = useState({ open: false, mode: 'create', initial: null, defaultDate: null })
   const [search, setSearch] = useState('')
   const { fullAccess, terapeutaId } = useAuth()
@@ -46,7 +67,8 @@ export default function Sesiones() {
       (fullAccess
         ? !filters.terapeuta || s.terapeuta_id === filters.terapeuta
         : s.terapeuta_id === terapeutaId) &&
-      (!filters.estado || s.estado === filters.estado),
+      (!filters.estado || s.estado === filters.estado) &&
+      (!filters.pago || (filters.pago === 'pagada' ? !!s.pagado : !s.pagado)),
   )
 
   const visibleSessions =
@@ -119,6 +141,11 @@ export default function Sesiones() {
     { value: '', label: 'Todos los estados' },
     ...CONFIRMACION.map((c) => ({ value: c.value, label: c.label })),
   ]
+  const pagoOptions = [
+    { value: '', label: 'Todos los pagos' },
+    { value: 'pagada', label: 'Pagadas' },
+    { value: 'sin_pagar', label: 'Sin pagar' },
+  ]
 
   return (
     <div className="space-y-5 pt-2">
@@ -171,6 +198,9 @@ export default function Sesiones() {
           </div>
           <div className="w-40">
             <Select options={estadoOptions} value={filters.estado} onChange={(e) => setFilters((f) => ({ ...f, estado: e.target.value }))} placeholder="" />
+          </div>
+          <div className="w-36">
+            <Select options={pagoOptions} value={filters.pago} onChange={(e) => setFilters((f) => ({ ...f, pago: e.target.value }))} placeholder="" />
           </div>
           <Button size="sm" onClick={() => openCreate()}>
             <IconPlus size={16} /> Nueva sesión

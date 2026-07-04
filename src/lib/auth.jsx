@@ -23,6 +23,7 @@ export function AuthProvider({ children }) {
     }
 
     let active = true
+    let currentUserId = null
 
     async function loadProfile(userId) {
       const { data } = await supabase
@@ -41,6 +42,7 @@ export function AuthProvider({ children }) {
       .then(({ data }) => {
         if (!active) return
         setSession(data.session)
+        currentUserId = data.session?.user?.id ?? null
         if (data.session) loadProfile(data.session.user.id)
         else setLoading(false)
       })
@@ -51,9 +53,16 @@ export function AuthProvider({ children }) {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
       if (!active) return
       setSession(newSession)
+      // TOKEN_REFRESHED (and the SIGNED_IN echo on tab refocus) fire with the
+      // SAME user — reloading the profile then flips `loading`, which makes
+      // Gate unmount every page and wipe in-progress UI state. Only remount
+      // when the user actually changes.
+      const uid = newSession?.user?.id ?? null
+      if (uid === currentUserId) return
+      currentUserId = uid
       if (newSession) {
         setLoading(true)
-        loadProfile(newSession.user.id)
+        loadProfile(uid)
       } else {
         setProfile(null)
         setLoading(false)
