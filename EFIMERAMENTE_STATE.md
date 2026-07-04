@@ -373,6 +373,20 @@
     includes old seed sessions the sheet sync couldn't match (76 unmatched) — some may actually
     be paid; numbers improve as Nicolas marks history.
 
+- [x] **Finanzas v1.1: Deudores + paid_at + tendencia mensual** (2026-07-04, Fable 5). Per
+  Nicolas after reviewing metric suggestions:
+  - **Deudores** — tapping the "Sesiones por cobrar" KPI expands a per-patient debt list,
+    ordered OLDEST debt first (the collection order): name + phone, unpaid session count,
+    "desde {fecha} · N días", total owed. Follows the period selector like the KPI.
+  - **`sessions.paid_at`** (migration `sessions_paid_at`, mirrored `supabase/sessions-paid-at.sql`)
+    — real payment timestamp for future cash-flow metrics. Server-stamped in
+    `queries.js#updateSession` whenever pagado flips true, cleared on false (incl. cancel +
+    the twilio-webhook WhatsApp cancel). Deliberately NOT in SESSION_COLUMNS (clients can't
+    set it). Sessions paid before 2026-07-04 stay NULL — unknowable. A "cash view" metric
+    (ingreso por fecha de PAGO, not de sesión) becomes buildable once data accumulates.
+  - **Tendencia mensual** — 12-month ComposedChart (bruto bars + neto line), fixed window,
+    ignores the period selector by design.
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
@@ -395,6 +409,8 @@
 ### Immediate — next session
 - [ ] **Next module: Seguimiento or Finanzas** (Nicolas picks at session start) — the last two
       14-line placeholders. Marketing is DONE and live.
+- [ ] **Marketing: "Nuevos pacientes este mes" metric** (requested by Nicolas 2026-07-04) —
+      simple count of patients created in the current month, to live in the /marketing page.
 - [ ] **Marketing follow-ups (when campaigns start running):** create the first real campaign in
       /marketing and start using its ?c= links; patients created in-app (drawer/Pacientes) have
       no fuente by default — set it manually when known. Watch the "≈ sin atribución" estimates.

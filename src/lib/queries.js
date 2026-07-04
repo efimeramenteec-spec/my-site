@@ -25,8 +25,9 @@ const pickColumns = (obj) =>
 // Finance-only slim select: the Finanzas page reads ALL session history, so
 // it skips the patient join and heavy columns on purpose.
 const FINANZAS_SESSION_SELECT =
-  'id,terapeuta_id,fecha,tipo,estado,monto,pagado,' +
-  'therapist:therapists(id,nombre,apellido,color,provision_rate)'
+  'id,terapeuta_id,patient_id,fecha,tipo,estado,monto,pagado,paid_at,' +
+  'therapist:therapists(id,nombre,apellido,color,provision_rate),' +
+  'patient:patients(id,nombre,apellido,telefono)'
 
 export async function getFinanzasData() {
   if (isSupabaseConfigured) {
@@ -162,6 +163,11 @@ export async function updateSession(id, patch) {
   // Rule (Nicolas, 2026-07-04): a cancelled session never charges. Cancelling
   // force-unpays; marking a cancelled session as paid is rejected below.
   if (data.estado === 'cancelada' || data.estado === 'no_show') data.pagado = false
+  // Server-stamped payment moment (cash-flow metric — can't be backfilled, so
+  // it's recorded from 2026-07-04 on). Deliberately not in SESSION_COLUMNS:
+  // client payloads can never set it directly.
+  if (data.pagado === true) data.paid_at = new Date().toISOString()
+  else if (data.pagado === false) data.paid_at = null
   if (isSupabaseConfigured) {
     try {
       let query = supabase.from('sessions').update(data).eq('id', id)

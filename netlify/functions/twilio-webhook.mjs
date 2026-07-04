@@ -140,7 +140,7 @@ export default async (req) => {
 
   // 3. Apply the estado from the button tap. A cancelled session never
   //    charges, so cancelling also clears pagado (e.g. prepaid transfers).
-  const patch = estado === 'cancelada' ? { estado, pagado: false } : { estado }
+  const patch = estado === 'cancelada' ? { estado, pagado: false, paid_at: null } : { estado }
   const { error: uErr } = await supabase.from('sessions').update(patch).eq('id', session.id)
   if (uErr) { console.error('[twilio-webhook] update failed:', uErr.message); return twiml(200) }
   console.log(`[twilio-webhook] session ${session.id} → ${estado} (patient ${patient.id})`)
