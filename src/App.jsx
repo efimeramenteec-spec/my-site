@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/auth.jsx'
 import { AppShell } from './layout/AppShell.jsx'
 import Login from './pages/Login.jsx'
-import Dashboard from './pages/Dashboard.jsx'
 import Sesiones from './pages/Sesiones.jsx'
 import Pacientes from './pages/Pacientes.jsx'
 import Seguimiento from './pages/Seguimiento.jsx'
@@ -31,11 +30,12 @@ function Gate() {
       <Route element={<AppShell />}>
         {fullAccess ? (
           <>
-            <Route index element={<Dashboard />} />
+            {/* Finanzas absorbed the old Dashboard (2026-07-04) — it IS the
+                home page now; the /finanzas placeholder route is gone. */}
+            <Route index element={<Finanzas />} />
             <Route path="sesiones" element={<Sesiones />} />
             <Route path="pacientes" element={<Pacientes />} />
             <Route path="seguimiento" element={<Seguimiento />} />
-            <Route path="finanzas" element={<Finanzas />} />
             <Route path="marketing" element={<Marketing />} />
             <Route path="disponibilidad" element={<Disponibilidad />} />
             <Route path="ds" element={<DesignSystem />} />

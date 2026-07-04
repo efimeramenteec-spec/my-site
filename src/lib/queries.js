@@ -7,12 +7,6 @@ import {
   demoCreateSession, demoUpdateSession, demoDeleteSession,
   demoCreatePatient, demoUpdatePatient, demoDeletePatient,
 } from './demoStore.js'
-import { dateKey, weekRange, addDays } from './format.js'
-
-const WEEKDAYS = ['Lun', 'Mar', 'Mi\u00e9', 'Jue', 'Vie', 'S\u00e1b', 'Dom']
-
-const isActive = (s) => s.estado !== 'cancelada' && s.estado !== 'no_show'
-
 // Joined select used everywhere we need patient + therapist names/colors.
 const SESSION_SELECT =
   'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,metodo_pago,notas,google_event_id,reminder_sent_at,' +
@@ -28,71 +22,30 @@ const pickColumns = (obj) =>
 
 // \u2500\u2500\u2500 Dashboard \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
-function computeDashboard(data, now) {
-  const todayKey = dateKey(now)
-  const { start, end, monday } = weekRange(now)
-  const sessions = data.sessions || []
-  const patients = data.patients || []
+// Finance-only slim select: the Finanzas page reads ALL session history, so
+// it skips the patient join and heavy columns on purpose.
+const FINANZAS_SESSION_SELECT =
+  'id,terapeuta_id,fecha,tipo,estado,monto,pagado,' +
+  'therapist:therapists(id,nombre,apellido,color,provision_rate)'
 
-  const sesionesHoy = sessions.filter((s) => s.fecha === todayKey && isActive(s)).length
-  const sesionesSemana = sessions.filter(
-    (s) => s.fecha >= start && s.fecha <= end && isActive(s),
-  ).length
-
-  const pendientes = sessions.filter((s) => s.fecha < todayKey && isActive(s) && !s.pagado)
-  const pagosPendientes = {
-    count: pendientes.length,
-    total: pendientes.reduce((a, s) => a + Number(s.monto || 0), 0),
-  }
-
-  const pacientesActivos = patients.filter((p) => p.estado_general === 'activo').length
-
-  const upcoming = sessions
-    .filter((s) => s.fecha >= todayKey && (s.estado === 'programada' || s.estado === 'confirmada'))
-    .sort((a, b) => `${a.fecha} ${a.hora_inicio}`.localeCompare(`${b.fecha} ${b.hora_inicio}`))
-    .slice(0, 3)
-
-  const todays = sessions.filter((s) => s.fecha === todayKey)
-  const whatsapp = {
-    confirmadas: todays.filter((s) => s.estado === 'confirmada').length,
-    pendientes: todays.filter((s) => s.estado === 'programada').length,
-    canceladas: todays.filter((s) => s.estado === 'cancelada' || s.estado === 'no_show').length,
-  }
-
-  const weekly = WEEKDAYS.map((label, i) => {
-    const k = dateKey(addDays(monday, i))
-    return {
-      day: label,
-      fecha: k,
-      count: sessions.filter((s) => s.fecha === k && isActive(s)).length,
-      isToday: k === todayKey,
+export async function getFinanzasData() {
+  if (isSupabaseConfigured) {
+    try {
+      const [sRes, tRes] = await Promise.all([
+        supabase.from('sessions').select(FINANZAS_SESSION_SELECT)
+          .order('fecha', { ascending: true }),
+        supabase.from('therapists').select('id,nombre,apellido,color,activo,provision_rate')
+          .order('nombre', { ascending: true }),
+      ])
+      if (sRes.error) throw sRes.error
+      if (tRes.error) throw tRes.error
+      return { source: 'live', sessions: sRes.data || [], therapists: tRes.data || [] }
+    } catch (err) {
+      console.warn('[efimeramente] Supabase unavailable, showing demo data:', err?.message || err)
     }
-  })
-
-  return {
-    stats: { sesionesHoy, sesionesSemana, pagosPendientes, pacientesActivos },
-    upcoming,
-    whatsapp,
-    weekly,
   }
-}
-
-async function fetchDashboardFromSupabase(now) {
-  const { start } = weekRange(now)
-  const horizon = dateKey(addDays(now, 30))
-  const [patientsRes, sessionsRes] = await Promise.all([
-    supabase.from('patients').select('id,nombre,apellido,estado_general,terapeuta_id'),
-    supabase
-      .from('sessions')
-      .select(SESSION_SELECT)
-      .gte('fecha', start)
-      .lte('fecha', horizon)
-      .order('fecha', { ascending: true })
-      .order('hora_inicio', { ascending: true }),
-  ])
-  if (patientsRes.error) throw patientsRes.error
-  if (sessionsRes.error) throw sessionsRes.error
-  return { patients: patientsRes.data || [], sessions: sessionsRes.data || [] }
+  const store = getDemoStore()
+  return { source: 'demo', sessions: [...store.sessions], therapists: [...store.therapists] }
 }
 
 
@@ -147,20 +100,6 @@ export async function notifySessionEstado(sessionId) {
   } catch (err) {
     console.warn('[push] notify failed (non-blocking):', err?.message)
   }
-}
-
-export async function getDashboardData() {
-  const now = new Date()
-  if (isSupabaseConfigured) {
-    try {
-      const data = await fetchDashboardFromSupabase(now)
-      return { source: 'live', ...computeDashboard(data, now) }
-    } catch (err) {
-      console.warn('[efimeramente] Supabase unavailable, showing demo data:', err?.message || err)
-    }
-  }
-  const store = getDemoStore()
-  return { source: 'demo', ...computeDashboard(store, now) }
 }
 
 // \u2500\u2500\u2500 Sesiones \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500

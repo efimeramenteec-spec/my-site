@@ -1,14 +1,283 @@
-import React from 'react'
-import { Placeholder } from './_Placeholder.jsx'
-import { IconWallet } from '../layout/icons.jsx'
+import React, { useEffect, useMemo, useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
+import { Card } from '../components/Card/Card.jsx'
+import { Select } from '../components/Select/Select.jsx'
+import { getFinanzasData } from '../lib/queries.js'
+import { dateKey, weekRange, formatCurrency, fullName, capitalize } from '../lib/format.js'
+
+// Money page (replaced the old Dashboard, 2026-07-04). Definitions (Nicolas):
+// - "Real" session = not cancelled and not a llamada (free 10-min intro calls
+//   never charge nor provision).
+// - Provisión = per-session amount owed to the therapist (therapists.provision_rate,
+//   $24 default; Mariana 0 — she keeps 100%). Paid monthly for ALL non-cancelled
+//   sessions of the month, regardless of cobrado (unpaid patients are the
+//   practice's problem, the therapist is paid either way).
+// - The standalone Provisión card is therefore strictly CURRENT MONTH; every
+//   other metric follows the period selector.
+
+const isReal = (s) =>
+  s.tipo !== 'llamada' && s.estado !== 'cancelada' && s.estado !== 'no_show'
+
+const rateOf = (s) => Number(s.therapist?.provision_rate ?? 24)
+
+function monthRange(d) {
+  const y = d.getFullYear()
+  const m = d.getMonth()
+  return { from: dateKey(new Date(y, m, 1)), to: dateKey(new Date(y, m + 1, 0)) }
+}
+
+const PERIODS = [
+  { value: 'todo', label: 'Todo el historial' },
+  { value: 'este_mes', label: 'Este mes' },
+  { value: 'mes_pasado', label: 'Mes pasado' },
+  { value: 'esta_semana', label: 'Esta semana' },
+  { value: 'este_anio', label: 'Este año' },
+  { value: 'personalizado', label: 'Período personalizado…' },
+]
+
+function periodRange(period, custom, now) {
+  switch (period) {
+    case 'este_mes':
+      return monthRange(now)
+    case 'mes_pasado':
+      return monthRange(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+    case 'esta_semana': {
+      const { start, end } = weekRange(now)
+      return { from: start, to: end }
+    }
+    case 'este_anio':
+      return { from: `${now.getFullYear()}-01-01`, to: `${now.getFullYear()}-12-31` }
+    case 'personalizado':
+      return { from: custom.from || null, to: custom.to || null }
+    default:
+      return { from: null, to: null } // todo el historial
+  }
+}
+
+function KpiCard({ label, value, caption }) {
+  return (
+    <Card className="p-5">
+      <p className="font-caption text-xs font-bold uppercase tracking-wide text-content-muted">{label}</p>
+      <p className="mt-1 font-heading text-2xl font-bold text-content-primary">{value}</p>
+      {caption && <p className="mt-1 font-caption text-xs text-content-muted">{caption}</p>}
+    </Card>
+  )
+}
 
 export default function Finanzas() {
+  const ctx = useOutletContext()
+  const [data, setData] = useState(null)
+  const [period, setPeriod] = useState('todo')
+  const [custom, setCustom] = useState({ from: '', to: '' })
+
+  useEffect(() => {
+    let alive = true
+    getFinanzasData().then((d) => {
+      if (!alive) return
+      setData(d)
+      ctx?.setDataSource?.(d.source)
+    })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const now = new Date()
+  const today = dateKey(now)
+
+  const m = useMemo(() => {
+    if (!data) return null
+    const { from, to } = periodRange(period, custom, now)
+    const inPeriod = (s) => (!from || s.fecha >= from) && (!to || s.fecha <= to)
+    const real = data.sessions.filter(isReal)
+    const scoped = real.filter(inPeriod)
+
+    const sum = (rows) => rows.reduce((a, s) => a + Number(s.monto || 0), 0)
+
+    // Por cobrar: unpaid sessions that already happened (never future ones).
+    const porCobrarRows = scoped.filter((s) => !s.pagado && s.fecha < today)
+    const bruto = sum(scoped.filter((s) => s.pagado))
+    const proyectado = sum(scoped)
+    // Neto uses the provision of the SAME period so the subtraction is coherent
+    // (the standalone Provisión card below is strictly current-month).
+    const provisionPeriodo = scoped.reduce((a, s) => a + rateOf(s), 0)
+
+    // Provisión mensual (payroll reserve): current month, all real sessions.
+    const mes = monthRange(now)
+    const mesRows = real.filter((s) => s.fecha >= mes.from && s.fecha <= mes.to)
+    const provisionMes = mesRows.reduce((a, s) => a + rateOf(s), 0)
+    const provisionPorTerapeuta = Object.values(
+      mesRows.reduce((acc, s) => {
+        const id = s.terapeuta_id || 'sin'
+        acc[id] ||= { therapist: s.therapist, sesiones: 0, monto: 0 }
+        acc[id].sesiones += 1
+        acc[id].monto += rateOf(s)
+        return acc
+      }, {}),
+    ).sort((a, b) => b.monto - a.monto)
+
+    // Ingreso por terapeuta (period-scoped): paid revenue + session count.
+    const porTerapeuta = Object.values(
+      scoped.reduce((acc, s) => {
+        const id = s.terapeuta_id || 'sin'
+        acc[id] ||= { therapist: s.therapist, sesiones: 0, bruto: 0 }
+        acc[id].sesiones += 1
+        if (s.pagado) acc[id].bruto += Number(s.monto || 0)
+        return acc
+      }, {}),
+    ).sort((a, b) => b.bruto - a.bruto)
+
+    return {
+      porCobrar: { count: porCobrarRows.length, total: sum(porCobrarRows) },
+      bruto,
+      proyectado,
+      neto: bruto - provisionPeriodo,
+      provisionPeriodo,
+      provisionMes,
+      provisionPorTerapeuta,
+      mesSesiones: mesRows.length,
+      porTerapeuta,
+      sesiones: scoped.length,
+    }
+  }, [data, period, custom, today]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!data || !m) {
+    return (
+      <div className="grid grid-cols-1 gap-4 pt-2 sm:grid-cols-2 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="h-28 animate-pulse rounded-card bg-white/50" />
+        ))}
+      </div>
+    )
+  }
+
+  const monthLabel = capitalize(
+    new Intl.DateTimeFormat('es-EC', { month: 'long', year: 'numeric' }).format(now),
+  )
+
   return (
-    <Placeholder
-      icon={IconWallet}
-      title="Finanzas"
-      description="Libro de ingresos y egresos desde la tabla de facturas, totales mensuales y registro de pagos."
-      eta="Siguiente fase"
-    />
+    <div className="space-y-5 pt-2">
+      {/* Period selector */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="w-56">
+          <Select
+            options={PERIODS}
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+            placeholder=""
+          />
+        </div>
+        {period === 'personalizado' && (
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={custom.from}
+              onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))}
+              className="rounded-xl border border-stroke bg-white/70 px-3 py-2 font-body text-sm text-content-primary focus:border-brand-lavender focus:outline-none"
+            />
+            <span className="font-caption text-xs text-content-muted">a</span>
+            <input
+              type="date"
+              value={custom.to}
+              onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))}
+              className="rounded-xl border border-stroke bg-white/70 px-3 py-2 font-body text-sm text-content-primary focus:border-brand-lavender focus:outline-none"
+            />
+          </div>
+        )}
+        <span className="font-caption text-xs text-content-muted">
+          {m.sesiones} sesiones en el período (llamadas y canceladas excluidas)
+        </span>
+      </div>
+
+      {/* KPIs (period-scoped) */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard
+          label="Sesiones por cobrar"
+          value={formatCurrency(m.porCobrar.total)}
+          caption={`${m.porCobrar.count} ${m.porCobrar.count === 1 ? 'sesión pasada sin pagar' : 'sesiones pasadas sin pagar'}`}
+        />
+        <KpiCard
+          label="Ingreso bruto"
+          value={formatCurrency(m.bruto)}
+          caption="Solo sesiones ya pagadas"
+        />
+        <KpiCard
+          label="Ingreso proyectado"
+          value={formatCurrency(m.proyectado)}
+          caption="Pagadas + agendadas sin pagar"
+        />
+        <KpiCard
+          label="Ingreso neto"
+          value={formatCurrency(m.neto)}
+          caption={`Bruto − provisión del período (${formatCurrency(m.provisionPeriodo)})`}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* Provisión — strictly current month */}
+        <Card className="p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="font-caption text-xs font-bold uppercase tracking-wide text-content-muted">
+              Provisión de terapeutas — {monthLabel}
+            </p>
+            <p className="font-heading text-2xl font-bold text-content-primary">
+              {formatCurrency(m.provisionMes)}
+            </p>
+          </div>
+          <p className="mt-1 font-caption text-xs text-content-muted">
+            Reserva líquida para pagar a los terapeutas por las {m.mesSesiones} sesiones del mes
+            (confirmadas y pendientes; se paga aunque el paciente no haya pagado). Mariana no
+            provisiona — recibe el 100%.
+          </p>
+          <div className="mt-4 divide-y divide-stroke/40">
+            {m.provisionPorTerapeuta.map((row, i) => (
+              <div key={row.therapist?.id || i} className="flex items-center gap-2.5 py-2">
+                <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: row.therapist?.color || '#9ca3af' }} />
+                <span className="min-w-0 flex-1 truncate font-body text-sm text-content-primary">
+                  {row.therapist ? fullName(row.therapist) : 'Sin terapeuta'}
+                </span>
+                <span className="font-caption text-xs text-content-muted">
+                  {row.sesiones} × {formatCurrency(rateOf(row))}
+                </span>
+                <span className="w-20 text-right font-heading text-sm font-bold text-content-primary">
+                  {formatCurrency(row.monto)}
+                </span>
+              </div>
+            ))}
+            {m.provisionPorTerapeuta.length === 0 && (
+              <p className="py-2 font-caption text-sm text-content-muted">Sin sesiones este mes.</p>
+            )}
+          </div>
+        </Card>
+
+        {/* Ingreso por terapeuta — period-scoped */}
+        <Card className="p-5">
+          <p className="font-caption text-xs font-bold uppercase tracking-wide text-content-muted">
+            Ingreso por terapeuta
+          </p>
+          <p className="mt-1 font-caption text-xs text-content-muted">
+            Ingreso bruto (solo pagado) y sesiones del período seleccionado.
+          </p>
+          <div className="mt-4 divide-y divide-stroke/40">
+            {m.porTerapeuta.map((row, i) => (
+              <div key={row.therapist?.id || i} className="flex items-center gap-2.5 py-2">
+                <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: row.therapist?.color || '#9ca3af' }} />
+                <span className="min-w-0 flex-1 truncate font-body text-sm text-content-primary">
+                  {row.therapist ? fullName(row.therapist) : 'Sin terapeuta'}
+                </span>
+                <span className="font-caption text-xs text-content-muted">
+                  {row.sesiones} {row.sesiones === 1 ? 'sesión' : 'sesiones'}
+                </span>
+                <span className="w-20 text-right font-heading text-sm font-bold text-content-primary">
+                  {formatCurrency(row.bruto)}
+                </span>
+              </div>
+            ))}
+            {m.porTerapeuta.length === 0 && (
+              <p className="py-2 font-caption text-sm text-content-muted">Sin sesiones en el período.</p>
+            )}
+          </div>
+        </Card>
+      </div>
+    </div>
   )
 }

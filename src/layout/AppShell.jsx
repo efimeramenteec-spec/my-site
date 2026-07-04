@@ -4,11 +4,10 @@ import { Sidebar, MobileNav } from './Sidebar.jsx'
 import { TopNav } from './TopNav.jsx'
 
 const TITLES = {
-  '/': 'Dashboard',
+  '/': 'Finanzas',
   '/sesiones': 'Sesiones',
   '/pacientes': 'Pacientes',
   '/seguimiento': 'Seguimiento',
-  '/finanzas': 'Finanzas',
   '/marketing': 'Marketing',
   '/disponibilidad': 'Disponibilidad',
   '/ds': 'Design System',

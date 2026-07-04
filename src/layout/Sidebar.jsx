@@ -3,7 +3,6 @@ import { NavLink } from 'react-router-dom'
 import { useAuth } from '../lib/auth.jsx'
 import { Logo } from './Logo.jsx'
 import {
-  IconDashboard,
   IconCalendar,
   IconUsers,
   IconPulse,
@@ -14,11 +13,11 @@ import {
 } from './icons.jsx'
 
 export const NAV = [
-  { to: '/', label: 'Dashboard', icon: IconDashboard, end: true, ownerOnly: true },
+  // Finanzas absorbed the old Dashboard (2026-07-04) and lives at '/'.
+  { to: '/', label: 'Finanzas', icon: IconWallet, end: true, ownerOnly: true },
   { to: '/sesiones', label: 'Sesiones', icon: IconCalendar },
   { to: '/pacientes', label: 'Pacientes', icon: IconUsers, ownerOnly: true },
   { to: '/seguimiento', label: 'Seguimiento', icon: IconPulse, ownerOnly: true },
-  { to: '/finanzas', label: 'Finanzas', icon: IconWallet, ownerOnly: true },
   { to: '/marketing', label: 'Marketing', icon: IconMegaphone, ownerOnly: true },
   { to: '/disponibilidad', label: 'Disponibilidad', icon: IconClock },
 ]
