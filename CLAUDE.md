@@ -88,10 +88,15 @@ Key detail: session `estado` is `programada` (Pendiente) | `confirmada` | `cance
 - `auth.jsx` — `AuthProvider` / `useAuth`; loads the `profiles` row to get `role` + `terapeuta_id`.
 
 ### Pages (`src/pages/`)
-- **Built:** `Finanzas` (home page — money metrics: por cobrar, bruto, proyectado, neto, provisión
-  de terapeutas via `therapists.provision_rate` [$24 default, Mariana 0], ingreso por terapeuta;
-  period selector; llamadas + cancelled sessions never count), `Sesiones`, `Pacientes` (largest,
-  full expediente), `Marketing` (owner-only acquisition funnel — see below), `Login`, `DesignSystem`.
+- **Built:** `Finanzas` (home page — money metrics: por cobrar + expandable Deudores list
+  [oldest debt first], bruto, proyectado, neto, provisión de terapeutas via
+  `therapists.provision_rate` [$24 default, Mariana 0], ingreso por terapeuta, pendientes de
+  facturar [= pagadas sin factura], 12-month trend chart; period selector; llamadas + cancelled
+  sessions never count anywhere. Related session columns: `pagado`, `facturada` [manual toggle],
+  `paid_at` [server-stamped on pago flip — cash-flow groundwork]. Hard rule: cancelled sessions
+  can never be pagado/facturada — enforced in `queries.js#updateSession`), `Sesiones`,
+  `Pacientes` (largest, full expediente), `Marketing` (owner-only acquisition funnel — see
+  below), `Login`, `DesignSystem`.
 - **Placeholder (14 lines — NOT built yet):** `Seguimiento`. Last remaining module.
 - Session create/edit UI lives in `src/features/sesiones/` (`SesionDrawer.jsx`, `views.jsx`, `PatientSelect.jsx`).
 

@@ -418,8 +418,17 @@
       embedded/linked cross-origin (list currently mirrors `calendar.mjs`).
 
 ### Immediate — next session
-- [ ] **Next module: Seguimiento or Finanzas** (Nicolas picks at session start) — the last two
-      14-line placeholders. Marketing is DONE and live.
+- [ ] **Next module: SEGUIMIENTO** — the LAST 14-line placeholder (Finanzas shipped 2026-07-04
+      as the home page). Sketch in backlog: retention, sessions/therapist/month, no-show rate
+      (recharts). Confirm scope with Nicolas at session start; avoid duplicating what Finanzas
+      now covers (money) and Marketing (funnel/LTV).
+- [ ] **Facturada backfill decision (Nicolas):** the new `sessions.facturada` column starts
+      false for ALL history, so "Pendientes de facturar · Todo el historial" = every paid
+      session ever (~$6,314). If past sessions were in fact invoiced, bulk-mark everything
+      before a cutoff date as facturada (one SQL UPDATE) — Nicolas names the date.
+- [ ] **Dashboard "por cobrar" data hygiene:** the 72 unpaid past sessions include old seed
+      rows the sheet sync couldn't match (76 unmatched) — some may actually be paid. Numbers
+      self-correct as Nicolas marks history via the Deudores list.
 - [ ] **Marketing: "Nuevos pacientes este mes" metric** (requested by Nicolas 2026-07-04) —
       simple count of patients created in the current month, to live in the /marketing page.
 - [ ] **Marketing follow-ups (when campaigns start running):** create the first real campaign in
