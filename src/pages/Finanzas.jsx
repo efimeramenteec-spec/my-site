@@ -104,6 +104,10 @@ export default function Finanzas() {
     // Por cobrar: unpaid sessions that already happened (never future ones).
     const porCobrarRows = scoped.filter((s) => !s.pagado && s.fecha < today)
 
+    // Facturación: pendiente = PAGADA sin factura (la factura sigue al pago).
+    const sinFacturarRows = scoped.filter((s) => s.pagado && !s.facturada)
+    const facturadas = scoped.filter((s) => s.facturada).length
+
     // Deudores: por-cobrar grouped by patient, OLDEST debt first — the
     // collection order (oldest debts must be chased first, per Nicolas).
     const deudAcc = {}
@@ -182,6 +186,8 @@ export default function Finanzas() {
 
     return {
       porCobrar: { count: porCobrarRows.length, total: sum(porCobrarRows) },
+      sinFacturar: { count: sinFacturarRows.length, total: sum(sinFacturarRows) },
+      facturadas,
       deudores,
       trend,
       bruto,
@@ -245,7 +251,7 @@ export default function Finanzas() {
       </div>
 
       {/* KPIs (period-scoped) */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <KpiCard
           label="Sesiones por cobrar"
           value={formatCurrency(m.porCobrar.total)}
@@ -267,6 +273,11 @@ export default function Finanzas() {
           label="Ingreso neto"
           value={formatCurrency(m.neto)}
           caption={`Bruto − provisión del período (${formatCurrency(m.provisionPeriodo)})`}
+        />
+        <KpiCard
+          label="Pendientes de facturar"
+          value={formatCurrency(m.sinFacturar.total)}
+          caption={`${m.sinFacturar.count} ${m.sinFacturar.count === 1 ? 'pagada sin factura' : 'pagadas sin factura'} · ${m.facturadas} facturadas`}
         />
       </div>
 

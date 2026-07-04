@@ -186,7 +186,7 @@ function ReminderLegend({ s, today }) {
   return null
 }
 
-export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid, onDelete }) {
+export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid, onToggleFacturada, onDelete }) {
   const today = dateKey(new Date())
 
   // Single continuous list: furthest-future first, scrolling down goes
@@ -234,6 +234,16 @@ export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid, onDelete
             <div className="leading-tight">
               <p className={`font-heading text-sm font-bold ${cancelled ? 'text-content-muted line-through' : 'text-content-primary'}`}>{formatCurrency(s.monto)}</p>
               <p className="font-caption text-[11px] text-content-muted">{cancelled ? 'No se cobra' : s.pagado ? METODO_PAGO[s.metodo_pago] || 'Pagada' : 'Sin pagar'}</p>
+            </div>
+          </div>
+
+          {/* Facturación — manual for now. Sky blue on purpose: visually
+              distinct from the lavender pago toggle right next to it. */}
+          <div className="flex items-center gap-2.5">
+            <Toggle checked={!cancelled && !!s.facturada} disabled={cancelled} onClass="bg-sky-500" onChange={(v) => onToggleFacturada(s, v)} />
+            <div className="leading-tight">
+              <p className="font-caption text-[11px] font-bold uppercase tracking-wide text-sky-600">Factura</p>
+              <p className="font-caption text-[11px] text-content-muted">{cancelled ? 'No se factura' : s.facturada ? 'Facturada' : 'Sin facturar'}</p>
             </div>
           </div>
 

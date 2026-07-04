@@ -9,13 +9,13 @@ import {
 } from './demoStore.js'
 // Joined select used everywhere we need patient + therapist names/colors.
 const SESSION_SELECT =
-  'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,metodo_pago,notas,google_event_id,reminder_sent_at,' +
+  'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,facturada,metodo_pago,notas,google_event_id,reminder_sent_at,' +
   'patient:patients(id,nombre,apellido,telefono),therapist:therapists(id,nombre,apellido,color,calendar_email)'
 
 // Only real columns may be written to the sessions table.
 const SESSION_COLUMNS = [
   'patient_id', 'terapeuta_id', 'fecha', 'hora_inicio', 'hora_fin',
-  'tipo', 'modalidad', 'estado', 'monto', 'pagado', 'metodo_pago', 'notas', 'google_event_id',
+  'tipo', 'modalidad', 'estado', 'monto', 'pagado', 'facturada', 'metodo_pago', 'notas', 'google_event_id',
 ]
 const pickColumns = (obj) =>
   Object.fromEntries(SESSION_COLUMNS.filter((k) => k in obj).map((k) => [k, obj[k]]))
@@ -25,7 +25,7 @@ const pickColumns = (obj) =>
 // Finance-only slim select: the Finanzas page reads ALL session history, so
 // it skips the patient join and heavy columns on purpose.
 const FINANZAS_SESSION_SELECT =
-  'id,terapeuta_id,patient_id,fecha,tipo,estado,monto,pagado,paid_at,' +
+  'id,terapeuta_id,patient_id,fecha,tipo,estado,monto,pagado,facturada,paid_at,' +
   'therapist:therapists(id,nombre,apellido,color,provision_rate),' +
   'patient:patients(id,nombre,apellido,telefono)'
 
@@ -160,9 +160,13 @@ export async function createSession(payload) {
 
 export async function updateSession(id, patch) {
   const data = pickColumns(patch)
-  // Rule (Nicolas, 2026-07-04): a cancelled session never charges. Cancelling
-  // force-unpays; marking a cancelled session as paid is rejected below.
-  if (data.estado === 'cancelada' || data.estado === 'no_show') data.pagado = false
+  // Rule (Nicolas, 2026-07-04): a cancelled session never charges nor
+  // invoices. Cancelling force-clears both flags; setting either on a
+  // cancelled session is rejected below.
+  if (data.estado === 'cancelada' || data.estado === 'no_show') {
+    data.pagado = false
+    data.facturada = false
+  }
   // Server-stamped payment moment (cash-flow metric — can't be backfilled, so
   // it's recorded from 2026-07-04 on). Deliberately not in SESSION_COLUMNS:
   // client payloads can never set it directly.
@@ -171,15 +175,16 @@ export async function updateSession(id, patch) {
   if (isSupabaseConfigured) {
     try {
       let query = supabase.from('sessions').update(data).eq('id', id)
-      // "Mark as paid" only lands on non-cancelled rows; a cancelled target
-      // matches 0 rows and surfaces as the friendly error in the catch.
-      if (data.pagado === true && !('estado' in data)) {
+      // "Mark as paid/invoiced" only lands on non-cancelled rows; a cancelled
+      // target matches 0 rows and surfaces as the friendly error in the catch.
+      const settingFlag = data.pagado === true || data.facturada === true
+      if (settingFlag && !('estado' in data)) {
         query = query.not('estado', 'in', '(cancelada,no_show)')
       }
       const res = await query.select(SESSION_SELECT).single()
       if (res.error) {
-        if (res.error.code === 'PGRST116' && data.pagado === true) {
-          throw new Error('Una sesión cancelada no se puede marcar como cobrada.')
+        if (res.error.code === 'PGRST116' && settingFlag) {
+          throw new Error('Una sesión cancelada no se puede marcar como cobrada ni facturada.')
         }
         throw res.error
       }

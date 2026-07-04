@@ -137,6 +137,16 @@ export default function Sesiones() {
     else window.alert(res.error || 'No se pudo eliminar la sesión.')
   }
 
+  async function handleToggleFacturada(s, facturada) {
+    if (facturada && (s.estado === 'cancelada' || s.estado === 'no_show')) {
+      window.alert('Una sesión cancelada no se factura.')
+      return
+    }
+    const res = await updateSession(s.id, { facturada })
+    if (res.ok) await loadData()
+    else window.alert(res.error || 'No se pudo actualizar la facturación.')
+  }
+
   async function handleTogglePaid(s, paid) {
     if (paid && (s.estado === 'cancelada' || s.estado === 'no_show')) {
       window.alert('Una sesión cancelada no se cobra.')
@@ -243,6 +253,7 @@ export default function Sesiones() {
             onEdit={openEdit}
             onSetEstado={handleSetEstado}
             onTogglePaid={handleTogglePaid}
+            onToggleFacturada={handleToggleFacturada}
             onDelete={fullAccess ? handleDelete : undefined}
           />
         )}

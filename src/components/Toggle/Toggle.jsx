@@ -6,6 +6,9 @@ export function Toggle({
   label,
   disabled = false,
   id,
+  // ON-state classes. Override to visually distinguish toggles that live side
+  // by side (e.g. pago vs facturación in the sessions list).
+  onClass = 'bg-brand-gradient shadow-glow',
   ...props
 }) {
   const toggleId = id || (label ? `toggle-${label.toLowerCase().replace(/\s+/g, '-')}` : undefined)
@@ -25,9 +28,7 @@ export function Toggle({
           'focus:outline-none focus-visible:ring-2',
           'focus-visible:ring-brand-lavender focus-visible:ring-offset-2',
           'disabled:opacity-50 disabled:cursor-not-allowed',
-          checked
-            ? 'bg-brand-gradient shadow-glow'
-            : 'bg-gray-200',
+          checked ? onClass : 'bg-gray-200',
         ].join(' ')}
         {...props}
       >
