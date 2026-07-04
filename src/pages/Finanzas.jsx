@@ -101,30 +101,40 @@ export default function Finanzas() {
     // (the standalone Provisión card below is strictly current-month).
     const provisionPeriodo = scoped.reduce((a, s) => a + rateOf(s), 0)
 
+    // Per-therapist lists are seeded from the therapists table so EVERYONE
+    // appears, $0 included — grouping only the sessions would silently drop
+    // therapists with no sessions in the window (per Nicolas, 2026-07-04).
+    const seedByTherapist = (extra) => {
+      const acc = {}
+      for (const t of data.therapists) {
+        if (t.activo === false) continue
+        acc[t.id] = { therapist: t, sesiones: 0, ...extra }
+      }
+      return acc
+    }
+
     // Provisión mensual (payroll reserve): current month, all real sessions.
     const mes = monthRange(now)
     const mesRows = real.filter((s) => s.fecha >= mes.from && s.fecha <= mes.to)
     const provisionMes = mesRows.reduce((a, s) => a + rateOf(s), 0)
-    const provisionPorTerapeuta = Object.values(
-      mesRows.reduce((acc, s) => {
-        const id = s.terapeuta_id || 'sin'
-        acc[id] ||= { therapist: s.therapist, sesiones: 0, monto: 0 }
-        acc[id].sesiones += 1
-        acc[id].monto += rateOf(s)
-        return acc
-      }, {}),
-    ).sort((a, b) => b.monto - a.monto)
+    const provAcc = seedByTherapist({ monto: 0 })
+    for (const s of mesRows) {
+      const id = s.terapeuta_id || 'sin'
+      provAcc[id] ||= { therapist: s.therapist, sesiones: 0, monto: 0 }
+      provAcc[id].sesiones += 1
+      provAcc[id].monto += rateOf(s)
+    }
+    const provisionPorTerapeuta = Object.values(provAcc).sort((a, b) => b.monto - a.monto)
 
     // Ingreso por terapeuta (period-scoped): paid revenue + session count.
-    const porTerapeuta = Object.values(
-      scoped.reduce((acc, s) => {
-        const id = s.terapeuta_id || 'sin'
-        acc[id] ||= { therapist: s.therapist, sesiones: 0, bruto: 0 }
-        acc[id].sesiones += 1
-        if (s.pagado) acc[id].bruto += Number(s.monto || 0)
-        return acc
-      }, {}),
-    ).sort((a, b) => b.bruto - a.bruto)
+    const ingresoAcc = seedByTherapist({ bruto: 0 })
+    for (const s of scoped) {
+      const id = s.terapeuta_id || 'sin'
+      ingresoAcc[id] ||= { therapist: s.therapist, sesiones: 0, bruto: 0 }
+      ingresoAcc[id].sesiones += 1
+      if (s.pagado) ingresoAcc[id].bruto += Number(s.monto || 0)
+    }
+    const porTerapeuta = Object.values(ingresoAcc).sort((a, b) => b.bruto - a.bruto)
 
     return {
       porCobrar: { count: porCobrarRows.length, total: sum(porCobrarRows) },
