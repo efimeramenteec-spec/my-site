@@ -329,6 +329,15 @@
   - RLS verified sufficient (`patients_owner_all`, `sessions_access` are cmd=ALL) — no DDL.
     Demo mode mirrors both deletes (incl. the cascade). Deploy verified by bundle grep.
 
+- [x] **Patient detail panel scroll bug FIXED** (2026-07-04, commit c56d383). The panel body
+  never scrolled (bottom unreachable — surfaced by the new delete button). Root cause: the DS
+  `Card` wraps children in its own auto-height `relative z-10` div, so `h-full` inside
+  `PatientDetail` never resolved; the Card's `maxHeight` + `overflow-hidden` clipped instead of
+  constraining the inner `overflow-y-auto`. Fix: the `calc(100vh - 5rem)` clamp now lives on
+  PatientDetail's own flex column (+ `min-h-0` on the scroll body); Card keeps only `sticky`.
+  **Gotcha for future panels:** don't rely on an `h-full` chain through `Card` — clamp heights
+  inside the child itself.
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
