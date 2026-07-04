@@ -315,6 +315,20 @@
   - **Estado de pago filter** (Todos los pagos / Pagadas / Sin pagar) next to the therapist +
     estado filters; applies to all three views.
 
+- [x] **Hard-delete buttons for sessions + patients** (2026-07-04, commit 19e18ce, Fable 5).
+  Per Nicolas: needed for duplicated patients and mistaken/test bookings.
+  - **Lista view:** red "Eliminar" button per row, **owner-only** (therapists keep cancel;
+    RLS would allow them to delete their own sessions, but the UI doesn't expose it — easy
+    to open up later if wanted). `window.confirm` guard; deletes the row, then removes the
+    Google Calendar event best-effort (`queries.js#deleteSession`).
+  - **Pacientes detail:** "Eliminar paciente" danger button at the bottom of the panel.
+    ⚠️ `sessions.patient_id` is **ON DELETE CASCADE** (verified in prod), so deleting a patient
+    deletes ALL their sessions — the confirm states the session count, and
+    `queries.js#deletePatient` collects the sessions' `google_event_id`s FIRST and removes the
+    Calendar events best-effort after the row delete lands. Page is owner-only by routing.
+  - RLS verified sufficient (`patients_owner_all`, `sessions_access` are cmd=ALL) — no DDL.
+    Demo mode mirrors both deletes (incl. the cascade). Deploy verified by bundle grep.
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
