@@ -296,6 +296,25 @@
     Note: agent cleared +593968029896's booking_attempts twice during testing (Nicolas's earlier
     tests had used up the 2/day phone cap).
 
+- [x] **Lista QoL round + tab-switch reset bug FIXED** (2026-07-04, commit 273d1b8, Fable 5,
+  deploy verified by bundle grep). Four fixes Nicolas requested before starting the next module:
+  - **WhatsApp reminder legend in Lista** (per session, from `reminder_sent_at`, now included in
+    `SESSION_SELECT` — read-only, deliberately NOT in the write whitelist): amber
+    "WhatsApp enviado · sin respuesta" (sent, still Pendiente), muted "WhatsApp enviado" (sent,
+    estado since resolved), muted "WhatsApp no enviado aún" (future Pendiente, not sent).
+    Llamadas show nothing (excluded from the cron); past unsent rows show nothing (noise).
+  - **Tab-switch reset bug** — root cause in `auth.jsx`: Supabase fires `TOKEN_REFRESHED` /
+    `SIGNED_IN` on tab refocus; the listener set `loading=true` + reloaded the profile on EVERY
+    event, so Gate swapped the tree for the Splash and remounted the page, wiping view/filter
+    state. Now the profile reload only happens when the user id actually CHANGES. Belt-and-braces:
+    Sesiones persists view/filters/cursor in sessionStorage (`sesiones-ui` key) so even a real
+    page reload (iOS discarding the backgrounded PWA) restores where you were.
+  - **Lista dates show month + year** ("Mié, 3 jul" / "2026 · 10:00") and the list is now ONE
+    continuous descending list — furthest-future session at top, scroll down through today into
+    the past. The "Ver historial" toggle from 275baf5 is removed (superseded by Nicolas's request).
+  - **Estado de pago filter** (Todos los pagos / Pagadas / Sin pagar) next to the therapist +
+    estado filters; applies to all three views.
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
