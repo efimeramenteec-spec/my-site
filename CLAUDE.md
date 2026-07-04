@@ -56,7 +56,8 @@ and, for behavior, checking the running app. Always build before committing.
 `AuthProvider` → `BrowserRouter` → Routes. `/agendar` is **public** (no auth, no chrome — the
 patient-facing booking page `PublicBooking.jsx`; it talks ONLY to the `public-booking` Netlify
 function, never Supabase). Everything else goes through `Gate` and is **role-gated**:
-- **owner** (`fullAccess`): Dashboard, Sesiones, Pacientes, Seguimiento, Finanzas, Marketing, Disponibilidad, DS.
+- **owner** (`fullAccess`): Finanzas (the home page at `/` — absorbed the old Dashboard 2026-07-04),
+  Sesiones, Pacientes, Seguimiento, Marketing, Disponibilidad, DS.
 - **therapist**: Sesiones (redirected there from `/`) + Disponibilidad (their own availability only).
 
 ### Demo-mode fallback (important — this shapes the whole data layer)
@@ -87,9 +88,11 @@ Key detail: session `estado` is `programada` (Pendiente) | `confirmada` | `cance
 - `auth.jsx` — `AuthProvider` / `useAuth`; loads the `profiles` row to get `role` + `terapeuta_id`.
 
 ### Pages (`src/pages/`)
-- **Built:** `Dashboard`, `Sesiones`, `Pacientes` (largest, full expediente), `Marketing` (owner-only
-  acquisition funnel — see below), `Login`, `DesignSystem`.
-- **Placeholders (14 lines each — NOT built yet):** `Seguimiento`, `Finanzas`. These are next-up backlog.
+- **Built:** `Finanzas` (home page — money metrics: por cobrar, bruto, proyectado, neto, provisión
+  de terapeutas via `therapists.provision_rate` [$24 default, Mariana 0], ingreso por terapeuta;
+  period selector; llamadas + cancelled sessions never count), `Sesiones`, `Pacientes` (largest,
+  full expediente), `Marketing` (owner-only acquisition funnel — see below), `Login`, `DesignSystem`.
+- **Placeholder (14 lines — NOT built yet):** `Seguimiento`. Last remaining module.
 - Session create/edit UI lives in `src/features/sesiones/` (`SesionDrawer.jsx`, `views.jsx`, `PatientSelect.jsx`).
 
 ### Marketing module (owner-only, `src/pages/Marketing.jsx`)

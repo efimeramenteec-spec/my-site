@@ -350,6 +350,29 @@
   that dashboard metric only fetches sessions from the current week's Monday onward, so unpaid
   sessions OLDER than this week never appear in "por cobrar" — flagged to Nicolas, not changed.
 
+- [x] **FINANZAS module — BUILT, replaces the Dashboard at `/`** (2026-07-04, commit f7b256e,
+  Fable 5). Per Nicolas: the Dashboard was never used and redundant with Finanzas, so the home
+  page IS Finanzas now (nav entry renamed, IconWallet; the 14-line `/finanzas` placeholder route
+  removed; old `Dashboard.jsx` + its dead query code deleted). Owner-only as before; therapists
+  still land on /sesiones. Definitions decided with Nicolas this session:
+  - "Real" session = not cancelled AND not a llamada (free intro calls never charge/provision).
+  - **Period selector** (todo el historial [default] / este mes / mes pasado / esta semana /
+    este año / custom from–to) scopes every metric EXCEPT Provisión.
+  - **Sesiones por cobrar** — unpaid real sessions with fecha < hoy. Now looks at ALL history
+    (the old dashboard silently capped it to the current week — fixed per Nicolas).
+  - **Ingreso Bruto** = paid only; **Proyectado** = paid + scheduled unpaid; **Neto** = bruto −
+    provisión of the SAME period (the coherent subtraction; the standalone card differs).
+  - **Provisión de Terapeutas** — strictly CURRENT MONTH, counts confirmadas + pendientes
+    (Nicolas chose "todas menos canceladas"), paid regardless of cobrado. Rate lives in the new
+    **`therapists.provision_rate`** column (default 24; **Mariana = 0**, she keeps 100%) —
+    migration `therapist_provision_rate`, mirrored `supabase/therapist-provision-rate.sql`.
+    Card shows the per-therapist payroll breakdown (n × rate = $).
+  - **Ingreso por Terapeuta** — paid revenue + session count per therapist, period-scoped.
+  - Verified against prod SQL (todo el historial): por cobrar 72/$2,705; bruto $6,314;
+    proyectado $9,909; provisión julio $816 (39 sesiones). ⚠️ Data caveat: the 72 por-cobrar
+    includes old seed sessions the sheet sync couldn't match (76 unmatched) — some may actually
+    be paid; numbers improve as Nicolas marks history.
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
@@ -390,8 +413,8 @@
 
 ### Next modules (confirm with Nicolas before starting — he will pick at session start)
 - [ ] **Seguimiento** — analytics: retention, sessions/therapist/month, no-show rate, pending payments (recharts)
-- [ ] **Finanzas** — facturas ledger, monthly totals, mark-as-paid
-- Both are still 14-line placeholders (`src/pages/Seguimiento.jsx`, `src/pages/Finanzas.jsx`).
+- [x] ~~**Finanzas**~~ — DONE 2026-07-04 (replaced the Dashboard at `/`, see Completed Features).
+- Seguimiento is the LAST remaining 14-line placeholder (`src/pages/Seguimiento.jsx`).
   Architecture/building only — NO cosmetics/polish (deferred to cheaper models post-architecture).
   Confirm scope with Nicolas before writing code.
 - [x] ~~**Twilio webhook**~~ — DONE (commits 8a8f47c, fc84adb). Full WhatsApp reminder flow shipped: hourly `send-reminders.js` (kill-switch `REMINDERS_LIVE`, default OFF/dry-run + `?test_session_id` manual path) + inbound `twilio-webhook.js` (button tap → session estado) + `supabase/add-reminder-sent-at.sql` migration. See CLAUDE.md § Netlify functions.
