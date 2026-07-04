@@ -138,6 +138,10 @@ export default function Sesiones() {
   }
 
   async function handleTogglePaid(s, paid) {
+    if (paid && (s.estado === 'cancelada' || s.estado === 'no_show')) {
+      window.alert('Una sesión cancelada no se cobra.')
+      return
+    }
     const res = await updateSession(s.id, { pagado: paid })
     if (res.ok) await loadData()
     else window.alert(res.error || 'No se pudo actualizar el pago.')

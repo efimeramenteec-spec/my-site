@@ -199,7 +199,10 @@ export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid, onDelete
   return (
     <div>
     <div className="divide-y divide-stroke/50">
-      {rows.map((s) => (
+      {rows.map((s) => {
+        // Cancelled sessions never charge — the pago toggle is locked off.
+        const cancelled = normEstado(s.estado) === 'cancelada'
+        return (
         <div key={s.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-2 py-3 transition-colors hover:bg-white/50">
           <div className="w-28 flex-shrink-0">
             <p className="font-heading text-sm font-bold text-content-primary">{capitalize(new Intl.DateTimeFormat('es-EC', { weekday: 'short', day: 'numeric', month: 'short' }).format(toDate(s.fecha)))}</p>
@@ -227,10 +230,10 @@ export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid, onDelete
           <ConfSeg value={s.estado} onChange={(estado) => onSetEstado(s, estado)} />
 
           <div className="flex items-center gap-2.5">
-            <Toggle checked={!!s.pagado} onChange={(v) => onTogglePaid(s, v)} />
+            <Toggle checked={!cancelled && !!s.pagado} disabled={cancelled} onChange={(v) => onTogglePaid(s, v)} />
             <div className="leading-tight">
-              <p className="font-heading text-sm font-bold text-content-primary">{formatCurrency(s.monto)}</p>
-              <p className="font-caption text-[11px] text-content-muted">{s.pagado ? METODO_PAGO[s.metodo_pago] || 'Pagada' : 'Sin pagar'}</p>
+              <p className={`font-heading text-sm font-bold ${cancelled ? 'text-content-muted line-through' : 'text-content-primary'}`}>{formatCurrency(s.monto)}</p>
+              <p className="font-caption text-[11px] text-content-muted">{cancelled ? 'No se cobra' : s.pagado ? METODO_PAGO[s.metodo_pago] || 'Pagada' : 'Sin pagar'}</p>
             </div>
           </div>
 
@@ -239,7 +242,8 @@ export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid, onDelete
             <button onClick={() => onDelete(s)} className="rounded-full px-3 py-1.5 font-heading text-xs font-bold text-red-500 transition-colors hover:bg-red-50">Eliminar</button>
           )}
         </div>
-      ))}
+        )
+      })}
     </div>
     </div>
   )

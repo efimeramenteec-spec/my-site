@@ -220,10 +220,24 @@ export async function createSession(payload) {
 
 export async function updateSession(id, patch) {
   const data = pickColumns(patch)
+  // Rule (Nicolas, 2026-07-04): a cancelled session never charges. Cancelling
+  // force-unpays; marking a cancelled session as paid is rejected below.
+  if (data.estado === 'cancelada' || data.estado === 'no_show') data.pagado = false
   if (isSupabaseConfigured) {
     try {
-      const res = await supabase.from('sessions').update(data).eq('id', id).select(SESSION_SELECT).single()
-      if (res.error) throw res.error
+      let query = supabase.from('sessions').update(data).eq('id', id)
+      // "Mark as paid" only lands on non-cancelled rows; a cancelled target
+      // matches 0 rows and surfaces as the friendly error in the catch.
+      if (data.pagado === true && !('estado' in data)) {
+        query = query.not('estado', 'in', '(cancelada,no_show)')
+      }
+      const res = await query.select(SESSION_SELECT).single()
+      if (res.error) {
+        if (res.error.code === 'PGRST116' && data.pagado === true) {
+          throw new Error('Una sesión cancelada no se puede marcar como cobrada.')
+        }
+        throw res.error
+      }
       const session = res.data
       const calEmail = session.therapist?.calendar_email
       const eventId = session.google_event_id
