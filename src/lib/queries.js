@@ -4,8 +4,8 @@
 import { supabase, isSupabaseConfigured } from './supabase.js'
 import {
   getDemoStore,
-  demoCreateSession, demoUpdateSession,
-  demoCreatePatient, demoUpdatePatient,
+  demoCreateSession, demoUpdateSession, demoDeleteSession,
+  demoCreatePatient, demoUpdatePatient, demoDeletePatient,
 } from './demoStore.js'
 import { dateKey, weekRange, addDays } from './format.js'
 
@@ -247,6 +247,31 @@ export function cancelSession(id) {
   return updateSession(id, { estado: 'cancelada' })
 }
 
+// Hard delete for mistaken/test bookings. The Google Calendar event is
+// removed best-effort AFTER the row delete succeeds (never before).
+export async function deleteSession(id) {
+  if (isSupabaseConfigured) {
+    try {
+      const { data: session } = await supabase
+        .from('sessions')
+        .select(SESSION_SELECT)
+        .eq('id', id)
+        .single()
+      const res = await supabase.from('sessions').delete().eq('id', id)
+      if (res.error) throw res.error
+      const calEmail = session?.therapist?.calendar_email
+      if (calEmail && session?.google_event_id) {
+        callCalendar('delete', calEmail, null, session.google_event_id).then(() => {})
+      }
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err?.message || 'No se pudo eliminar la sesión.' }
+    }
+  }
+  demoDeleteSession(id)
+  return { ok: true }
+}
+
 // \u2500\u2500\u2500 Pacientes \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
 const PATIENT_SELECT =
@@ -342,6 +367,33 @@ export async function updatePatient(id, patch) {
     }
   }
   return { ok: true, data: demoUpdatePatient(id, data) }
+}
+
+// Hard delete for duplicated patients. sessions.patient_id is ON DELETE
+// CASCADE, so all their sessions disappear with the row — their Calendar
+// events are collected first and removed best-effort once the delete lands.
+export async function deletePatient(id) {
+  if (isSupabaseConfigured) {
+    try {
+      const { data: sessions } = await supabase
+        .from('sessions')
+        .select('google_event_id,therapist:therapists(calendar_email)')
+        .eq('patient_id', id)
+        .not('google_event_id', 'is', null)
+      const res = await supabase.from('patients').delete().eq('id', id)
+      if (res.error) throw res.error
+      for (const s of sessions || []) {
+        if (s.google_event_id && s.therapist?.calendar_email) {
+          callCalendar('delete', s.therapist.calendar_email, null, s.google_event_id).then(() => {})
+        }
+      }
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err?.message || 'No se pudo eliminar el paciente.' }
+    }
+  }
+  demoDeletePatient(id)
+  return { ok: true }
 }
 
 

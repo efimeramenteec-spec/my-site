@@ -186,7 +186,7 @@ function ReminderLegend({ s, today }) {
   return null
 }
 
-export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid }) {
+export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid, onDelete }) {
   const today = dateKey(new Date())
 
   // Single continuous list: furthest-future first, scrolling down goes
@@ -235,6 +235,9 @@ export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid }) {
           </div>
 
           <button onClick={() => onEdit(s)} className="rounded-full px-3 py-1.5 font-heading text-xs font-bold text-brand-lavender transition-colors hover:bg-brand-lavender/10">Editar</button>
+          {onDelete && (
+            <button onClick={() => onDelete(s)} className="rounded-full px-3 py-1.5 font-heading text-xs font-bold text-red-500 transition-colors hover:bg-red-50">Eliminar</button>
+          )}
         </div>
       ))}
     </div>

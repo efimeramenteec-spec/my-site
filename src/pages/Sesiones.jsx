@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom'
 import { Card } from '../components/Card/Card.jsx'
 import { Button } from '../components/Button/Button.jsx'
 import { Select } from '../components/Select/Select.jsx'
-import { getSessionsData, createSession, updateSession, createPatient, notifySessionEstado } from '../lib/queries.js'
+import { getSessionsData, createSession, updateSession, deleteSession, createPatient, notifySessionEstado } from '../lib/queries.js'
 import { WeekView, MonthView, ListView } from '../features/sesiones/views.jsx'
 import { SesionDrawer } from '../features/sesiones/SesionDrawer.jsx'
 import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName, formatTime } from '../lib/format.js'
@@ -124,6 +124,19 @@ export default function Sesiones() {
     } else window.alert(res.error || 'No se pudo actualizar la confirmación.')
   }
 
+  async function handleDelete(s) {
+    const when = `${s.fecha} ${formatTime(s.hora_inicio)}`
+    const ok = window.confirm(
+      `¿Eliminar la sesión de ${fullName(s.patient)} (${when})?\n\n` +
+        'Se borra definitivamente, junto con su evento de Google Calendar. ' +
+        'Esta acción no se puede deshacer.',
+    )
+    if (!ok) return
+    const res = await deleteSession(s.id)
+    if (res.ok) await loadData()
+    else window.alert(res.error || 'No se pudo eliminar la sesión.')
+  }
+
   async function handleTogglePaid(s, paid) {
     const res = await updateSession(s.id, { pagado: paid })
     if (res.ok) await loadData()
@@ -221,7 +234,13 @@ export default function Sesiones() {
         ) : view === 'mes' ? (
           <MonthView sessions={sessions} cursor={cursor} onEdit={openEdit} onCreateOn={openCreate} />
         ) : (
-          <ListView sessions={visibleSessions} onEdit={openEdit} onSetEstado={handleSetEstado} onTogglePaid={handleTogglePaid} />
+          <ListView
+            sessions={visibleSessions}
+            onEdit={openEdit}
+            onSetEstado={handleSetEstado}
+            onTogglePaid={handleTogglePaid}
+            onDelete={fullAccess ? handleDelete : undefined}
+          />
         )}
       </Card>
 

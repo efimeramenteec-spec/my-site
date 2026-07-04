@@ -76,3 +76,17 @@ export function demoUpdatePatient(id, patch) {
   s.patients[i] = { ...s.patients[i], ...patch, updated_at: new Date().toISOString() }
   return s.patients[i]
 }
+
+export function demoDeleteSession(id) {
+  const s = getDemoStore()
+  s.sessions = s.sessions.filter((x) => x.id !== id)
+  return true
+}
+
+// Mirrors the live sessions.patient_id ON DELETE CASCADE.
+export function demoDeletePatient(id) {
+  const s = getDemoStore()
+  s.patients = s.patients.filter((x) => x.id !== id)
+  s.sessions = s.sessions.filter((x) => x.patient_id !== id)
+  return true
+}

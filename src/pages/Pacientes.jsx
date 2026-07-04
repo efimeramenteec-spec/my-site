@@ -7,7 +7,7 @@ import { Button } from '../components/Button/Button.jsx'
 import { Input } from '../components/Input/Input.jsx'
 import { Select } from '../components/Select/Select.jsx'
 
-import { getPatientsData, createPatient, updatePatient } from '../lib/queries.js'
+import { getPatientsData, createPatient, updatePatient, deletePatient } from '../lib/queries.js'
 import { formatCurrency, formatTime, formatDateShort, fullName } from '../lib/format.js'
 import {
   ESTADO_PACIENTE,
@@ -92,7 +92,7 @@ function PatientRow({ patient, therapist, isSelected, onClick }) {
 
 // ─── Patient detail panel ───────────────────────────────────────
 
-function PatientDetail({ patient, therapist, therapists = [], campaigns = [], sessions, onClose, onSave }) {
+function PatientDetail({ patient, therapist, therapists = [], campaigns = [], sessions, onClose, onSave, onDelete }) {
   const [form, setForm] = useState({
     terapeuta_id: patient.terapeuta_id || '',
     tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
@@ -105,6 +105,7 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     setForm({
@@ -142,6 +143,22 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     }
+  }
+
+  const handleDelete = async () => {
+    const n = sessions.length
+    const detail =
+      n > 0
+        ? `Se borran el paciente y sus ${n} ${n === 1 ? 'sesión' : 'sesiones'} (incluidos sus eventos de Google Calendar).`
+        : 'No tiene sesiones registradas.'
+    const ok = window.confirm(
+      `¿Eliminar a ${fullName(patient)}?\n\n${detail} Esta acción no se puede deshacer.`,
+    )
+    if (!ok) return
+    setDeleting(true)
+    const res = await onDelete(patient.id)
+    setDeleting(false)
+    if (!res.ok) setError(res.error)
   }
 
   const sorted = useMemo(
@@ -353,6 +370,21 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
               })}
             </div>
           )}
+        </section>
+
+        {/* Danger zone */}
+        <section className="border-t border-stroke/40 pt-4">
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="w-full rounded-xl border border-red-200 px-4 py-2.5 font-heading text-sm font-bold text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+          >
+            {deleting ? 'Eliminando…' : 'Eliminar paciente'}
+          </button>
+          <p className="mt-1.5 text-center font-caption text-[11px] text-content-muted">
+            Borra el paciente y todas sus sesiones. No se puede deshacer.
+          </p>
         </section>
       </div>
     </div>
@@ -623,6 +655,19 @@ export default function Pacientes() {
     return res
   }, [])
 
+  const handleDelete = useCallback(async (id) => {
+    const res = await deletePatient(id)
+    if (res.ok) {
+      setSelectedId(null)
+      setData((d) => ({
+        ...d,
+        patients: d.patients.filter((p) => p.id !== id),
+        sessions: d.sessions.filter((s) => s.patient_id !== id),
+      }))
+    }
+    return res
+  }, [])
+
   const handleCreate = useCallback(async (payload) => {
     const res = await createPatient(payload)
     if (res.ok) {
@@ -766,6 +811,7 @@ export default function Pacientes() {
                 sessions={patientSessions}
                 onClose={() => setSelectedId(null)}
                 onSave={handleUpdate}
+                onDelete={handleDelete}
               />
             </Card>
           </div>
