@@ -387,6 +387,17 @@
   - **Tendencia mensual** — 12-month ComposedChart (bruto bars + neto line), fixed window,
     ignores the period selector by design.
 
+- [x] **Facturación tracking** (2026-07-04, commit b273235). New `sessions.facturada` boolean
+  (migration `sessions_facturada`, mirrored `supabase/sessions-facturada.sql`), set MANUALLY.
+  - **Lista:** second toggle per row — sky blue with a "FACTURA" label so it can't be confused
+    with the lavender pago toggle (the DS `Toggle` gained an `onClass` prop for this). States:
+    Facturada / Sin facturar; cancelled rows show "No se factura", toggle locked.
+  - **Cancelled rule extended:** cancelling clears `facturada` like `pagado`; setting either
+    flag on a cancelled row is rejected at the query level (shared guard in `updateSession`).
+  - **Finanzas:** 5th KPI "Pendientes de facturar" = **pagadas sin factura** (Nicolas chose:
+    factura follows payment; unpaid sessions don't appear until paid) — $ total + count,
+    caption shows the period's facturadas count. Follows the period selector.
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
