@@ -172,7 +172,11 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
   const totalPaid = sorted.filter((s) => s.pagado).reduce((a, s) => a + Number(s.monto || 0), 0)
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    // The height clamp lives HERE, not on the wrapping Card: Card inserts its
+    // own auto-height div around children, which breaks any h-full chain — a
+    // max-height on the Card just clips the panel instead of letting the body
+    // scroll (bug: unreachable bottom / no inner scroll).
+    <div className="flex flex-col overflow-hidden" style={{ maxHeight: 'calc(100vh - 5rem)' }}>
       {/* Header */}
       <div className="flex flex-shrink-0 items-start justify-between gap-3 border-b border-stroke/40 px-6 pb-4 pt-6">
         <div className="min-w-0">
@@ -201,7 +205,7 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
       </div>
 
       {/* Scrollable body */}
-      <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
         {/* Contact */}
         <section className="space-y-3">
           <SectionTitle>Contacto</SectionTitle>
@@ -802,7 +806,7 @@ export default function Pacientes() {
             >
               ← Lista de pacientes
             </button>
-            <Card noPadding className="sticky overflow-hidden" style={{ top: '1.5rem', maxHeight: 'calc(100vh - 5rem)' }}>
+            <Card noPadding className="sticky overflow-hidden" style={{ top: '1.5rem' }}>
               <PatientDetail
                 patient={selectedPatient}
                 therapist={therapistMap[selectedPatient.terapeuta_id]}
