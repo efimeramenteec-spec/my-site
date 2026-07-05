@@ -508,10 +508,11 @@
 - [x] ~~Set frecuencia per patient~~ — bulk-set ALL 154 to `semanal` 2026-07-04 per Nicolas
       (one SQL UPDATE). REMAINING for Nicolas: flip the few quincenal patients manually in
       Pacientes → Configuración as he identifies them.
-- [ ] **Facturada backfill decision (Nicolas):** asked 2026-07-04, answer was "skip for now" —
-      keep offering. `sessions.facturada` starts false for ALL history, so "Pendientes de
-      facturar · Todo el historial" = every paid session ever (~$6,314). One SQL UPDATE
-      bulk-marks everything before a cutoff date once Nicolas names it.
+- [x] ~~Facturada backfill~~ — DONE 2026-07-04 night: Nicolas chose cutoff June 15. One
+      UPDATE marked every PAID non-cancelled session with fecha < 2026-06-15 as facturada
+      (June 15 itself left as-is — his two sentences overlapped on the boundary; conservative
+      reading chosen and flagged to him). Result: 333 facturadas, 88 pendientes (oldest
+      2026-06-15). Unpaid old sessions deliberately NOT marked — factura follows payment.
 - [ ] **Dashboard "por cobrar" data hygiene:** the 72 unpaid past sessions include old seed
       rows the sheet sync couldn't match (76 unmatched) — some may actually be paid. Numbers
       self-correct as Nicolas marks history via the Deudores list.
