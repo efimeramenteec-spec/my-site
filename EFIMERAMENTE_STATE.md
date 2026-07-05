@@ -457,6 +457,32 @@
     Deliberately a NOTICE not a block — discretional trusted-patient cases exist (Nicolas).
     Excludes llamadas/cancelled/future and the session being edited.
 
+- [x] **APRIL+MAY HISTORY IMPORTED from the Google Sheet** (2026-07-04 night, Fable 5).
+  Nicolas provided `Sesiones_Consultorio (6).xlsx` (tab "Sesiones", 641 rows Apr 2–Jul 24).
+  **Scope per Nicolas: April+May ONLY — June/July rows ignored, existing DB data untouched**
+  (verified: June stayed 285, July stayed 43). One-off direct REST insert with the service key
+  (scratchpad script, not committed): NO calendar events / reminders / pushes fired.
+  - **Inserted 266 sessions** (Apr 74, May 192): 238 confirmadas (235 pagadas, 112 facturadas),
+    28 canceladas (pagado/facturada forced false per rule). tipo=individual, 75-min duration,
+    hora 12:00 placeholder where sheet said "n/a" (~old April rows), modalidad mapped
+    physical/google_conference→presencial/en_linea else NULL, monto from sheet (patient tarifa
+    fallback), notas preserved.
+  - **Matching:** 98.6% by phone (last-9 digits) — 627/641; name fallback 5. Sheet quirks
+    handled: "Carolin Almeida"→Carolina, "Confirmo, ahí estaré"→confirmada, all "Cancelar"
+    variants→cancelada, Cobrada/Sin cobrar/NA→pagado bool. **Skipped by decision (Nicolas):**
+    26 reagendadas (the moved slot's replacement is its own row), 4 identical duplicate rows.
+  - **1 new patient created:** Paul Cisneros (estado inactivo, semanal). The other 8 unmatched
+    names were June/July rows — out of scope, NOT created.
+  - **Post-import bulk (Nicolas approved): 23 activo patients with no real session since
+    June 1 → INACTIVO** (24 inactivo total, 131 activo) so "pacientes en riesgo" stays a
+    short recent-lapse list. Reminder: inactivo/descontinuado are excluded from Seguimiento
+    tracking by design.
+  - **Consequences now visible:** Finanzas "todo el historial" now starts April (bruto +~$8k
+    from Apr+May paid sessions); adherence windows extend back to each patient's real first
+    session; activos-por-mes chart fills Apr+May. ⚠️ "Pendientes de facturar" grew (~123 more
+    pagadas sin factura from Apr+May) — the **facturada backfill decision** is now more
+    relevant than ever (backlog).
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
