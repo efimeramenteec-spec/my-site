@@ -423,8 +423,16 @@
     scopes their data automatically (verified against pg_policies).
   - `_Placeholder.jsx` deleted — every module is now built. Demo mode: 4 mock patients got
     frecuencia so the page renders in demo.
-  - **For the numbers to mean anything, Nicolas/therapists must set frecuencia per patient**
-    (all 154 prod patients start NULL — see backlog).
+  - **Frecuencia backfilled** (2026-07-04, same day): Nicolas had ALL 154 patients set to
+    `semanal` via one SQL UPDATE; he flips the few quincenal cases manually in Pacientes.
+  - **v1.1 same day:** "Pacientes en riesgo" list moved behind the KPI card (click-to-expand,
+    same pattern as Finanzas Deudores) — per Nicolas, it's the therapists' daily
+    "who to contact" list. KpiCard gained onClick/active like the Finanzas one.
+  - **⚠️ Netlify usage pause incident (2026-07-04 evening):** the site 503'd
+    (`usage_exceeded`) — free Starter plan hit its monthly allowance (heavy build cadence).
+    Nicolas UPGRADED the team plan; site back. **New rule (Nicolas, budget): batch commits —
+    ONE push/deploy per work session, docs included in the same commit; never push docs-only
+    commits separately.**
 
 ## Pending / Backlog
 
@@ -448,10 +456,9 @@
 ### Immediate — next session
 - [x] ~~**Next module: SEGUIMIENTO**~~ — DONE 2026-07-04 (see Completed Features; scope was
       redefined by Nicolas to patient adherence — the old retention/no-show sketch is obsolete).
-- [ ] **Set frecuencia per patient** (Nicolas, in Pacientes → Configuración): all 154 prod
-      patients start with frecuencia NULL, so the Seguimiento adherence table is empty until
-      frequencies are assigned. The page lists "sin frecuencia definida" patients (sorted by
-      session count) as the worklist.
+- [x] ~~Set frecuencia per patient~~ — bulk-set ALL 154 to `semanal` 2026-07-04 per Nicolas
+      (one SQL UPDATE). REMAINING for Nicolas: flip the few quincenal patients manually in
+      Pacientes → Configuración as he identifies them.
 - [ ] **Facturada backfill decision (Nicolas):** asked 2026-07-04, answer was "skip for now" —
       keep offering. `sessions.facturada` starts false for ALL history, so "Pendientes de
       facturar · Todo el historial" = every paid session ever (~$6,314). One SQL UPDATE

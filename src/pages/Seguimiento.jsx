@@ -33,9 +33,13 @@ const rateColor = (rate) =>
     : rate >= 0.6 ? 'text-amber-600'
     : 'text-red-500'
 
-function KpiCard({ label, value, caption }) {
+function KpiCard({ label, value, caption, onClick, active }) {
   return (
-    <Card className="p-5">
+    <Card
+      className={`p-5 ${onClick ? 'cursor-pointer transition-shadow hover:shadow-card' : ''} ${active ? 'ring-2 ring-brand-lavender/50' : ''}`}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+    >
       <p className="font-caption text-xs font-bold uppercase tracking-wide text-content-muted">{label}</p>
       <p className="mt-1 font-heading text-2xl font-bold text-content-primary">{value}</p>
       {caption && <p className="mt-1 font-caption text-xs text-content-muted">{caption}</p>}
@@ -55,6 +59,7 @@ function TherapistDot({ color }) {
 export default function Seguimiento() {
   const ctx = useOutletContext()
   const [data, setData] = useState(null)
+  const [showRiesgo, setShowRiesgo] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -205,7 +210,9 @@ export default function Seguimiento() {
         <KpiCard
           label="Pacientes en riesgo"
           value={m.enRiesgo.length}
-          caption="Sin próxima cita y ausentes más de lo esperado"
+          caption="Sin próxima cita y ausentes más de lo esperado · toca para ver quiénes"
+          onClick={() => setShowRiesgo((v) => !v)}
+          active={showRiesgo}
         />
         <KpiCard
           label="Sesiones por paciente"
@@ -213,6 +220,46 @@ export default function Seguimiento() {
           caption={`Promedio histórico · ${m.pacientesConSesiones} pacientes con sesiones`}
         />
       </div>
+
+      {/* Pacientes en riesgo — expanded from the KPI, like Deudores in
+          Finanzas. The daily contact list: came before, nothing scheduled,
+          silent longer than twice their expected cadence. */}
+      {showRiesgo && (
+        <Card className="p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="font-caption text-xs font-bold uppercase tracking-wide text-content-muted">
+              Pacientes en riesgo — más tiempo ausente primero
+            </p>
+            <p className="font-caption text-xs text-content-muted">
+              Sin próxima cita agendada y sin venir hace más del doble de su frecuencia
+            </p>
+          </div>
+          <div className="mt-3 divide-y divide-stroke/40">
+            {m.enRiesgo.map((r) => (
+              <div key={r.patient.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5">
+                <TherapistDot color={r.therapist?.color} />
+                <div className="min-w-[160px] flex-1">
+                  <p className="truncate font-body font-bold text-content-primary">{fullName(r.patient)}</p>
+                  {r.patient.telefono && (
+                    <p className="font-caption text-xs text-content-muted">{r.patient.telefono}</p>
+                  )}
+                </div>
+                <span className="font-caption text-xs text-content-muted">
+                  {r.sesiones} {r.sesiones === 1 ? 'sesión' : 'sesiones'}
+                </span>
+                <span className="font-caption text-xs text-red-500">
+                  última {formatDateShort(r.ultima)} · hace {r.dias} días
+                </span>
+              </div>
+            ))}
+            {m.enRiesgo.length === 0 && (
+              <p className="py-2 font-caption text-sm text-content-muted">
+                Nadie en riesgo: todos tienen cita próxima o vinieron hace poco. 🎉
+              </p>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Adherencia por paciente */}
       <Card className="p-5">
@@ -264,42 +311,6 @@ export default function Seguimiento() {
             {m.sinFrecuencia.map((r) => `${fullName(r.patient)} (${r.asistidas})`).join(', ')}.
           </p>
         )}
-      </Card>
-
-      {/* Pacientes en riesgo */}
-      <Card className="p-5">
-        <div className="flex items-baseline justify-between gap-3">
-          <p className="font-caption text-xs font-bold uppercase tracking-wide text-content-muted">
-            Pacientes en riesgo — más tiempo ausente primero
-          </p>
-          <p className="font-caption text-xs text-content-muted">
-            Sin próxima cita agendada y sin venir hace más del doble de su frecuencia
-          </p>
-        </div>
-        <div className="mt-3 divide-y divide-stroke/40">
-          {m.enRiesgo.map((r) => (
-            <div key={r.patient.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5">
-              <TherapistDot color={r.therapist?.color} />
-              <div className="min-w-[160px] flex-1">
-                <p className="truncate font-body font-bold text-content-primary">{fullName(r.patient)}</p>
-                {r.patient.telefono && (
-                  <p className="font-caption text-xs text-content-muted">{r.patient.telefono}</p>
-                )}
-              </div>
-              <span className="font-caption text-xs text-content-muted">
-                {r.sesiones} {r.sesiones === 1 ? 'sesión' : 'sesiones'}
-              </span>
-              <span className="font-caption text-xs text-red-500">
-                última {formatDateShort(r.ultima)} · hace {r.dias} días
-              </span>
-            </div>
-          ))}
-          {m.enRiesgo.length === 0 && (
-            <p className="py-2 font-caption text-sm text-content-muted">
-              Nadie en riesgo: todos tienen cita próxima o vinieron hace poco. 🎉
-            </p>
-          )}
-        </div>
       </Card>
 
       {/* Actividad mensual */}
