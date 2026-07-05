@@ -21,8 +21,8 @@ const patients = [
   { id: 'p6',  nombre: 'Emiliano',  apellido: 'Torres',    telefono: '+593991110206', email: 'emiliano.t@gmail.com',  terapeuta_id: 't3', motivo_consulta: 'Depresión',         estado_general: 'activo',  tarifa: 30, metodo_pago: 'cash' },
   { id: 'p7',  nombre: 'Camila',    apellido: 'Vega',      telefono: '+593991110207', email: 'camila.v@gmail.com',    terapeuta_id: 't3', motivo_consulta: 'Ansiedad social',   estado_general: 'activo',  tarifa: 39, metodo_pago: 'payphone' },
   { id: 'p8',  nombre: 'Santiago',  apellido: 'Luna',      telefono: '+593991110208', email: 'santiago.l@gmail.com',  terapeuta_id: 't2', motivo_consulta: 'Evaluación',        estado_general: 'activo',  tarifa: 39, metodo_pago: 'paypal' },
-  { id: 'p9',  nombre: 'Ximena',    apellido: 'Castro',    telefono: '+593991110209', email: 'ximena.c@gmail.com',    terapeuta_id: 't1', motivo_consulta: 'Manejo de enojo',    estado_general: 'pausado', tarifa: 35, metodo_pago: 'cash' },
-  { id: 'p10', nombre: 'Lucía',     apellido: 'Domínguez', telefono: '+593991110210', email: 'lucia.d@gmail.com',     terapeuta_id: 't2', motivo_consulta: 'Terapia familiar',  estado_general: 'alta',    tarifa: 39, metodo_pago: 'transferencia' },
+  { id: 'p9',  nombre: 'Ximena',    apellido: 'Castro',    telefono: '+593991110209', email: 'ximena.c@gmail.com',    terapeuta_id: 't1', motivo_consulta: 'Manejo de enojo',    estado_general: 'inactivo', tarifa: 35, metodo_pago: 'cash' },
+  { id: 'p10', nombre: 'Lucía',     apellido: 'Domínguez', telefono: '+593991110210', email: 'lucia.d@gmail.com',     terapeuta_id: 't2', motivo_consulta: 'Terapia familiar',  estado_general: 'descontinuado', tarifa: 39, metodo_pago: 'transferencia' },
 ]
 
 // weekday (0 = Mon … 6 = Sun), time, patient, therapist, type, modality, base estado, paid?

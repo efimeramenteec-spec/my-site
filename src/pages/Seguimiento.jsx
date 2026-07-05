@@ -87,8 +87,14 @@ export default function Seguimiento() {
     }
     const attendedOf = (p) => (byPatient[p.id] || []).filter((s) => isAttended(s, today))
 
+    // Only ACTIVO patients are tracked (Nicolas, 2026-07-04): inactivo /
+    // descontinuado aren't expected to come, so adherence and "en riesgo"
+    // ignore them. Historical charts below still count everyone — the past
+    // doesn't change when a patient leaves.
+    const tracked = data.patients.filter((p) => p.estado_general === 'activo')
+
     // ── Adherencia ──
-    const conFrecuencia = data.patients.filter((p) => p.frecuencia)
+    const conFrecuencia = tracked.filter((p) => p.frecuencia)
     const adherencia = []
     const sinSesiones = []
     for (const p of conFrecuencia) {
@@ -104,7 +110,7 @@ export default function Seguimiento() {
 
     // Patients already in therapy but without a defined cadence — they are
     // invisible to the metric until someone sets their frecuencia.
-    const sinFrecuencia = data.patients
+    const sinFrecuencia = tracked
       .filter((p) => !p.frecuencia)
       .map((p) => ({ patient: p, therapist: therapistById[p.terapeuta_id], asistidas: attendedOf(p).length }))
       .filter((r) => r.asistidas > 0)
@@ -112,11 +118,10 @@ export default function Seguimiento() {
 
     // ── Pacientes en riesgo ──
     // Came at least once, nothing on the calendar, and silent for longer than
-    // twice their expected interval. Alta/baja patients left out — they exited
-    // deliberately, they are not "at risk".
+    // twice their expected interval. Only activo patients — inactivo/
+    // descontinuado were already written off deliberately.
     const enRiesgo = []
-    for (const p of data.patients) {
-      if (p.estado_general === 'alta' || p.estado_general === 'baja') continue
+    for (const p of tracked) {
       const attended = attendedOf(p)
       if (attended.length === 0) continue
       if (hasUpcoming(byPatient[p.id] || [], today)) continue

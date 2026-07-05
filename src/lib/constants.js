@@ -60,12 +60,15 @@ export const METODO_PAGO = {
   cash:          'Cash',
 }
 
-// patients.estado_general
+// patients.estado_general — redefined 2026-07-04 (was activo/pausado/alta/baja).
+// activo = expected to keep coming (default). inactivo = hasn't come back but
+// might. descontinuado = gone or explicitly quit. Only ACTIVO patients are
+// tracked in Seguimiento (adherence / en riesgo). Legacy values were migrated
+// in the DB (patient-estado-overhaul.sql); display code falls back gracefully.
 export const ESTADO_PACIENTE = {
-  activo:  { label: 'Activo',  badge: 'lavender' },
-  pausado: { label: 'Pausado', badge: 'yellow' },
-  alta:    { label: 'Alta',    badge: 'neutral' },
-  baja:    { label: 'Baja',    badge: 'neutral' },
+  activo:        { label: 'Activo',        badge: 'lavender' },
+  inactivo:      { label: 'Inactivo',      badge: 'yellow' },
+  descontinuado: { label: 'Descontinuado', badge: 'neutral' },
 }
 
 // whatsapp_messages.respuesta_cita

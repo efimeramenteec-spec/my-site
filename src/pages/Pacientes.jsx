@@ -7,6 +7,7 @@ import { Button } from '../components/Button/Button.jsx'
 import { Input } from '../components/Input/Input.jsx'
 import { Select } from '../components/Select/Select.jsx'
 
+import { useAuth } from '../lib/auth.jsx'
 import { getPatientsData, createPatient, updatePatient, deletePatient } from '../lib/queries.js'
 import { formatCurrency, formatTime, formatDateShort, fullName } from '../lib/format.js'
 import {
@@ -93,7 +94,7 @@ function PatientRow({ patient, therapist, isSelected, onClick }) {
 
 // ─── Patient detail panel ───────────────────────────────────────
 
-function PatientDetail({ patient, therapist, therapists = [], campaigns = [], sessions, onClose, onSave, onDelete }) {
+function PatientDetail({ patient, therapist, therapists = [], campaigns = [], sessions, fullAccess = true, onClose, onSave, onDelete }) {
   const [form, setForm] = useState({
     terapeuta_id: patient.terapeuta_id || '',
     tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
@@ -129,17 +130,23 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
   const handleSave = async () => {
     setSaving(true)
     setError(null)
-    const res = await onSave(patient.id, {
-      terapeuta_id: form.terapeuta_id || null,
-      tarifa: parseFloat(form.tarifa) || TARIFA_DEFAULT,
-      metodo_pago: form.metodo_pago,
+    // Therapists only edit the clinical trio; reassignment, billing and
+    // marketing attribution stay owner-only (the RLS WITH CHECK would reject
+    // a terapeuta_id change from them anyway).
+    const patch = {
       estado_general: form.estado_general,
-      fuente: form.fuente || null,
-      // A campaign only makes sense for ads-acquired patients.
-      campaign_id: (form.fuente === 'ads' && form.campaign_id) || null,
       frecuencia: form.frecuencia || null,
       notas: form.notas.trim() || null,
-    })
+    }
+    if (fullAccess) {
+      patch.terapeuta_id = form.terapeuta_id || null
+      patch.tarifa = parseFloat(form.tarifa) || TARIFA_DEFAULT
+      patch.metodo_pago = form.metodo_pago
+      patch.fuente = form.fuente || null
+      // A campaign only makes sense for ads-acquired patients.
+      patch.campaign_id = (form.fuente === 'ads' && form.campaign_id) || null
+    }
+    const res = await onSave(patient.id, patch)
     setSaving(false)
     if (!res.ok) {
       setError(res.error)
@@ -233,40 +240,45 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
         {/* Editable settings */}
         <section className="space-y-3">
           <SectionTitle>Configuración</SectionTitle>
-          <Select
-            label="Terapeuta"
-            value={form.terapeuta_id}
-            onChange={(e) => set('terapeuta_id', e.target.value)}
-            options={therapists.map((t) => ({ value: t.id, label: fullName(t) }))}
-            placeholder="Sin asignar…"
-          />
-          {form.terapeuta_id !== (patient.terapeuta_id || '') && (
-            <p className="font-caption text-xs text-amber-600">
-              Reasignar solo cambia el terapeuta del paciente. Las sesiones ya
-              agendadas siguen con el terapeuta anterior.
-            </p>
+          {fullAccess && (
+            <>
+              <Select
+                label="Terapeuta"
+                value={form.terapeuta_id}
+                onChange={(e) => set('terapeuta_id', e.target.value)}
+                options={therapists.map((t) => ({ value: t.id, label: fullName(t) }))}
+                placeholder="Sin asignar…"
+              />
+              {form.terapeuta_id !== (patient.terapeuta_id || '') && (
+                <p className="font-caption text-xs text-amber-600">
+                  Reasignar solo cambia el terapeuta del paciente. Las sesiones ya
+                  agendadas siguen con el terapeuta anterior.
+                </p>
+              )}
+              <Input
+                label="Tarifa por sesión (USD)"
+                type="number"
+                min="0"
+                step="1"
+                value={form.tarifa}
+                onChange={(e) => set('tarifa', e.target.value)}
+              />
+              <Select
+                label="Método de pago"
+                value={form.metodo_pago}
+                onChange={(e) => set('metodo_pago', e.target.value)}
+                options={toOptions(METODO_PAGO)}
+                placeholder={null}
+              />
+            </>
           )}
-          <Input
-            label="Tarifa por sesión (USD)"
-            type="number"
-            min="0"
-            step="1"
-            value={form.tarifa}
-            onChange={(e) => set('tarifa', e.target.value)}
-          />
-          <Select
-            label="Método de pago"
-            value={form.metodo_pago}
-            onChange={(e) => set('metodo_pago', e.target.value)}
-            options={toOptions(METODO_PAGO)}
-            placeholder={null}
-          />
           <Select
             label="Estado"
             value={form.estado_general}
             onChange={(e) => set('estado_general', e.target.value)}
             options={toOptions(ESTADO_PACIENTE)}
             placeholder={null}
+            hint="Inactivo y Descontinuado salen del Seguimiento (adherencia y en riesgo)."
           />
           <Select
             label="Frecuencia"
@@ -276,22 +288,26 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
             placeholder="Sin definir…"
             hint="Cada cuánto se espera que venga — alimenta la adherencia en Seguimiento."
           />
-          <Select
-            label="Fuente"
-            value={form.fuente}
-            onChange={(e) => set('fuente', e.target.value)}
-            options={toOptions(FUENTE_PACIENTE)}
-            placeholder="Sin registrar…"
-            hint="Cómo llegó el paciente — alimenta el módulo Marketing."
-          />
-          {form.fuente === 'ads' && campaigns.length > 0 && (
-            <Select
-              label="Campaña"
-              value={form.campaign_id}
-              onChange={(e) => set('campaign_id', e.target.value)}
-              options={campaigns.map((c) => ({ value: c.id, label: c.nombre }))}
-              placeholder="Sin campaña…"
-            />
+          {fullAccess && (
+            <>
+              <Select
+                label="Fuente"
+                value={form.fuente}
+                onChange={(e) => set('fuente', e.target.value)}
+                options={toOptions(FUENTE_PACIENTE)}
+                placeholder="Sin registrar…"
+                hint="Cómo llegó el paciente — alimenta el módulo Marketing."
+              />
+              {form.fuente === 'ads' && campaigns.length > 0 && (
+                <Select
+                  label="Campaña"
+                  value={form.campaign_id}
+                  onChange={(e) => set('campaign_id', e.target.value)}
+                  options={campaigns.map((c) => ({ value: c.id, label: c.nombre }))}
+                  placeholder="Sin campaña…"
+                />
+              )}
+            </>
           )}
           {error && <p className="font-caption text-xs text-red-500">{error}</p>}
           <Button
@@ -388,7 +404,8 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
           )}
         </section>
 
-        {/* Danger zone */}
+        {/* Danger zone — owner only (RLS blocks therapist deletes anyway) */}
+        {fullAccess && (
         <section className="border-t border-stroke/40 pt-4">
           <button
             type="button"
@@ -402,6 +419,7 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
             Borra el paciente y todas sus sesiones. No se puede deshacer.
           </p>
         </section>
+        )}
       </div>
     </div>
   )
@@ -421,7 +439,7 @@ const EMPTY_FORM = {
   frecuencia: '',
 }
 
-function CreatePatientDrawer({ therapists, onClose, onCreate }) {
+function CreatePatientDrawer({ therapists, fullAccess = true, terapeutaId = null, onClose, onCreate }) {
   const [form, setForm] = useState({ ...EMPTY_FORM })
   const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
@@ -437,8 +455,8 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
     if (!form.nombre.trim()) e.nombre = 'Requerido'
     if (!form.apellido.trim()) e.apellido = 'Requerido'
     if (!form.telefono.trim()) e.telefono = 'Requerido'
-    if (!form.terapeuta_id) e.terapeuta_id = 'Selecciona un terapeuta'
-    if (!form.tarifa || isNaN(parseFloat(form.tarifa))) e.tarifa = 'Ingresa un valor'
+    if (fullAccess && !form.terapeuta_id) e.terapeuta_id = 'Selecciona un terapeuta'
+    if (fullAccess && (!form.tarifa || isNaN(parseFloat(form.tarifa)))) e.tarifa = 'Ingresa un valor'
     return e
   }
 
@@ -450,17 +468,18 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
     }
     setSaving(true)
     setApiError(null)
+    // Therapists create patients assigned to THEMSELVES with default billing
+    // (mirrors the inline create in SesionDrawer; RLS enforces the same).
     const res = await onCreate({
       nombre: form.nombre.trim(),
       apellido: form.apellido.trim(),
       telefono: form.telefono.trim(),
       email: form.email.trim() || null,
       motivo_consulta: form.motivo_consulta.trim() || null,
-      terapeuta_id: form.terapeuta_id,
-      tarifa: parseFloat(form.tarifa),
-      metodo_pago: form.metodo_pago,
+      terapeuta_id: fullAccess ? form.terapeuta_id : terapeutaId,
       estado_general: 'activo',
       frecuencia: form.frecuencia || null,
+      ...(fullAccess ? { tarifa: parseFloat(form.tarifa), metodo_pago: form.metodo_pago } : {}),
     })
     setSaving(false)
     if (!res.ok) {
@@ -539,14 +558,16 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
             />
           </div>
 
-          <Select
-            label="Terapeuta"
-            value={form.terapeuta_id}
-            onChange={(e) => set('terapeuta_id', e.target.value)}
-            options={therapistOptions}
-            placeholder="Seleccionar terapeuta…"
-            error={errors.terapeuta_id}
-          />
+          {fullAccess && (
+            <Select
+              label="Terapeuta"
+              value={form.terapeuta_id}
+              onChange={(e) => set('terapeuta_id', e.target.value)}
+              options={therapistOptions}
+              placeholder="Seleccionar terapeuta…"
+              error={errors.terapeuta_id}
+            />
+          )}
 
           <Select
             label="Frecuencia"
@@ -557,24 +578,30 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
             hint="Cada cuánto se espera que venga — alimenta la adherencia en Seguimiento."
           />
 
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Tarifa (USD)"
-              type="number"
-              min="0"
-              step="1"
-              value={form.tarifa}
-              onChange={(e) => set('tarifa', e.target.value)}
-              error={errors.tarifa}
-            />
-            <Select
-              label="Método de pago"
-              value={form.metodo_pago}
-              onChange={(e) => set('metodo_pago', e.target.value)}
-              options={toOptions(METODO_PAGO)}
-              placeholder={null}
-            />
-          </div>
+          {fullAccess ? (
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Tarifa (USD)"
+                type="number"
+                min="0"
+                step="1"
+                value={form.tarifa}
+                onChange={(e) => set('tarifa', e.target.value)}
+                error={errors.tarifa}
+              />
+              <Select
+                label="Método de pago"
+                value={form.metodo_pago}
+                onChange={(e) => set('metodo_pago', e.target.value)}
+                options={toOptions(METODO_PAGO)}
+                placeholder={null}
+              />
+            </div>
+          ) : (
+            <p className="font-caption text-xs text-content-muted">
+              Se asigna a ti. La tarifa y el método de pago se establecen luego.
+            </p>
+          )}
 
           {apiError && (
             <p className="font-caption text-sm text-red-500">{apiError}</p>
@@ -618,13 +645,16 @@ function FilterChip({ active, onClick, children, style }) {
 const ESTADO_FILTERS = [
   { value: 'all', label: 'Todos' },
   { value: 'activo', label: 'Activos' },
-  { value: 'pausado', label: 'Pausados' },
-  { value: 'alta', label: 'Alta' },
-  { value: 'baja', label: 'Baja' },
+  { value: 'inactivo', label: 'Inactivos' },
+  { value: 'descontinuado', label: 'Descontinuados' },
 ]
 
 export default function Pacientes() {
   const ctx = useOutletContext()
+  // Therapists reach this page too (2026-07-04): RLS already limits their
+  // reads/updates to their own patients — fullAccess only gates UI extras
+  // (reassign, billing, marketing attribution, delete).
+  const { fullAccess, terapeutaId } = useAuth()
   const [data, setData] = useState(null)
   const [search, setSearch] = useState('')
   const [filterEstado, setFilterEstado] = useState('all')
@@ -760,7 +790,7 @@ export default function Pacientes() {
             ))}
           </div>
 
-          {data.therapists.length > 1 && (
+          {fullAccess && data.therapists.length > 1 && (
             <div className="flex flex-wrap gap-2">
               <FilterChip active={filterTerapeuta === 'all'} onClick={() => setFilterTerapeuta('all')}>
                 Todos
@@ -836,6 +866,7 @@ export default function Pacientes() {
                 therapists={data.therapists}
                 campaigns={data.campaigns || []}
                 sessions={patientSessions}
+                fullAccess={fullAccess}
                 onClose={() => setSelectedId(null)}
                 onSave={handleUpdate}
                 onDelete={handleDelete}
@@ -848,6 +879,8 @@ export default function Pacientes() {
       {showCreate && (
         <CreatePatientDrawer
           therapists={data.therapists}
+          fullAccess={fullAccess}
+          terapeutaId={terapeutaId}
           onClose={() => setShowCreate(false)}
           onCreate={handleCreate}
         />

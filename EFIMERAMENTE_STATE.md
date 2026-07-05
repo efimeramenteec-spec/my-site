@@ -434,6 +434,29 @@
     ONE push/deploy per work session, docs included in the same commit; never push docs-only
     commits separately.**
 
+- [x] **Final-touches round: estados overhaul + Pacientes for therapists + unpaid-payment
+  warning** (2026-07-04 late, Fable 5, single batched push per the new rule).
+  - **Patient states redefined** (Nicolas never understood alta/baja): `estado_general` is now
+    **activo (default) | inactivo (might come back) | descontinuado (gone/quit)** — migration
+    `patient_estado_overhaul` (mirrored `supabase/patient-estado-overhaul.sql`): legacy
+    pausado→inactivo, alta/baja→descontinuado (0 prod rows affected — all were activo), CHECK
+    constraint replaced, default confirmed activo. constants/filters/demo data updated.
+    **Seguimiento only tracks ACTIVO patients** (adherencia, sin frecuencia, en riesgo);
+    the historical activos-por-mes chart + distribution still count everyone (the past
+    doesn't change when a patient leaves — flagged to Nicolas as the chosen interpretation).
+  - **Pacientes module opened to therapists** (route + nav no longer ownerOnly). RLS: new
+    `patients_therapist_update` policy (mirrored `supabase/therapist-update-patient.sql`) —
+    UPDATE own patients only, WITH CHECK prevents reassigning away. UI for therapists hides:
+    Terapeuta reassign, Tarifa/Método, Fuente/Campaña, delete button; they edit estado,
+    frecuencia, expediente/notas only (handleSave sends just that trio). Create drawer:
+    auto-assigns to self, billing hidden (defaults), same as the SesionDrawer inline create.
+  - **Unpaid-payments warning in SesionDrawer** (Nueva sesión/edit): when the chosen patient
+    has unpaid real past sessions AND the oldest is ≥5 days old, a red bold uppercase notice
+    shows: "EL PACIENTE TIENE (X) SESIONES PENDIENTES DE PAGO. SOLICITAR PAGO PREVIO A
+    FINALIZAR EL AGENDAMIENTO." (X = ALL unpaid past real sessions once triggered).
+    Deliberately a NOTICE not a block — discretional trusted-patient cases exist (Nicolas).
+    Excludes llamadas/cancelled/future and the session being edited.
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)

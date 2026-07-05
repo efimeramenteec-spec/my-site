@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Button } from '../../components/Button/Button.jsx'
 import { Select } from '../../components/Select/Select.jsx'
 import { PatientSelect } from './PatientSelect.jsx'
-import { dateKey, addMinutesToTime, formatTime, fullName } from '../../lib/format.js'
+import { dateKey, addDays, addMinutesToTime, formatTime, fullName } from '../../lib/format.js'
 import { TIPO_FORM, MODALIDAD, DURACION_MIN, TARIFA_DEFAULT, toOptions } from '../../lib/constants.js'
 import { findConflict } from '../../lib/conflicts.js'
 import { checkFreebusy } from '../../lib/queries.js'
@@ -124,6 +124,27 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     }))
   }
 
+  // Pending-payments warning (Nicolas, 2026-07-04): if the chosen patient has
+  // unpaid real sessions and the oldest debt is 5+ days old, warn loudly.
+  // Deliberately a NOTICE, never a block — some trusted patients are allowed
+  // to pay late at the practice's discretion.
+  const unpaid = (() => {
+    if (!form.patient_id) return { count: 0, old: false }
+    const today = dateKey(new Date())
+    const cutoff = dateKey(addDays(new Date(), -5))
+    const rows = sessions.filter(
+      (s) =>
+        s.patient_id === form.patient_id &&
+        !s.pagado &&
+        s.tipo !== 'llamada' &&
+        s.estado !== 'cancelada' &&
+        s.estado !== 'no_show' &&
+        s.fecha < today &&
+        (mode !== 'edit' || !initial || s.id !== initial.id),
+    )
+    return { count: rows.length, old: rows.some((s) => s.fecha <= cutoff) }
+  })()
+
   const dur = DURACION_MIN[form.tipo] || 75
   const endTime = form.hora_inicio ? addMinutesToTime(form.hora_inicio, dur) : ''
   const conflict = findConflict(
@@ -230,6 +251,15 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
             error={errors.patient_id}
             onCreateNew={onCreatePatient ? () => { setNewPatient(blankPatient()); setNpErrors({}); setNpError('') } : undefined}
           />
+
+          {unpaid.old && (
+            <div className="rounded-xl border-2 border-red-400 bg-red-50 px-4 py-3">
+              <p className="font-heading text-sm font-extrabold uppercase tracking-wide text-red-600">
+                El paciente tiene ({unpaid.count}) {unpaid.count === 1 ? 'sesión pendiente' : 'sesiones pendientes'} de
+                pago. Solicitar pago previo a finalizar el agendamiento.
+              </p>
+            </div>
+          )}
 
           {form.patient_id ? (
             <Field label="Terapeuta">

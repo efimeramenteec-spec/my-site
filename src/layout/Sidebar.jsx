@@ -16,7 +16,8 @@ export const NAV = [
   // Finanzas absorbed the old Dashboard (2026-07-04) and lives at '/'.
   { to: '/', label: 'Finanzas', icon: IconWallet, end: true, ownerOnly: true },
   { to: '/sesiones', label: 'Sesiones', icon: IconCalendar },
-  { to: '/pacientes', label: 'Pacientes', icon: IconUsers, ownerOnly: true },
+  // Pacientes opened to therapists 2026-07-04 — RLS limits them to their own.
+  { to: '/pacientes', label: 'Pacientes', icon: IconUsers },
   // Seguimiento is for therapists too — RLS scopes it to their own patients.
   { to: '/seguimiento', label: 'Seguimiento', icon: IconPulse },
   { to: '/marketing', label: 'Marketing', icon: IconMegaphone, ownerOnly: true },

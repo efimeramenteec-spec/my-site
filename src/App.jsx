@@ -41,11 +41,12 @@ function Gate() {
             <Route path="ds" element={<DesignSystem />} />
           </>
         ) : (
-          // Therapists: scheduling, their own public-booking availability,
-          // and Seguimiento (RLS scopes it to their own patients/sessions).
+          // Therapists: scheduling, their own patients, Seguimiento and
+          // Disponibilidad — RLS scopes every read/write to their own rows.
           <>
             <Route index element={<Navigate to="/sesiones" replace />} />
             <Route path="sesiones" element={<Sesiones />} />
+            <Route path="pacientes" element={<Pacientes />} />
             <Route path="seguimiento" element={<Seguimiento />} />
             <Route path="disponibilidad" element={<Disponibilidad />} />
           </>
