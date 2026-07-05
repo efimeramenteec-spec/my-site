@@ -240,12 +240,12 @@ export async function deleteSession(id) {
 
 const PATIENT_SELECT =
   'id,nombre,apellido,telefono,email,fecha_nacimiento,terapeuta_id,' +
-  'motivo_consulta,estado_general,notas,tarifa,metodo_pago,fuente,campaign_id,created_at,updated_at'
+  'motivo_consulta,estado_general,notas,tarifa,metodo_pago,fuente,campaign_id,frecuencia,created_at,updated_at'
 
 const PATIENT_COLUMNS = [
   'nombre', 'apellido', 'telefono', 'email', 'fecha_nacimiento',
   'terapeuta_id', 'motivo_consulta', 'estado_general', 'notas',
-  'tarifa', 'metodo_pago', 'fuente', 'campaign_id',
+  'tarifa', 'metodo_pago', 'fuente', 'campaign_id', 'frecuencia',
 ]
 const pickPatientColumns = (obj) =>
   Object.fromEntries(PATIENT_COLUMNS.filter((k) => k in obj).map((k) => [k, obj[k]]))
@@ -360,6 +360,43 @@ export async function deletePatient(id) {
   return { ok: true }
 }
 
+
+// ─── Seguimiento (owner + therapists) ────────────────────────────────────────
+// Raw data only; all adherence/retention math lives in src/lib/adherence.js.
+// RLS scopes therapists automatically: they read only their own patients and
+// their own sessions, so the same page serves both roles unchanged.
+
+const SEGUIMIENTO_SESSION_SELECT =
+  'id,patient_id,terapeuta_id,fecha,tipo,estado'
+
+export async function getSeguimientoData() {
+  if (isSupabaseConfigured) {
+    try {
+      const [pRes, sRes, tRes] = await Promise.all([
+        supabase.from('patients')
+          .select('id,nombre,apellido,telefono,terapeuta_id,estado_general,frecuencia,created_at')
+          .order('nombre', { ascending: true }),
+        supabase.from('sessions').select(SEGUIMIENTO_SESSION_SELECT)
+          .order('fecha', { ascending: true }),
+        supabase.from('therapists').select('id,nombre,apellido,color,activo')
+          .order('nombre', { ascending: true }),
+      ])
+      if (pRes.error) throw pRes.error
+      if (sRes.error) throw sRes.error
+      if (tRes.error) throw tRes.error
+      return { source: 'live', patients: pRes.data || [], sessions: sRes.data || [], therapists: tRes.data || [] }
+    } catch (err) {
+      console.warn('[efimeramente] Supabase unavailable, showing demo data:', err?.message || err)
+    }
+  }
+  const store = getDemoStore()
+  return {
+    source: 'demo',
+    patients: [...store.patients],
+    sessions: [...store.sessions],
+    therapists: [...store.therapists],
+  }
+}
 
 // ─── Agenda pública (per-therapist booking config, owner-edited) ────────────
 

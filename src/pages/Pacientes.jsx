@@ -15,6 +15,7 @@ import {
   TIPO_SESION,
   ESTADO_SESION,
   FUENTE_PACIENTE,
+  FRECUENCIA_PACIENTE,
   toOptions,
   TARIFA_DEFAULT,
 } from '../lib/constants.js'
@@ -100,6 +101,7 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
     estado_general: patient.estado_general || 'activo',
     fuente: patient.fuente || '',
     campaign_id: patient.campaign_id || '',
+    frecuencia: patient.frecuencia || '',
     notas: patient.notas || '',
   })
   const [saving, setSaving] = useState(false)
@@ -115,6 +117,7 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
       estado_general: patient.estado_general || 'activo',
       fuente: patient.fuente || '',
       campaign_id: patient.campaign_id || '',
+      frecuencia: patient.frecuencia || '',
       notas: patient.notas || '',
     })
     setSaved(false)
@@ -134,6 +137,7 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
       fuente: form.fuente || null,
       // A campaign only makes sense for ads-acquired patients.
       campaign_id: (form.fuente === 'ads' && form.campaign_id) || null,
+      frecuencia: form.frecuencia || null,
       notas: form.notas.trim() || null,
     })
     setSaving(false)
@@ -263,6 +267,14 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
             onChange={(e) => set('estado_general', e.target.value)}
             options={toOptions(ESTADO_PACIENTE)}
             placeholder={null}
+          />
+          <Select
+            label="Frecuencia"
+            value={form.frecuencia}
+            onChange={(e) => set('frecuencia', e.target.value)}
+            options={toOptions(FRECUENCIA_PACIENTE)}
+            placeholder="Sin definir…"
+            hint="Cada cuánto se espera que venga — alimenta la adherencia en Seguimiento."
           />
           <Select
             label="Fuente"
@@ -406,6 +418,7 @@ const EMPTY_FORM = {
   terapeuta_id: '',
   tarifa: String(TARIFA_DEFAULT),
   metodo_pago: 'transferencia',
+  frecuencia: '',
 }
 
 function CreatePatientDrawer({ therapists, onClose, onCreate }) {
@@ -447,6 +460,7 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
       tarifa: parseFloat(form.tarifa),
       metodo_pago: form.metodo_pago,
       estado_general: 'activo',
+      frecuencia: form.frecuencia || null,
     })
     setSaving(false)
     if (!res.ok) {
@@ -532,6 +546,15 @@ function CreatePatientDrawer({ therapists, onClose, onCreate }) {
             options={therapistOptions}
             placeholder="Seleccionar terapeuta…"
             error={errors.terapeuta_id}
+          />
+
+          <Select
+            label="Frecuencia"
+            value={form.frecuencia}
+            onChange={(e) => set('frecuencia', e.target.value)}
+            options={toOptions(FRECUENCIA_PACIENTE)}
+            placeholder="Sin definir…"
+            hint="Cada cuánto se espera que venga — alimenta la adherencia en Seguimiento."
           />
 
           <div className="grid grid-cols-2 gap-3">

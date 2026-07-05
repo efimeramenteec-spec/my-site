@@ -84,6 +84,13 @@ export const FUENTE_PACIENTE = {
   otro:     'Otro',
 }
 
+// patients.frecuencia — expected therapy cadence (Seguimiento module).
+// NULL/unset patients are excluded from the adherence metric.
+export const FRECUENCIA_PACIENTE = {
+  semanal:   'Semanal',
+  quincenal: 'Quincenal',
+}
+
 // Default per-session rate (USD) when a patient has none set.
 export const TARIFA_DEFAULT = 39
 

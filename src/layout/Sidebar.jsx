@@ -17,7 +17,8 @@ export const NAV = [
   { to: '/', label: 'Finanzas', icon: IconWallet, end: true, ownerOnly: true },
   { to: '/sesiones', label: 'Sesiones', icon: IconCalendar },
   { to: '/pacientes', label: 'Pacientes', icon: IconUsers, ownerOnly: true },
-  { to: '/seguimiento', label: 'Seguimiento', icon: IconPulse, ownerOnly: true },
+  // Seguimiento is for therapists too — RLS scopes it to their own patients.
+  { to: '/seguimiento', label: 'Seguimiento', icon: IconPulse },
   { to: '/marketing', label: 'Marketing', icon: IconMegaphone, ownerOnly: true },
   { to: '/disponibilidad', label: 'Disponibilidad', icon: IconClock },
 ]

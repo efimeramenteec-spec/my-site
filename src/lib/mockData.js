@@ -13,10 +13,10 @@ const therapists = [
 // Each patient carries a fixed rate (tarifa, USD) and default payment method,
 // set once at patient creation — scheduling just inherits them.
 const patients = [
-  { id: 'p1',  nombre: 'Valeria',   apellido: 'Mendoza',   telefono: '+593991110201', email: 'valeria.m@gmail.com',   terapeuta_id: 't1', motivo_consulta: 'Ansiedad',          estado_general: 'activo',  tarifa: 39, metodo_pago: 'transferencia' },
-  { id: 'p2',  nombre: 'Diego',     apellido: 'Hernández', telefono: '+593991110202', email: 'diego.h@gmail.com',     terapeuta_id: 't1', motivo_consulta: 'Estrés laboral',    estado_general: 'activo',  tarifa: 39, metodo_pago: 'payphone' },
-  { id: 'p3',  nombre: 'Sofía',     apellido: 'Ramírez',   telefono: '+593991110203', email: 'sofia.r@gmail.com',     terapeuta_id: 't1', motivo_consulta: 'Duelo',             estado_general: 'activo',  tarifa: 35, metodo_pago: 'transferencia' },
-  { id: 'p4',  nombre: 'Mateo',     apellido: 'Cruz',      telefono: '+593991110204', email: 'mateo.c@gmail.com',     terapeuta_id: 't2', motivo_consulta: 'Terapia de pareja', estado_general: 'activo',  tarifa: 39, metodo_pago: 'paypal' },
+  { id: 'p1',  nombre: 'Valeria',   apellido: 'Mendoza',   telefono: '+593991110201', email: 'valeria.m@gmail.com',   terapeuta_id: 't1', motivo_consulta: 'Ansiedad',          estado_general: 'activo',  tarifa: 39, metodo_pago: 'transferencia', frecuencia: 'semanal' },
+  { id: 'p2',  nombre: 'Diego',     apellido: 'Hernández', telefono: '+593991110202', email: 'diego.h@gmail.com',     terapeuta_id: 't1', motivo_consulta: 'Estrés laboral',    estado_general: 'activo',  tarifa: 39, metodo_pago: 'payphone', frecuencia: 'quincenal' },
+  { id: 'p3',  nombre: 'Sofía',     apellido: 'Ramírez',   telefono: '+593991110203', email: 'sofia.r@gmail.com',     terapeuta_id: 't1', motivo_consulta: 'Duelo',             estado_general: 'activo',  tarifa: 35, metodo_pago: 'transferencia', frecuencia: 'semanal' },
+  { id: 'p4',  nombre: 'Mateo',     apellido: 'Cruz',      telefono: '+593991110204', email: 'mateo.c@gmail.com',     terapeuta_id: 't2', motivo_consulta: 'Terapia de pareja', estado_general: 'activo',  tarifa: 39, metodo_pago: 'paypal', frecuencia: 'quincenal' },
   { id: 'p5',  nombre: 'Renata',    apellido: 'Flores',    telefono: '+593991110205', email: 'renata.f@gmail.com',    terapeuta_id: 't1', motivo_consulta: 'Autoestima',        estado_general: 'activo',  tarifa: 39, metodo_pago: 'transferencia' },
   { id: 'p6',  nombre: 'Emiliano',  apellido: 'Torres',    telefono: '+593991110206', email: 'emiliano.t@gmail.com',  terapeuta_id: 't3', motivo_consulta: 'Depresión',         estado_general: 'activo',  tarifa: 30, metodo_pago: 'cash' },
   { id: 'p7',  nombre: 'Camila',    apellido: 'Vega',      telefono: '+593991110207', email: 'camila.v@gmail.com',    terapeuta_id: 't3', motivo_consulta: 'Ansiedad social',   estado_general: 'activo',  tarifa: 39, metodo_pago: 'payphone' },
