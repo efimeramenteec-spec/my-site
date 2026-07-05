@@ -58,7 +58,8 @@ patient-facing booking page `PublicBooking.jsx`; it talks ONLY to the `public-bo
 function, never Supabase). Everything else goes through `Gate` and is **role-gated**:
 - **owner** (`fullAccess`): Finanzas (the home page at `/` — absorbed the old Dashboard 2026-07-04),
   Sesiones, Pacientes, Seguimiento, Marketing, Disponibilidad, DS.
-- **therapist**: Sesiones (redirected there from `/`) + Disponibilidad (their own availability only).
+- **therapist**: Sesiones (redirected there from `/`), Seguimiento (RLS scopes it to their own
+  patients/sessions) + Disponibilidad (their own availability only).
 
 ### Demo-mode fallback (important — this shapes the whole data layer)
 `src/lib/supabase.js` exports `isSupabaseConfigured` (true only when BOTH `VITE_SUPABASE_URL`
@@ -95,10 +96,26 @@ Key detail: session `estado` is `programada` (Pendiente) | `confirmada` | `cance
   sessions never count anywhere. Related session columns: `pagado`, `facturada` [manual toggle],
   `paid_at` [server-stamped on pago flip — cash-flow groundwork]. Hard rule: cancelled sessions
   can never be pagado/facturada — enforced in `queries.js#updateSession`), `Sesiones`,
-  `Pacientes` (largest, full expediente), `Marketing` (owner-only acquisition funnel — see
-  below), `Login`, `DesignSystem`.
-- **Placeholder (14 lines — NOT built yet):** `Seguimiento`. Last remaining module.
+  `Pacientes` (largest, full expediente), `Seguimiento` (see below), `Marketing` (owner-only
+  acquisition funnel — see below), `Login`, `DesignSystem`.
+- **All modules are built** — no placeholders remain (2026-07-04).
 - Session create/edit UI lives in `src/features/sesiones/` (`SesionDrawer.jsx`, `views.jsx`, `PatientSelect.jsx`).
+
+### Seguimiento module (owner + therapists, `src/pages/Seguimiento.jsx`)
+**Patient adherence to therapy** (Nicolas's spec, 2026-07-04). Core input: `patients.frecuencia`
+(`semanal` | `quincenal`, nullable — set in Pacientes → Configuración or the create drawer;
+migration `supabase/patient-frecuencia.sql`). Core metric: **historic attendance rate** =
+attended sessions (estado `confirmada`/legacy `completada`, non-llamada, fecha ≤ hoy) vs
+expected from the frequency — **fixed monthly quota** (semanal = 4/mes, quincenal = 2/mes),
+prorated for partial first/current calendar months, window = first attended session → today,
+expected floored at 1. **Rates above 100% are allowed by design** (e.g. a weekly patient
+attending all 5 weeks of a 5-week month). All math in `src/lib/adherence.js` (pure, unit-check
+with node); the page (`Seguimiento.jsx`) only aggregates. Also renders: **pacientes en riesgo**
+(≥1 attended session, nothing real scheduled from today on, silent > 2× their interval —
+semanal 14d / quincenal 28d / sin frecuencia 21d; alta/baja excluded), **activos por mes**
+(12-month chart, nuevos vs recurrentes stacked + % retención line = share of last month's
+actives who returned), and a lifetime sessions-per-patient distribution. Therapists see the
+same page auto-scoped by RLS to their own patients/sessions — no role logic in the page.
 
 ### Marketing module (owner-only, `src/pages/Marketing.jsx`)
 Tracks the acquisition funnel **Meta Ads impresiones → WhatsApp conversaciones → llamada 10 min →

@@ -398,6 +398,34 @@
     factura follows payment; unpaid sessions don't appear until paid) — $ total + count,
     caption shows the period's facturadas count. Follows the period selector.
 
+- [x] **SEGUIMIENTO module — BUILT, the LAST placeholder is gone** (2026-07-04, commit 8d262c8,
+  Fable 5, deploy verified by bundle grep). Nicolas REDEFINED the module at session start
+  (superseding the old retention/no-show sketch): **patient adherence to therapy**, available
+  to owner AND therapists.
+  - **DDL** (migration `patient_frecuencia`, mirrored `supabase/patient-frecuencia.sql`):
+    `patients.frecuencia` text CHECK in (`semanal`,`quincenal`), nullable. Editable in
+    Pacientes → Configuración AND the create-patient drawer; in `PATIENT_COLUMNS` whitelist;
+    `FRECUENCIA_PACIENTE` in constants.js.
+  - **Adherence formula** (`src/lib/adherence.js`, pure + node-unit-checked against Nicolas's
+    own examples): rate = attended (confirmada/completada, non-llamada, fecha ≤ hoy) ÷ expected,
+    where expected = fixed monthly quota (semanal 4/mes, quincenal 2/mes) prorated per calendar
+    month over the window first-attended-session → today, floored at 1. Matches his examples
+    exactly: 3-de-4 = 75%, quincenal 1-de-2 = 50%, and **>100% is allowed by design** (5-week
+    months). Patients with frecuencia NULL are excluded (listed as an amber hint).
+  - **Page sections:** KPI row (adherencia promedio, en seguimiento, en riesgo, sesiones/
+    paciente promedio), adherence table worst-first (asistidas vs esperadas, % color-coded),
+    **pacientes en riesgo** (≥1 attended, nothing scheduled, silent >2× interval: 14d/28d/21d
+    sin frecuencia; alta/baja excluded; most-absent first, phone shown), **activos por mes**
+    12-month chart (nuevos vs recurrentes stacked + % retención line), lifetime distribution
+    (1 / 2–5 / 6–10 / 11+ sesiones).
+  - **Therapist access:** route added to the therapist branch in App.jsx, nav entry no longer
+    ownerOnly. NO role logic in the page — RLS (`patients_therapist_read`, `sessions_access`)
+    scopes their data automatically (verified against pg_policies).
+  - `_Placeholder.jsx` deleted — every module is now built. Demo mode: 4 mock patients got
+    frecuencia so the page renders in demo.
+  - **For the numbers to mean anything, Nicolas/therapists must set frecuencia per patient**
+    (all 154 prod patients start NULL — see backlog).
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
@@ -418,14 +446,16 @@
       embedded/linked cross-origin (list currently mirrors `calendar.mjs`).
 
 ### Immediate — next session
-- [ ] **Next module: SEGUIMIENTO** — the LAST 14-line placeholder (Finanzas shipped 2026-07-04
-      as the home page). Sketch in backlog: retention, sessions/therapist/month, no-show rate
-      (recharts). Confirm scope with Nicolas at session start; avoid duplicating what Finanzas
-      now covers (money) and Marketing (funnel/LTV).
-- [ ] **Facturada backfill decision (Nicolas):** the new `sessions.facturada` column starts
-      false for ALL history, so "Pendientes de facturar · Todo el historial" = every paid
-      session ever (~$6,314). If past sessions were in fact invoiced, bulk-mark everything
-      before a cutoff date as facturada (one SQL UPDATE) — Nicolas names the date.
+- [x] ~~**Next module: SEGUIMIENTO**~~ — DONE 2026-07-04 (see Completed Features; scope was
+      redefined by Nicolas to patient adherence — the old retention/no-show sketch is obsolete).
+- [ ] **Set frecuencia per patient** (Nicolas, in Pacientes → Configuración): all 154 prod
+      patients start with frecuencia NULL, so the Seguimiento adherence table is empty until
+      frequencies are assigned. The page lists "sin frecuencia definida" patients (sorted by
+      session count) as the worklist.
+- [ ] **Facturada backfill decision (Nicolas):** asked 2026-07-04, answer was "skip for now" —
+      keep offering. `sessions.facturada` starts false for ALL history, so "Pendientes de
+      facturar · Todo el historial" = every paid session ever (~$6,314). One SQL UPDATE
+      bulk-marks everything before a cutoff date once Nicolas names it.
 - [ ] **Dashboard "por cobrar" data hygiene:** the 72 unpaid past sessions include old seed
       rows the sheet sync couldn't match (76 unmatched) — some may actually be paid. Numbers
       self-correct as Nicolas marks history via the Deudores list.
@@ -448,11 +478,10 @@
 - [x] ~~Sync session estados from Google Sheet~~ — done session #9 (see Completed Features)
 
 ### Next modules (confirm with Nicolas before starting — he will pick at session start)
-- [ ] **Seguimiento** — analytics: retention, sessions/therapist/month, no-show rate, pending payments (recharts)
+- [x] ~~**Seguimiento**~~ — DONE 2026-07-04 as patient-adherence module (see Completed Features).
 - [x] ~~**Finanzas**~~ — DONE 2026-07-04 (replaced the Dashboard at `/`, see Completed Features).
-- Seguimiento is the LAST remaining 14-line placeholder (`src/pages/Seguimiento.jsx`).
-  Architecture/building only — NO cosmetics/polish (deferred to cheaper models post-architecture).
-  Confirm scope with Nicolas before writing code.
+- **ALL modules are now built** — the architecture phase is complete. What remains is the
+  deferred cosmetic/UI-polish pass (cheaper models) and the backlog items above.
 - [x] ~~**Twilio webhook**~~ — DONE (commits 8a8f47c, fc84adb). Full WhatsApp reminder flow shipped: hourly `send-reminders.js` (kill-switch `REMINDERS_LIVE`, default OFF/dry-run + `?test_session_id` manual path) + inbound `twilio-webhook.js` (button tap → session estado) + `supabase/add-reminder-sent-at.sql` migration. See CLAUDE.md § Netlify functions.
 - ~~**Trim therapist Sesiones view**~~ — WON'T DO (per Nicolas 2026-07-02): therapists keep the
   pay/confirm toggles; having them use these is useful to the practice. Do not hide them.
