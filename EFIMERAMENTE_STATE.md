@@ -531,6 +531,15 @@
   patient). No deploy needed — DDL applied directly. **This unblocks the old "fake test patients per
   therapist" backlog item** (was blocked by exactly this constraint).
 
+- [x] **Llamadas gratuitas: cobro + factura locked off** (2026-07-09). Free intro calls are never
+  charged and never invoiced, so their pago/factura toggles now behave like a cancelled row's:
+  `views.jsx` computes `noBilling = cancelled || llamada` and disables both toggles (pago caption
+  "Gratis", factura "No se factura"); `Sesiones.jsx` handlers early-return on `tipo === 'llamada'`
+  as defense-in-depth. Note: the money metrics were ALREADY llamada-safe — both `Finanzas.isReal`
+  and `Marketing.isRealSession` exclude `tipo === 'llamada'`, so por-cobrar / pendientes-de-facturar
+  never counted them. Prod check: all 8 llamadas were already `pagado=false`/`facturada=false`, so no
+  data cleanup was needed. Frontend-only.
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)

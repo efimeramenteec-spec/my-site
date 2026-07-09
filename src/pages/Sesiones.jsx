@@ -138,6 +138,8 @@ export default function Sesiones() {
   }
 
   async function handleToggleFacturada(s, facturada) {
+    // Llamadas gratuitas are free intro calls — never invoiced.
+    if (s.tipo === 'llamada') return
     if (facturada && (s.estado === 'cancelada' || s.estado === 'no_show')) {
       window.alert('Una sesión cancelada no se factura.')
       return
@@ -148,6 +150,8 @@ export default function Sesiones() {
   }
 
   async function handleTogglePaid(s, paid) {
+    // Llamadas gratuitas are free intro calls — never charged.
+    if (s.tipo === 'llamada') return
     if (paid && (s.estado === 'cancelada' || s.estado === 'no_show')) {
       window.alert('Una sesión cancelada no se cobra.')
       return
