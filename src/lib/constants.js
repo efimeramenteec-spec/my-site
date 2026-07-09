@@ -38,7 +38,7 @@ export const TIPO_FORM = {
 // Session duration in minutes, including a 15-min buffer for overruns.
 // Exception: llamada is the free intro call — exactly 10 min, no buffer.
 export const DURACION_MIN = {
-  individual: 75,
+  individual: 60,
   pareja:     105,
   familia:    75,
   grupo:      75,

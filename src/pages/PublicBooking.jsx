@@ -9,7 +9,7 @@ import { Logo } from '../layout/Logo.jsx'
 // Public, unauthenticated booking page — the Calendly replacement. Two routes
 // share this component via the `kind` prop:
 //   /agendar  (kind='llamada') — free 10-min intro call, linked publicly.
-//   /reservar (kind='sesion')  — real 75-min individual session; the practice
+//   /reservar (kind='sesion')  — real 60-min individual session; the practice
 //                                shares this link privately when useful.
 // Patients pick a therapist, a free slot, and register via the intake form.
 // ALL data comes from the public-booking Netlify function (service key,

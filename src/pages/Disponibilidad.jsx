@@ -319,7 +319,7 @@ export default function Disponibilidad() {
               </a>
               . Solo aparecen las terapeutas visibles, con sus horarios libres (Google Calendar + sesiones).
               Horarios en hora de Ecuador. También existe <span className="font-bold">/reservar</span>: el
-              mismo flujo pero para sesiones individuales reales (75 min) — compártelo en privado cuando
+              mismo flujo pero para sesiones individuales reales (60 min) — compártelo en privado cuando
               convenga; usa el botón «Enlace sesión» de cada terapeuta.
             </p>
           </div>

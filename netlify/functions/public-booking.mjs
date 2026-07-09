@@ -2,7 +2,7 @@
 //
 // The ONLY public (unauthenticated) surface of the app. Two flows share it:
 //   /agendar  (kind=llamada, default) — free 10-min intro call, open to anyone.
-//   /reservar (kind=sesion)           — real 75-min individual session; link is
+//   /reservar (kind=sesion)           — real 60-min individual session; link is
 //                                       shared privately by the practice.
 // The browser never touches Supabase for this flow — this function validates
 // everything and writes with the service role. Do NOT open anon RLS on
@@ -32,7 +32,7 @@ const ALLOWED_ORIGINS = [
 // Global booking config (v1) — promote to per-therapist columns if ever needed.
 const SLOT_STEP_MIN = 30       // candidate start times every 30 min
 const CALL_MIN = 10            // llamada length
-const SESSION_MIN = 75         // individual session incl. buffer — keep in sync with DURACION_MIN.individual
+const SESSION_MIN = 60         // individual session — keep in sync with DURACION_MIN.individual
 // Per-kind booking parameters. `kind` travels as ?kind= on slots and in the
 // POST body on book; anything unknown falls back to llamada.
 const KINDS = {

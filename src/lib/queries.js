@@ -111,7 +111,7 @@ export async function getSessionsData() {
       const [sRes, pRes, tRes] = await Promise.all([
         supabase.from('sessions').select(SESSION_SELECT)
           .order('fecha', { ascending: true }).order('hora_inicio', { ascending: true }),
-        supabase.from('patients').select('id,nombre,apellido,telefono,terapeuta_id,estado_general')
+        supabase.from('patients').select('id,nombre,apellido,telefono,terapeuta_id,estado_general,tarifa,metodo_pago')
           .order('nombre', { ascending: true }),
         supabase.from('therapists').select('id,nombre,apellido,color,calendar_email,activo')
           .order('nombre', { ascending: true }),

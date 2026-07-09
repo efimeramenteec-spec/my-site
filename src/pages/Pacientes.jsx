@@ -96,6 +96,10 @@ function PatientRow({ patient, therapist, isSelected, onClick }) {
 
 function PatientDetail({ patient, therapist, therapists = [], campaigns = [], sessions, fullAccess = true, onClose, onSave, onDelete }) {
   const [form, setForm] = useState({
+    nombre: patient.nombre || '',
+    apellido: patient.apellido || '',
+    telefono: patient.telefono || '',
+    email: patient.email || '',
     terapeuta_id: patient.terapeuta_id || '',
     tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
     metodo_pago: patient.metodo_pago || 'transferencia',
@@ -112,6 +116,10 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
 
   useEffect(() => {
     setForm({
+      nombre: patient.nombre || '',
+      apellido: patient.apellido || '',
+      telefono: patient.telefono || '',
+      email: patient.email || '',
       terapeuta_id: patient.terapeuta_id || '',
       tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
       metodo_pago: patient.metodo_pago || 'transferencia',
@@ -128,17 +136,26 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
   const handleSave = async () => {
+    // Owner can fix identity/contact typos, but these must never be blanked.
+    if (fullAccess && (!form.nombre.trim() || !form.apellido.trim() || !form.telefono.trim())) {
+      setError('Nombre, apellido y teléfono no pueden quedar vacíos.')
+      return
+    }
     setSaving(true)
     setError(null)
-    // Therapists only edit the clinical trio; reassignment, billing and
-    // marketing attribution stay owner-only (the RLS WITH CHECK would reject
-    // a terapeuta_id change from them anyway).
+    // Therapists only edit the clinical trio; identity, contact, reassignment,
+    // billing and marketing attribution stay owner-only (the RLS WITH CHECK
+    // would reject an identity/terapeuta_id change from them anyway).
     const patch = {
       estado_general: form.estado_general,
       frecuencia: form.frecuencia || null,
       notas: form.notas.trim() || null,
     }
     if (fullAccess) {
+      patch.nombre = form.nombre.trim()
+      patch.apellido = form.apellido.trim()
+      patch.telefono = form.telefono.trim()
+      patch.email = form.email.trim() || null
       patch.terapeuta_id = form.terapeuta_id || null
       patch.tarifa = parseFloat(form.tarifa) || TARIFA_DEFAULT
       patch.metodo_pago = form.metodo_pago
@@ -217,7 +234,9 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
 
       {/* Scrollable body */}
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
-        {/* Contact */}
+        {/* Contact — read-only for therapists; the owner edits these fields
+            (name, phone, email) in Configuración below. */}
+        {!fullAccess && (
         <section className="space-y-3">
           <SectionTitle>Contacto</SectionTitle>
           {patient.telefono && (
@@ -236,12 +255,38 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
             <p className="font-caption text-sm text-content-muted">Sin datos de contacto.</p>
           )}
         </section>
+        )}
 
         {/* Editable settings */}
         <section className="space-y-3">
           <SectionTitle>Configuración</SectionTitle>
           {fullAccess && (
             <>
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="Nombre"
+                  value={form.nombre}
+                  onChange={(e) => set('nombre', e.target.value)}
+                />
+                <Input
+                  label="Apellido"
+                  value={form.apellido}
+                  onChange={(e) => set('apellido', e.target.value)}
+                />
+              </div>
+              <Input
+                label="Teléfono"
+                type="tel"
+                value={form.telefono}
+                onChange={(e) => set('telefono', e.target.value)}
+                hint="+593…"
+              />
+              <Input
+                label="Email"
+                type="email"
+                value={form.email}
+                onChange={(e) => set('email', e.target.value)}
+              />
               <Select
                 label="Terapeuta"
                 value={form.terapeuta_id}

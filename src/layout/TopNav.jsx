@@ -1,23 +1,22 @@
 import React from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Button } from '../components/Button/Button.jsx'
 import { Badge } from '../components/Badge/Badge.jsx'
 import { Logo } from './Logo.jsx'
-import { IconPlus } from './icons.jsx'
 import { formatDateLong, capitalize } from '../lib/format.js'
 
-/** Sticky page header: title, date, data-mode chip, primary CTA. */
+/** Sticky page header: title, date, data-mode chip. */
 export function TopNav({ title, source }) {
-  const navigate = useNavigate()
-
   return (
-    <header className="sticky top-0 z-20 bg-surface-warm/70 backdrop-blur-md">
-      <div className="flex items-center justify-between gap-4 px-6 lg:px-10 pt-6 pb-4">
+    <>
+      {/* Mobile logo: deliberately NOT part of the sticky header — it scrolls
+          away so it doesn't stay anchored and eat half the screen on phones.
+          Desktop shows the logo in the sidebar instead (this is lg:hidden). */}
+      <div className="lg:hidden px-6 pt-6">
+        <Logo variant="corto" className="text-base [&>span]:text-base" />
+      </div>
+
+      <header className="sticky top-0 z-20 bg-surface-warm/70 backdrop-blur-md">
+      <div className="flex items-center justify-between gap-4 px-6 lg:px-10 pt-2 lg:pt-6 pb-4">
         <div className="min-w-0">
-          {/* Compact logo on mobile where the sidebar is hidden */}
-          <div className="lg:hidden mb-2">
-            <Logo variant="corto" className="text-base [&>span]:text-base" />
-          </div>
           <h1 className="font-serif text-2xl lg:text-3xl font-bold text-content-primary truncate">
             {title}
           </h1>
@@ -37,13 +36,9 @@ export function TopNav({ title, source }) {
               En vivo
             </Badge>
           )}
-          <Button size="sm" onClick={() => navigate('/sesiones')}>
-            <IconPlus size={16} />
-            <span className="hidden sm:inline">Nueva sesión</span>
-            <span className="sm:hidden">Nueva</span>
-          </Button>
         </div>
       </div>
-    </header>
+      </header>
+    </>
   )
 }

@@ -101,8 +101,13 @@ export default function Finanzas() {
 
     const sum = (rows) => rows.reduce((a, s) => a + Number(s.monto || 0), 0)
 
-    // Por cobrar: unpaid sessions that already happened (never future ones).
-    const porCobrarRows = scoped.filter((s) => !s.pagado && s.fecha < today)
+    // Por cobrar (debt): a session is only owed money if it ACTUALLY happened —
+    // estado 'confirmada' AND past-dated (Nicolas, 2026-07-09). A 'programada'
+    // (Pendiente) past session is NOT debt: it was never confirmed to have taken
+    // place. (Contrast Ingreso Proyectado below, which DOES count Pendiente.)
+    const porCobrarRows = scoped.filter(
+      (s) => !s.pagado && s.estado === 'confirmada' && s.fecha < today,
+    )
 
     // Facturación: pendiente = PAGADA sin factura (la factura sigue al pago).
     const sinFacturarRows = scoped.filter((s) => s.pagado && !s.facturada)

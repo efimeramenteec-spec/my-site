@@ -483,6 +483,42 @@
     pagadas sin factura from Apr+May) — the **facturada backfill decision** is now more
     relevant than ever (backlog).
 
+- [x] **Bug-fix + polish batch** (2026-07-09, Opus, single push per the budget rule). Eight items:
+  - **Tarifa/método now prefill from the patient in Nueva Sesión** (`queries.js`). Root cause:
+    `getSessionsData` selected patients without `tarifa`/`metodo_pago`, so the drawer's existing
+    prefill (`p?.tarifa ?? f.monto`) always saw `undefined` and fell back to the $39 default. Fix:
+    added `tarifa,metodo_pago` to that patient select — a session now inherits the patient's fixed
+    rate (e.g. $32) and saved payment method. Frontend-only; existing sessions untouched.
+  - **Debt definition tightened + unified across the app.** A session is debt ONLY if it actually
+    happened: **estado `confirmada` + past-dated + unpaid** (llamadas always excluded). Before, the
+    SesionDrawer pending-payment disclaimer AND Finanzas "Sesiones por cobrar"/Deudores counted
+    `programada` (Pendiente) past sessions too — which read as false debt. Fixed in both
+    `SesionDrawer.jsx` and `Finanzas.jsx`. **Ingreso Proyectado is deliberately NOT changed** — it
+    still counts Pendiente and excludes only canceladas (per Nicolas). Legacy `completada` rows are
+    out of scope (Nicolas: recent data is all up to date).
+  - **Owner can edit patient identity/contact** (`Pacientes.jsx`). Nombre, Apellido, Teléfono, Email
+    are now editable in the patient panel's Configuración (owner-only; therapists keep read-only
+    Contacto — their RLS `WITH CHECK` would reject identity edits anyway). All four are already in
+    `PATIENT_COLUMNS`, so no query/DB change. Guardrail: name/apellido/teléfono can't be blanked.
+    Note: `patients.telefono` UNIQUE still applies — fixing a phone to a number already on file fails
+    with an inline DB error.
+  - **Mobile logo un-anchored** (`TopNav.jsx`). The compact logo was inside the `sticky top-0`
+    header, so it stayed pinned and ate ~half the phone screen. Moved it into a non-sticky bar ABOVE
+    the header — it now scrolls away; title/date/chip stay pinned. Desktop unchanged (logo in
+    sidebar).
+  - **Logo PNGs trimmed** (`public/logos/`). Both were 2000×2000 with the horizontal wordmark
+    centered in transparent dead space (CORTO content was only 1776×690). Lossless alpha-bbox crop +
+    small margin → CORTO 1872×786 (2.38:1), LARGO 1838×436 (4.22:1). No redraw; originals in git
+    history. Combined with the un-anchor, the mobile top area is ~⅓ its old height.
+  - **Individual session 75 → 60 min.** `DURACION_MIN.individual` (`constants.js`, drives drawer
+    end-time/conflict math) and `SESSION_MIN` in `public-booking.mjs` (the `/reservar` flow), kept in
+    sync. Other types unchanged (pareja 105, familia/grupo/evaluación 75, llamada 10). Copy updated
+    in Disponibilidad + comments. Existing sessions keep their stored end times. NOTE: the drawer
+    still labels duration "(incluye buffer)" — shared across types; left as-is (offered to adjust).
+  - **Removed the redundant top-bar "Nueva sesión" button** (`TopNav.jsx`) — it appeared on every
+    page and only navigated to `/sesiones` (duplicate of the real button in the Sesiones module).
+    Cleaned up now-unused imports. Header now shows title + date + demo/live chip only.
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
@@ -494,10 +530,9 @@
 - [x] ~~Run `supabase/therapist-availability.sql`~~ — RESOLVED 2026-07-02: verified via the Supabase
       connector that `therapists_self_update` already exists in `pg_policies` (1 row, cmd=UPDATE,
       using/with check = `my_terapeuta_id()`). It had been applied earlier; nothing was re-run.
-- [ ] Each therapist (or Nicolas) sets real hours in **Disponibilidad**. Prod state 2026-07-03:
-      all 6 visible, 5 of 6 have weekly hours — only **Carolina's is still empty** (she shows
-      "no hay horarios" publicly). **Decision (Nicolas, 2026-07-02 evening): leave all 6
-      `booking_enabled=true`**; do NOT toggle her off.
+- [x] ~~Each therapist sets real hours in **Disponibilidad**~~ — DONE (Nicolas, by 2026-07-09):
+      all 6 visible AND all 6 now have weekly hours (Carolina's is filled). Decision still stands:
+      leave all 6 `booking_enabled=true`.
 - [x] ~~Clean up the test llamada/patient~~ — done 2026-07-02 (see verification pass above).
 - [ ] Add the marketing site origin to `ALLOWED_ORIGINS` in `public-booking.mjs` if the page is ever
       embedded/linked cross-origin (list currently mirrors `calendar.mjs`).
@@ -521,9 +556,8 @@
 - [ ] **Marketing follow-ups (when campaigns start running):** create the first real campaign in
       /marketing and start using its ?c= links; patients created in-app (drawer/Pacientes) have
       no fuente by default — set it manually when known. Watch the "≈ sin atribución" estimates.
-- [ ] **"Prueba Marte" test data** (+593983701092, session Jul 4 19:30, Mariana, created by
-      Nicolas 2026-07-03): its 24h WhatsApp reminder fired ~19:05 EC 2026-07-03. Patient +
-      session (+ any calendar event) still need deletion once Nicolas is done testing.
+- [x] ~~**"Prueba Marte" test data**~~ — DELETED (confirmed by Nicolas 2026-07-09). Patient,
+      session, and calendar event are gone; nothing left to clean up.
 - [ ] **Minor UI / aesthetic polish — DEFERRED** (per Nicolas 2026-07-02): do NOT spend building
   sessions on cosmetics. All aesthetic/UI-bug work waits until the whole architecture is finished,
   and will be done with cheaper models. Building sessions (Fable) are for new modules only.

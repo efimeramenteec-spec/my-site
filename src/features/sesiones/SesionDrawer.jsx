@@ -128,6 +128,11 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
   // unpaid real sessions and the oldest debt is 5+ days old, warn loudly.
   // Deliberately a NOTICE, never a block — some trusted patients are allowed
   // to pay late at the practice's discretion.
+  // Real debt = a session that ACTUALLY HAPPENED and wasn't paid. That means
+  // estado 'confirmada' (the patient attended) AND fecha in the past (Nicolas,
+  // 2026-07-09). A still-'programada' (Pendiente) session — even a past-dated
+  // one — is NOT debt: it was never confirmed to have taken place. Llamadas are
+  // free, so they never count.
   const unpaid = (() => {
     if (!form.patient_id) return { count: 0, old: false }
     const today = dateKey(new Date())
@@ -137,8 +142,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
         s.patient_id === form.patient_id &&
         !s.pagado &&
         s.tipo !== 'llamada' &&
-        s.estado !== 'cancelada' &&
-        s.estado !== 'no_show' &&
+        s.estado === 'confirmada' &&
         s.fecha < today &&
         (mode !== 'edit' || !initial || s.id !== initial.id),
     )
