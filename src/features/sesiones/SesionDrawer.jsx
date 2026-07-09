@@ -39,7 +39,7 @@ function blankForm(defaultDate, therapists) {
   }
 }
 
-const blankPatient = () => ({ nombre: '', apellido: '', telefono: '+593', email: '', motivo_consulta: '' })
+const blankPatient = () => ({ nombre: '', apellido: '', telefono: '+593', email: '', cedula: '', motivo_consulta: '' })
 
 export function SesionDrawer({ open, mode = 'create', initial, defaultDate, patients = [], therapists = [], sessions = [], fullAccess = true, terapeutaId = null, onClose, onSubmit, onCreatePatient }) {
   const [form, setForm] = useState(() => blankForm(defaultDate, therapists))
@@ -87,6 +87,10 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     if (!newPatient.nombre.trim()) e.nombre = 'Requerido'
     if (!newPatient.apellido.trim()) e.apellido = 'Requerido'
     if (!newPatient.telefono.trim() || newPatient.telefono.trim() === '+593') e.telefono = 'Requerido'
+    // Email + cédula required so the patient can be invoiced in Contífico.
+    if (!newPatient.email.trim()) e.email = 'Requerido para facturar'
+    else if (!newPatient.email.includes('@')) e.email = 'Email inválido'
+    if (!newPatient.cedula.trim()) e.cedula = 'Requerido para facturar'
     setNpErrors(e)
     if (Object.keys(e).length) return
 
@@ -100,6 +104,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
       apellido: newPatient.apellido.trim(),
       telefono: newPatient.telefono.trim(),
       email: newPatient.email.trim() || null,
+      cedula: newPatient.cedula.trim() || null,
       motivo_consulta: newPatient.motivo_consulta.trim() || null,
       terapeuta_id: assignTo,
     })
@@ -363,8 +368,12 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
                 <input type="tel" className={nativeInput} value={newPatient.telefono} onChange={(e) => setNp('telefono', e.target.value)} placeholder="+593…" />
               </Field>
 
-              <Field label="Email">
+              <Field label="Email" error={npErrors.email}>
                 <input type="email" className={nativeInput} value={newPatient.email} onChange={(e) => setNp('email', e.target.value)} />
+              </Field>
+
+              <Field label="Cédula / RUC" error={npErrors.cedula}>
+                <input className={nativeInput} value={newPatient.cedula} onChange={(e) => setNp('cedula', e.target.value)} placeholder="Requerido para facturar" />
               </Field>
 
               <Field label="Motivo de consulta">

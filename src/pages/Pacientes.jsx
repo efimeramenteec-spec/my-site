@@ -100,6 +100,7 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
     apellido: patient.apellido || '',
     telefono: patient.telefono || '',
     email: patient.email || '',
+    cedula: patient.cedula || '',
     terapeuta_id: patient.terapeuta_id || '',
     tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
     metodo_pago: patient.metodo_pago || 'transferencia',
@@ -120,6 +121,7 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
       apellido: patient.apellido || '',
       telefono: patient.telefono || '',
       email: patient.email || '',
+      cedula: patient.cedula || '',
       terapeuta_id: patient.terapeuta_id || '',
       tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
       metodo_pago: patient.metodo_pago || 'transferencia',
@@ -156,6 +158,7 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
       patch.apellido = form.apellido.trim()
       patch.telefono = form.telefono.trim()
       patch.email = form.email.trim() || null
+      patch.cedula = form.cedula.trim() || null
       patch.terapeuta_id = form.terapeuta_id || null
       patch.tarifa = parseFloat(form.tarifa) || TARIFA_DEFAULT
       patch.metodo_pago = form.metodo_pago
@@ -286,6 +289,12 @@ function PatientDetail({ patient, therapist, therapists = [], campaigns = [], se
                 type="email"
                 value={form.email}
                 onChange={(e) => set('email', e.target.value)}
+              />
+              <Input
+                label="Cédula / RUC"
+                value={form.cedula}
+                onChange={(e) => set('cedula', e.target.value)}
+                hint="Requerido para facturar en Contífico"
               />
               <Select
                 label="Terapeuta"
@@ -477,6 +486,7 @@ const EMPTY_FORM = {
   apellido: '',
   telefono: '',
   email: '',
+  cedula: '',
   motivo_consulta: '',
   terapeuta_id: '',
   tarifa: String(TARIFA_DEFAULT),
@@ -500,6 +510,10 @@ function CreatePatientDrawer({ therapists, fullAccess = true, terapeutaId = null
     if (!form.nombre.trim()) e.nombre = 'Requerido'
     if (!form.apellido.trim()) e.apellido = 'Requerido'
     if (!form.telefono.trim()) e.telefono = 'Requerido'
+    // Email + cédula are required to be able to invoice the patient in Contífico.
+    if (!form.email.trim()) e.email = 'Requerido para facturar'
+    else if (!form.email.includes('@')) e.email = 'Email inválido'
+    if (!form.cedula.trim()) e.cedula = 'Requerido para facturar'
     if (fullAccess && !form.terapeuta_id) e.terapeuta_id = 'Selecciona un terapeuta'
     if (fullAccess && (!form.tarifa || isNaN(parseFloat(form.tarifa)))) e.tarifa = 'Ingresa un valor'
     return e
@@ -520,6 +534,7 @@ function CreatePatientDrawer({ therapists, fullAccess = true, terapeutaId = null
       apellido: form.apellido.trim(),
       telefono: form.telefono.trim(),
       email: form.email.trim() || null,
+      cedula: form.cedula.trim() || null,
       motivo_consulta: form.motivo_consulta.trim() || null,
       terapeuta_id: fullAccess ? form.terapeuta_id : terapeutaId,
       estado_general: 'activo',
@@ -588,6 +603,16 @@ function CreatePatientDrawer({ therapists, fullAccess = true, terapeutaId = null
             type="email"
             value={form.email}
             onChange={(e) => set('email', e.target.value)}
+            error={errors.email}
+            hint="Requerido para facturar"
+          />
+
+          <Input
+            label="Cédula / RUC"
+            value={form.cedula}
+            onChange={(e) => set('cedula', e.target.value)}
+            error={errors.cedula}
+            hint="Requerido para facturar"
           />
 
           <div className="flex flex-col gap-1.5">

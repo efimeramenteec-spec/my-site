@@ -239,11 +239,11 @@ export async function deleteSession(id) {
 // \u2500\u2500\u2500 Pacientes \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
 const PATIENT_SELECT =
-  'id,nombre,apellido,telefono,email,fecha_nacimiento,terapeuta_id,' +
+  'id,nombre,apellido,telefono,email,cedula,contifico_id,fecha_nacimiento,terapeuta_id,' +
   'motivo_consulta,estado_general,notas,tarifa,metodo_pago,fuente,campaign_id,frecuencia,created_at,updated_at'
 
 const PATIENT_COLUMNS = [
-  'nombre', 'apellido', 'telefono', 'email', 'fecha_nacimiento',
+  'nombre', 'apellido', 'telefono', 'email', 'cedula', 'contifico_id', 'fecha_nacimiento',
   'terapeuta_id', 'motivo_consulta', 'estado_general', 'notas',
   'tarifa', 'metodo_pago', 'fuente', 'campaign_id', 'frecuencia',
 ]
