@@ -1,0 +1,23 @@
+-- Drop the UNIQUE constraint on patients.telefono (2026-07-09).
+--
+-- Why: a phone number is NOT a unique patient identifier. Real case that hit the
+-- constraint — a guardian (Laura Vasquez) registers herself AND her minor nephews
+-- (who have no phone of their own) all under her single number. Families sharing a
+-- line and children without a phone are legitimate, recurring cases, not one-offs.
+--
+-- Safe to drop: the real key is patients.id (patients_pkey). Nothing structurally
+-- depends on phone uniqueness — the WhatsApp inbound webhook (twilio-webhook.mjs)
+-- and public-booking.mjs both resolve phone -> patient with a JS .find() (first
+-- match) + .limit(1), never .single(), so duplicates don't error.
+--
+-- Trade-offs accepted (Nicolas, 2026-07-09):
+--   * Lose the automatic "duplicate patient" guard (was already bypassable via a
+--     typo or different formatting).
+--   * On a shared number, a WhatsApp "Confirmo/Cancelar" reply resolves to the
+--     first-matching patient's soonest reminded session (each reminder message
+--     still names the patient, so the guardian can tell them apart when reading).
+--
+-- Idempotent. Applied in prod via the Supabase connector (migration
+-- drop_patients_telefono_unique). Re-adding uniqueness later would require no
+-- shared-phone rows to exist at that time.
+ALTER TABLE public.patients DROP CONSTRAINT IF EXISTS patients_telefono_key;

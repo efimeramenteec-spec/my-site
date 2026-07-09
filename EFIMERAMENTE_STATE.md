@@ -519,6 +519,18 @@
     page and only navigated to `/sesiones` (duplicate of the real button in the Sesiones module).
     Cleaned up now-unused imports. Header now shows title + date + demo/live chip only.
 
+- [x] **Dropped the `patients.telefono` UNIQUE constraint** (2026-07-09, DDL via Supabase connector,
+  migration `drop_patients_telefono_unique`, mirrored `supabase/drop-patients-telefono-unique.sql`).
+  Real case: a guardian (Laura Vasquez) registers herself + her minor nephews (no phones of their
+  own) all under ONE number, and the `patients_telefono_key` UNIQUE blocked it. Phone isn't a unique
+  patient identifier; the real key is `patients_pkey` on `id`. Verified safe first: neither the
+  Twilio webhook nor public-booking use `.single()` on a phone lookup — both `.find()` the first
+  match + `.limit(1)`, so duplicates don't error. Accepted trade-offs: (1) no more automatic
+  duplicate-patient guard (was bypassable anyway); (2) a WhatsApp reply from a shared number resolves
+  to the first-matching patient's soonest reminded session (reminder messages still name the
+  patient). No deploy needed — DDL applied directly. **This unblocks the old "fake test patients per
+  therapist" backlog item** (was blocked by exactly this constraint).
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
