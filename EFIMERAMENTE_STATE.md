@@ -540,6 +540,44 @@
   never counted them. Prod check: all 8 llamadas were already `pagado=false`/`facturada=false`, so no
   data cleanup was needed. Frontend-only.
 
+- [x] **CONTÍFICO INVOICING — groundwork + Protocol 1 (create client) DONE; Protocol 2 (invoice)
+  mapped, not built** (2026-07-09, Opus). Goal: a `/facturar` tool that finds sessions eligible for
+  automatic invoicing (**estado `confirmada` + `pagado` + NOT `facturada` + non-llamada + rolling
+  last 7 days + patient is client-ready**) and issues the factura in Contífico. Contífico API is
+  paid → **browser automation** (Contífico = Siigo; empresa RUC `1760388700001`, URL
+  `https://1760388700001.contifico.com`, login user `MarianaVillegasK`). ⚠️ The MCP/automation
+  browser tab does NOT share Nicolas's Contífico login — he logs in manually in the automation tab
+  once per session.
+  - **DB (migration `add_patient_cedula_contifico`, mirrored `supabase/add-patient-cedula.sql`):**
+    `patients.cedula` + `patients.contifico_id` (both nullable in DB). `contifico_id` = marker that
+    the patient exists as a Contífico client (currently set to the 10-digit core cédula, NOT the real
+    Contífico persona id — see backlog). Both whitelisted in `queries.js` PATIENT_COLUMNS/SELECT.
+  - **Frontend (pushed, commit 51b9cd1):** cédula + email now **required** when creating a patient
+    (Pacientes create drawer AND the inline SesionDrawer create); cédula editable in Pacientes →
+    Configuración. Invoice address is a constant **"QUITO"** (no per-patient column).
+  - **Data backfill** from Nicolas's `Sesiones_Consultorio (6).xlsx` (sheet "Sesiones" has
+    Cédula/RUC + Email per patient): matched to DB by name+phone, cédulas **validated with the
+    official SRI check-digit algorithm**. Result: **75 patients got a verified cédula**, ~129 got a
+    real email (blanks + `sin@mail.com` placeholders filled). Review list of the rest →
+    **`~/Downloads/cedulas_por_revisar.csv`** (96 still need a cédula: 24 had an invalid value in the
+    sheet, 72 none).
+  - **Protocol 1 = BULK client import (not per-patient).** Contífico has a persona mass-upload
+    (`/sistema/persona/importacion_masiva_personas/`, template `Plantilla_importacion_persona.xls`).
+    Flow: generate a filled `.xls` from the app's patient data → upload → review grid → Save.
+    Gotchas learned: **Cuenta Contable Cliente must be exactly `Clientes Comerciales`** (not
+    "CLIENTES" — it's account code `1.1.2.5…`); Nombre format = **APELLIDOS NOMBRES**; Tipo `N`,
+    Rol `Cliente`, Contribuyente Especial `No`, Extranjero `No`, Dirección `QUITO`; 13-digit RUC rows
+    fill both RUC + Cédula(first 10). **Deduped against the 74 existing Contífico clients** (export
+    via Consultar Personas → Excel): of 66 ready patients, 25 already existed, **41 were created
+    (“41 persona(s) cargados exitosamente”)**. **All 66 now clients + `contifico_id` stamped.** The
+    9 placeholder-email patients were deliberately excluded.
+  - **Protocol 2 = invoice (MAPPED, NOT built).** Screen: "Crear una factura electrónica" →
+    `Registrar Documento Electrónico`. Steps: pick **Persona** (client, lookup by cédula) → **Servicios
+    ▸ Agregar detalle** (Producto, Cant `1`, Precio U. = session `monto`, IVA) → fill **Descripción**
+    (required) → **Formas de Pago** tab → then **"Guardar"** (draft) or **"Guardar y enviar al SRI"**
+    (irreversible emission). After success → set session `facturada=true`. NOT yet encoded as
+    `/facturar` — blocked on 5 config answers from Nicolas (see backlog).
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
@@ -557,6 +595,24 @@
 - [x] ~~Clean up the test llamada/patient~~ — done 2026-07-02 (see verification pass above).
 - [ ] Add the marketing site origin to `ALLOWED_ORIGINS` in `public-booking.mjs` if the page is ever
       embedded/linked cross-origin (list currently mirrors `calendar.mjs`).
+
+### Contífico invoicing — resume here
+- [ ] **Build `/facturar` (Protocol 2)** — BLOCKED on 5 config answers from Nicolas: **(1)** exact
+      Producto/servicio name for a session line, **(2)** IVA rate (0%? psychology is exempt),
+      **(3)** Descripción template (e.g. `Sesión de terapia psicológica` ± date/therapist),
+      **(4)** Formas de Pago — fill per factura (Transferencia?) or leave blank / required to emit?,
+      **(5)** emit straight to SRI vs "Guardar" as draft for batch review. Then do ONE real invoice
+      live with Nicolas (pause before the SRI submit), then encode the command.
+- [ ] **Eligible-session query for /facturar:** `estado='confirmada' AND pagado AND NOT facturada AND
+      tipo<>'llamada' AND fecha >= current_date-7 AND patient.contifico_id IS NOT NULL`. Patients
+      without `contifico_id` (not yet clients) must be skipped + reported (or run Protocol 1 first).
+- [ ] **Finish the 10 client-pending patients:** get the 9 placeholder emails (Aichele Oliver,
+      Huidobro Juliana, Cevallos Jacqueline, Racines Alisson, Conforme Emilie, Padilla Camila,
+      Almache Karina, Ortiz Shally, Chiriboga Joaquin), then bulk-create them (Protocol 1) + stamp.
+- [ ] **Fill the 96 missing cédulas** from `~/Downloads/cedulas_por_revisar.csv` (24 invalid-in-sheet,
+      72 blank), then bulk-create those as clients too. Only patients with a cédula can be invoiced.
+- [ ] **`contifico_id` is a marker (= core cédula), not the real Contífico persona id.** Fine for the
+      cédula-based Persona lookup in Protocol 2; upgrade to the real id only if a flow needs it.
 
 ### Immediate — next session
 - [x] ~~**Next module: SEGUIMIENTO**~~ — DONE 2026-07-04 (see Completed Features; scope was
