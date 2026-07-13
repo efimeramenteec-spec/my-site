@@ -578,6 +578,31 @@
     (irreversible emission). After success → set session `facturada=true`. NOT yet encoded as
     `/facturar` — blocked on 5 config answers from Nicolas (see backlog).
 
+- [x] **CONTÍFICO INVOICING — Protocol 2 (`/facturar`) BUILT + first real run done** (2026-07-13,
+  Opus). The invoicing protocol now lives as a **Claude Code slash command**:
+  **`~/my-site/.claude/commands/facturar.md`** → in any future session type **`/facturar`** to
+  activate the whole flow (find eligible sessions → emit Contífico facturas via browser → mark
+  `facturada`). Config locked with Nicolas: Producto **SESION INDIVIDUAL** (auto-IVA 0%),
+  Descripción **"Sesión del <fecha>"**, forma de pago **Otros con Utilización del Sistema
+  Financiero** (= transferencia; no literal "Transferencia" option exists), address **QUITO**,
+  **emit directly** to SRI. Consumidor Final = type `9999999999999` in Persona (patients without a
+  cédula, all sessions <$50). Learned gotchas captured in the command file (Persona field needs a
+  re-click after navigate; product auto-adds a blank row to delete; verify Persona is populated
+  before emitting).
+  - **First real run:** 24 facturas emitted end-to-end (docs `001-001-000000226` → `…249`) for the
+    weeks up to 2026-07-13 — mix of real facturas + Consumidor Final; all marked `facturada`.
+    4 new Contífico clients created (Jonathan Tapia, Richard Pérez, Daniela Rivadeneira, Rafaela
+    Orrego), tarifas corrected (Jonathan $35, Diana $45), Pamela/Diana cédulas pulled from Contífico,
+    Sharian's name fixed.
+  - **⚠️ NEVER-INVOICE exemptions** (insurance-format cases Nicolas issues by hand): **Sharian
+    Narvaez, Raguel Conforme (Vasquez), Emilie Conforme, Laura Vasquez.** Enforced by
+    `patients.facturacion_manual = true` (migration `add_patient_facturacion_manual`, mirrored
+    `supabase/add-patient-facturacion-manual.sql`) — the `/facturar` eligibility query excludes them,
+    and they're also listed by name in the command file as a safety net. To exempt more later:
+    `update patients set facturacion_manual=true where id='…'`.
+  - Still needing a cédula before they can be invoiced: the ~96 in `~/Downloads/cedulas_por_revisar.csv`
+    plus any new no-cédula patients (invoice those as Consumidor Final or collect the cédula).
+
 ## Pending / Backlog
 
 ### Go-live remainder (public booking + push)
