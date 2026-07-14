@@ -117,25 +117,20 @@ semanal 14d / quincenal 28d / sin frecuencia 21d; alta/baja excluded), **activos
 actives who returned), and a lifetime sessions-per-patient distribution. Therapists see the
 same page auto-scoped by RLS to their own patients/sessions — no role logic in the page.
 
-### Marketing module (owner-only, `src/pages/Marketing.jsx`)
-Tracks the acquisition funnel **Meta Ads impresiones → WhatsApp conversaciones → llamada 10 min →
-paciente** per campaign, plus CPA / LTV / LTV:CAC / ROAS. Hybrid data model:
-- **Top of funnel (manual):** `campaigns` table holds per-campaign TOTALS (spend/impressions/
-  clicks/conversations) — edited inline ("Actualizar cifras") or recomputed by importing a Meta Ads
-  CSV report (`src/lib/metaCsv.js` parses EN/ES headers; daily rows upsert into `campaign_metrics`
-  by (campaign_id, fecha) so re-imports never double-count; totals = sum of daily rows, so an
-  import overwrites manual totals). The CSV must include a daily breakdown ("Day"/"Día").
-- **Bottom of funnel (automatic):** llamadas/pacientes/ingreso derive live from sessions+patients
-  via attribution: per-campaign booking links `/agendar?c=<slug>` (PublicBooking echoes `c`,
-  public-booking.mjs stamps `sessions.campaign_id` + patient `fuente='ads'`/`campaign_id` — never
-  overwriting an existing fuente), or the manual **Fuente/Campaña** selects in Pacientes →
-  Configuración (`FUENTE_PACIENTE` in constants.js: ads/referido/organico/otro).
-- LTV = total PAID revenue ÷ patients with ≥1 real (non-llamada, non-cancelled) session; a
-  campaign "paciente" = attributed patient with ≥1 real session. Patients created during a
-  campaign window with no fuente show as an amber "≈ estimate", never mixed into exact numbers.
-- Also renders "Llamadas sin sesión" — patients whose last llamada has no real session after it
-  (the follow-up list). RLS: campaigns/campaign_metrics owner-only; migration
-  `supabase/marketing-campaigns.sql`.
+### Marketing module v2 (owner-only, `src/pages/Marketing.jsx`)
+**Fully documented in `MARKETING-CONSULTORIO-2026.md` — read that for ANY marketing work**
+(protocol, flag thresholds, Meta report template, backfill). One-paragraph orientation:
+funnel **Meta Ads → WhatsApp conversaciones → llamada gratuita → paciente**. Data arrives
+weekly: Meta emails the saved report `EFIMERAMENTE-SEMANAL` every Monday; the `/marketize`
+command (user-level, `~/.claude/commands/marketize.md`) fetches it (Gmail → Downloads →
+Chrome), runs `scripts/marketize-import.mjs` (upserts `campaign_weeks` by
+(campaign_id, semana_inicio); auto-creates campaigns by exact Meta name; maintains
+fecha_inicio/fecha_fin windows) and prints a briefing. **Attribution is date-based:** one
+campaign runs at a time, so a new patient (first real session) belongs to the campaign whose
+window covers the day that session was BOOKED (`sessions.created_at`); `fuente='referido'`
+excludes a patient from attribution (the only manual step). No link tagging — the v1 ?c=/slug
+machinery was removed 2026-07-13. All metric math is in `src/lib/marketing.js` (pure, shared
+by page + briefing); parser in `src/lib/metaCsv.js`; schema mirror `supabase/marketing-v2.sql`.
 
 ### Design system (`src/components/`)
 Six primitives: `Button`, `Card`, `Badge`, `Input`, `Select`, `Toggle`. Re-exported from

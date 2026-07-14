@@ -1,8 +1,14 @@
-// Parser for Meta Ads Manager CSV exports (Marketing module).
+// Parser for the weekly Meta Ads report (Marketing module v2).
+// Expects the EFIMERAMENTE-SEMANAL template: one row per campaign covering the
+// report's date range (weekly grain — see MARKETING-CONSULTORIO-2026.md).
 // Dependency-free on purpose. Tolerates BOM, CRLF, quoted fields, and both
-// English and Spanish column names. The report must include a daily breakdown
-// ("Day"/"Día") — rows without a parseable date (e.g. Meta's summary row) are
-// skipped silently.
+// Spanish and English column names.
+//
+// Conversations can arrive two ways and both are handled:
+//   1. An explicit "Conversaciones de mensajería iniciadas" column (preferred —
+//      part of the template contract).
+//   2. Meta's generic "Resultados" column + "Indicador de resultado" saying
+//      `messaging_conversation_started` (what ad-account exports produce).
 
 // Minimal RFC-4180 CSV → array of rows (arrays of strings).
 function parseCsv(text) {
@@ -36,14 +42,28 @@ function parseCsv(text) {
 const norm = (s) =>
   String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
 
-// Header → funnel field. Matched by substring on the normalized header so the
-// exact Meta wording/locale doesn't matter. First match wins per field.
+// Header → field. Matched by substring on the normalized header so exact Meta
+// wording/locale doesn't matter. First match wins per field; matchers are
+// ordered so more specific needles claim their column before generic ones
+// (e.g. "clics en el enlace" must not be eaten by a generic "clic" matcher).
 const HEADER_MATCHERS = [
-  ['fecha', ['day', 'dia', 'reporting starts', 'inicio del informe', 'fecha']],
-  ['spend', ['amount spent', 'importe gastado', 'gasto']],
-  ['impressions', ['impression', 'impresiones']],
-  ['clicks', ['link click', 'clics en el enlace', 'click', 'clics']],
-  ['conversations', ['conversation', 'conversacion']],
+  ['semana_inicio', ['inicio del informe', 'reporting starts']],
+  ['semana_fin', ['fin del informe', 'reporting ends']],
+  // Backfill exports break down by week: a "Semana" column per row, which
+  // takes precedence over the report-range columns (those hold the FULL
+  // export range in every row and would collapse the history to one week).
+  ['semana', ['semana', 'week']],
+  ['campaign', ['nombre de la campana', 'campaign name']],
+  ['spend', ['importe gastado', 'amount spent']],
+  ['reach', ['alcance', 'reach']],
+  ['frequency', ['frecuencia', 'frequency']],
+  ['cpm', ['cpm']],
+  ['ctr', ['ctr (porcentaje de clics en el enlace)', 'ctr (link click-through rate)']],
+  ['link_clicks', ['clics en el enlace', 'link clicks']],
+  ['impressions', ['impresiones', 'impressions']],
+  ['conversations', ['conversaciones de mensajeria iniciadas', 'messaging conversations started']],
+  ['results', ['resultados', 'results']],
+  ['result_indicator', ['indicador de resultado', 'result indicator']],
 ]
 
 function mapHeaders(headerRow) {
@@ -102,47 +122,100 @@ const toNumber = (raw) => {
 }
 
 /**
- * @returns {{ ok: true, rows: [{fecha,spend,impressions,clicks,conversations}], skipped: number }
+ * @returns {{ ok: true,
+ *             weeks: [{ campaign, semana_inicio, semana_fin, spend, impressions,
+ *                       reach, frequency, link_clicks, ctr, cpm, conversations }],
+ *             skipped: number }
  *          | { ok: false, error: string }}
  */
 export function parseMetaCsv(text) {
   const rows = parseCsv(text)
   if (rows.length < 2) return { ok: false, error: 'El archivo está vacío o no es un CSV.' }
 
-  const headers = mapHeaders(rows[0])
-  if (!('fecha' in headers)) {
-    return { ok: false, error: 'No encontré la columna de fecha ("Day"/"Día"). Exporta el reporte con desglose por día.' }
-  }
-  if (!('spend' in headers) && !('impressions' in headers)) {
-    return { ok: false, error: 'No encontré columnas de métricas ("Amount spent"/"Impressions"…). Revisa las columnas del reporte.' }
+  const h = mapHeaders(rows[0])
+  const missing = []
+  if (!('campaign' in h)) missing.push('Nombre de la campaña')
+  if (!('semana_inicio' in h) && !('semana' in h)) missing.push('Inicio del informe (o Semana)')
+  if (!('spend' in h)) missing.push('Importe gastado')
+  if (!('conversations' in h) && !('results' in h)) missing.push('Conversaciones de mensajería iniciadas')
+  if (missing.length) {
+    return {
+      ok: false,
+      error: `Faltan columnas del template EFIMERAMENTE-SEMANAL: ${missing.join(', ')}. Revisa el reporte guardado en Meta (ver MARKETING-CONSULTORIO-2026.md).`,
+    }
   }
 
+  const val = (r, f) => (f in h ? toNumber(r[h[f]]) : 0)
   const out = []
   let skipped = 0
+  const plus6 = (iso) => {
+    const d = new Date(`${iso}T12:00:00Z`)
+    d.setUTCDate(d.getUTCDate() + 6)
+    return d.toISOString().slice(0, 10)
+  }
   for (const r of rows.slice(1)) {
-    const fecha = toIsoDate(r[headers.fecha])
-    if (!fecha) { skipped++; continue }
-    const val = (f) => (f in headers ? toNumber(r[headers[f]]) : 0)
+    const porSemana = 'semana' in h ? toIsoDate(r[h.semana]) : null
+    const semana_inicio = porSemana ||
+      ('semana_inicio' in h ? toIsoDate(r[h.semana_inicio]) : null)
+    const semana_fin = porSemana
+      ? plus6(porSemana)
+      : ('semana_fin' in h && toIsoDate(r[h.semana_fin])) || semana_inicio
+    const campaign = String(r[h.campaign] || '').trim()
+    const spend = val(r, 'spend')
+    const impressions = Math.round(val(r, 'impressions'))
+    // Meta includes inactive campaigns as all-zero rows — not data, skip them.
+    if (!semana_inicio || !campaign || (spend === 0 && impressions === 0)) { skipped++; continue }
+
+    let conversations = 0
+    if ('conversations' in h && String(r[h.conversations] || '').trim() !== '') {
+      conversations = Math.round(val(r, 'conversations'))
+    } else if ('results' in h) {
+      const indicator = 'result_indicator' in h ? norm(r[h.result_indicator]) : ''
+      // Only trust "Resultados" when the indicator says it counts conversations
+      // (or there is no indicator column to check against).
+      if (!indicator || indicator.includes('messaging_conversation_started')) {
+        conversations = Math.round(val(r, 'results'))
+      }
+    }
+
     out.push({
-      fecha,
-      spend: val('spend'),
-      impressions: Math.round(val('impressions')),
-      clicks: Math.round(val('clicks')),
-      conversations: Math.round(val('conversations')),
+      campaign,
+      semana_inicio,
+      semana_fin,
+      spend,
+      impressions,
+      reach: Math.round(val(r, 'reach')),
+      frequency: val(r, 'frequency'),
+      link_clicks: Math.round(val(r, 'link_clicks')),
+      ctr: val(r, 'ctr'),
+      cpm: val(r, 'cpm'),
+      conversations,
     })
   }
-  if (!out.length) return { ok: false, error: 'Ninguna fila tenía una fecha válida — ¿el reporte tiene desglose por día?' }
+  if (!out.length) {
+    return { ok: false, error: 'Ninguna fila tenía datos (¿todas las campañas en 0?). No hay nada que importar.' }
+  }
 
-  // Same-day duplicates (e.g. per-ad breakdown) collapse into one daily row.
-  const byDate = new Map()
+  // Same campaign + range duplicates (e.g. an ad-set-level export) collapse
+  // into one weekly row. Reach is NOT additive across rows — keep the max and
+  // recompute frequency from the summed impressions.
+  const byKey = new Map()
   for (const r of out) {
-    const prev = byDate.get(r.fecha)
+    const key = `${r.campaign}|${r.semana_inicio}`
+    const prev = byKey.get(key)
     if (prev) {
       prev.spend += r.spend
       prev.impressions += r.impressions
-      prev.clicks += r.clicks
+      prev.link_clicks += r.link_clicks
       prev.conversations += r.conversations
-    } else byDate.set(r.fecha, { ...r })
+      prev.reach = Math.max(prev.reach, r.reach)
+      prev.frequency = prev.reach > 0 ? prev.impressions / prev.reach : 0
+      prev.ctr = prev.impressions > 0 ? (100 * prev.link_clicks) / prev.impressions : 0
+      prev.cpm = prev.impressions > 0 ? (1000 * prev.spend) / prev.impressions : 0
+    } else byKey.set(key, { ...r })
   }
-  return { ok: true, rows: [...byDate.values()].sort((a, b) => a.fecha.localeCompare(b.fecha)), skipped }
+  const weeks = [...byKey.values()].sort(
+    (a, b) => a.semana_inicio.localeCompare(b.semana_inicio) || a.campaign.localeCompare(b.campaign),
+  )
+  return { ok: true, weeks, skipped }
 }

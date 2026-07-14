@@ -189,10 +189,6 @@ export default async (req) => {
     let body
     try { body = await req.json() } catch { return json({ error: 'bad_request' }, 400) }
     const { therapist_id: therapistId, date, start_time: startTime, patient, website } = body || {}
-    // Marketing attribution: per-campaign links carry ?c=<slug> which the page
-    // echoes here. Unknown/absent slugs are simply ignored — attribution must
-    // never block a booking.
-    const campaignSlug = String(body?.campaign || '').trim().slice(0, 60)
     const kindKey = KINDS[body?.kind] ? body.kind : 'llamada'
     const kind = KINDS[kindKey]
     // Sessions carry a patient-chosen modalidad; llamadas are always en línea.
@@ -249,14 +245,6 @@ export default async (req) => {
     }
     if (!slots.includes(startTime)) return json({ error: 'slot_taken' }, 409)
 
-    let campaignId = null
-    if (campaignSlug) {
-      const { data: camp, error: cErr } = await supabase
-        .from('campaigns').select('id').eq('slug', campaignSlug).maybeSingle()
-      if (cErr) console.warn('[public-booking] campaign lookup failed (non-blocking):', cErr.message)
-      campaignId = camp?.id || null
-    }
-
     // Upsert patient by phone: reuse an existing record (never overwrite it) —
     // same matching as the Twilio webhook (normalized E.164 or last 9 digits).
     const { data: patients, error: pErr } = await supabase.from('patients').select('id, telefono, tarifa, fuente')
@@ -272,24 +260,12 @@ export default async (req) => {
       const newPatient = { nombre, apellido, telefono: phone, terapeuta_id: t.id }
       if (email) newPatient.email = email
       if (motivo) newPatient.motivo_consulta = motivo
-      if (campaignId) {
-        newPatient.fuente = 'ads'
-        newPatient.campaign_id = campaignId
-      }
       const res = await supabase.from('patients').insert(newPatient).select('id').single()
       if (res.error) {
         console.error('[public-booking] patient insert:', res.error.message)
         return json({ error: 'booking_failed' }, 500)
       }
       patientId = res.data.id
-    } else if (campaignId && !existing.fuente) {
-      // Known patient with no recorded source: attribute them to this campaign,
-      // but never overwrite an existing attribution. Best-effort.
-      const { error: fErr } = await supabase
-        .from('patients')
-        .update({ fuente: 'ads', campaign_id: campaignId })
-        .eq('id', patientId)
-      if (fErr) console.warn('[public-booking] fuente update failed (non-blocking):', fErr.message)
     }
 
     // Llamadas are free; sessions bill the patient's tarifa (39 = DB default for
@@ -309,7 +285,6 @@ export default async (req) => {
         estado: 'programada',
         monto,
         pagado: false,
-        campaign_id: campaignId,
       })
       .select('id')
       .single()

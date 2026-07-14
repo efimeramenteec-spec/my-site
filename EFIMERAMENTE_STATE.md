@@ -653,11 +653,13 @@
 - [ ] **Dashboard "por cobrar" data hygiene:** the 72 unpaid past sessions include old seed
       rows the sheet sync couldn't match (76 unmatched) — some may actually be paid. Numbers
       self-correct as Nicolas marks history via the Deudores list.
-- [ ] **Marketing: "Nuevos pacientes este mes" metric** (requested by Nicolas 2026-07-04) —
-      simple count of patients created in the current month, to live in the /marketing page.
-- [ ] **Marketing follow-ups (when campaigns start running):** create the first real campaign in
-      /marketing and start using its ?c= links; patients created in-app (drawer/Pacientes) have
-      no fuente by default — set it manually when known. Watch the "≈ sin atribución" estimates.
+- [x] ~~**Marketing v1 follow-ups (?c= links, fuente estimates)**~~ — OBSOLETE: **Marketing was
+      fully redone as v2 on 2026-07-13** (weekly Meta report + date-based attribution; the ?c=
+      link machinery was removed). **Everything about the module now lives in
+      `MARKETING-CONSULTORIO-2026.md` — read THAT, not this file, for marketing work.**
+      Remaining marketing to-dos = the checklist in its section 7 (create the Meta saved report
+      `EFIMERAMENTE-SEMANAL` + weekly email, enable the Gmail connector, run the May→today
+      backfill, verify attachment-vs-link on the first real `/marketize`).
 - [x] ~~**"Prueba Marte" test data**~~ — DELETED (confirmed by Nicolas 2026-07-09). Patient,
       session, and calendar event are gone; nothing left to clean up.
 - [ ] **Minor UI / aesthetic polish — DEFERRED** (per Nicolas 2026-07-02): do NOT spend building

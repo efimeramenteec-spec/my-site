@@ -78,8 +78,9 @@ export const RESPUESTA_CITA = {
   reprogramar: { label: 'Reprogramar', badge: 'orange' },
 }
 
-// patients.fuente — acquisition source (Marketing module). 'ads' is stamped
-// automatically by public-booking when a booking arrives via /agendar?c=<slug>.
+// patients.fuente — acquisition source (Marketing module v2). Only 'referido'
+// has mechanical meaning: it EXCLUDES the patient from campaign attribution
+// (see MARKETING-CONSULTORIO-2026.md); the rest are informative labels.
 export const FUENTE_PACIENTE = {
   ads:      'Campaña (ads)',
   referido: 'Referido',

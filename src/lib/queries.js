@@ -240,12 +240,12 @@ export async function deleteSession(id) {
 
 const PATIENT_SELECT =
   'id,nombre,apellido,telefono,email,cedula,contifico_id,fecha_nacimiento,terapeuta_id,' +
-  'motivo_consulta,estado_general,notas,tarifa,metodo_pago,fuente,campaign_id,frecuencia,created_at,updated_at'
+  'motivo_consulta,estado_general,notas,tarifa,metodo_pago,fuente,frecuencia,created_at,updated_at'
 
 const PATIENT_COLUMNS = [
   'nombre', 'apellido', 'telefono', 'email', 'cedula', 'contifico_id', 'fecha_nacimiento',
   'terapeuta_id', 'motivo_consulta', 'estado_general', 'notas',
-  'tarifa', 'metodo_pago', 'fuente', 'campaign_id', 'frecuencia',
+  'tarifa', 'metodo_pago', 'fuente', 'frecuencia',
 ]
 const pickPatientColumns = (obj) =>
   Object.fromEntries(PATIENT_COLUMNS.filter((k) => k in obj).map((k) => [k, obj[k]]))
@@ -253,7 +253,7 @@ const pickPatientColumns = (obj) =>
 export async function getPatientsData() {
   if (isSupabaseConfigured) {
     try {
-      const [pRes, tRes, sRes, cRes] = await Promise.all([
+      const [pRes, tRes, sRes] = await Promise.all([
         supabase
           .from('patients')
           .select(PATIENT_SELECT)
@@ -268,9 +268,6 @@ export async function getPatientsData() {
           .select('id,patient_id,terapeuta_id,fecha,hora_inicio,tipo,modalidad,estado,monto,pagado,metodo_pago')
           .order('fecha', { ascending: false })
           .order('hora_inicio', { ascending: false }),
-        // Campaigns power the Fuente dropdown. Owner-only RLS — non-fatal so a
-        // policy hiccup can't take the whole Pacientes page down.
-        supabase.from('campaigns').select('id,nombre,slug').order('created_at', { ascending: false }),
       ])
       if (pRes.error) throw pRes.error
       if (tRes.error) throw tRes.error
@@ -280,7 +277,6 @@ export async function getPatientsData() {
         patients: pRes.data || [],
         therapists: tRes.data || [],
         sessions: sRes.data || [],
-        campaigns: cRes.error ? [] : (cRes.data || []),
       }
     } catch (err) {
       console.warn('[efimeramente] Supabase unavailable, showing demo data:', err?.message || err)
@@ -292,7 +288,6 @@ export async function getPatientsData() {
     patients: [...store.patients],
     therapists: [...store.therapists],
     sessions: [...store.sessions],
-    campaigns: [],
   }
 }
 
@@ -447,39 +442,42 @@ export async function updateTherapistBooking(id, patch) {
   return { ok: true, data: { id, ...data } }
 }
 
-// ─── Marketing (owner-only) ──────────────────────────────────────────────────
-// Campaigns + funnel attribution. Raw data is fetched here; all metric math
-// (funnel rates, CPA, LTV, ROAS) lives in the Marketing page, which is the
-// only consumer. Tables are owner-only via RLS, so there is no demo fallback
-// with fake campaigns — demo mode just gets empty lists.
+// ─── Marketing v2 (owner-only) ───────────────────────────────────────────────
+// Weekly Meta report data + date-based attribution. Raw data is fetched here;
+// all metric math lives in src/lib/marketing.js (pure — shared with the
+// /marketize protocol). Data is written by /marketize (service role) or the
+// manual CSV import on the page; the page itself only edits campaign windows.
+// Tables are owner-only via RLS; demo mode just gets empty campaign lists.
 
 const CAMPAIGN_SELECT =
-  'id,nombre,slug,fecha_inicio,fecha_fin,activa,spend,impressions,clicks,conversations,notas,created_at'
-
-const CAMPAIGN_COLUMNS = [
-  'nombre', 'slug', 'fecha_inicio', 'fecha_fin', 'activa',
-  'spend', 'impressions', 'clicks', 'conversations', 'notas',
-]
+  'id,nombre,fecha_inicio,fecha_fin,presupuesto_diario,notas,created_at'
+const CAMPAIGN_COLUMNS = ['nombre', 'fecha_inicio', 'fecha_fin', 'presupuesto_diario', 'notas']
 const pickCampaignColumns = (obj) =>
   Object.fromEntries(CAMPAIGN_COLUMNS.filter((k) => k in obj).map((k) => [k, obj[k]]))
 
 export async function getMarketingData() {
   if (isSupabaseConfigured) {
     try {
-      const [cRes, pRes, sRes] = await Promise.all([
-        supabase.from('campaigns').select(CAMPAIGN_SELECT).order('created_at', { ascending: false }),
+      const [cRes, wRes, pRes, sRes] = await Promise.all([
+        supabase.from('campaigns').select(CAMPAIGN_SELECT)
+          .order('fecha_inicio', { ascending: false }),
+        supabase.from('campaign_weeks')
+          .select('id,campaign_id,semana_inicio,semana_fin,spend,impressions,reach,frequency,link_clicks,ctr,cpm,conversations')
+          .order('semana_inicio', { ascending: true }),
         supabase.from('patients')
-          .select('id,nombre,apellido,telefono,estado_general,fuente,campaign_id,created_at'),
+          .select('id,nombre,apellido,telefono,estado_general,fuente,created_at'),
         supabase.from('sessions')
-          .select('id,patient_id,terapeuta_id,fecha,hora_inicio,tipo,estado,monto,pagado,campaign_id')
+          .select('id,patient_id,terapeuta_id,fecha,hora_inicio,tipo,estado,monto,pagado,created_at')
           .order('fecha', { ascending: true }),
       ])
       if (cRes.error) throw cRes.error
+      if (wRes.error) throw wRes.error
       if (pRes.error) throw pRes.error
       if (sRes.error) throw sRes.error
       return {
         source: 'live',
         campaigns: cRes.data || [],
+        weeks: wRes.data || [],
         patients: pRes.data || [],
         sessions: sRes.data || [],
       }
@@ -491,23 +489,9 @@ export async function getMarketingData() {
   return {
     source: 'demo',
     campaigns: [],
+    weeks: [],
     patients: [...store.patients],
     sessions: [...store.sessions],
-  }
-}
-
-export async function createCampaign(payload) {
-  const data = pickCampaignColumns(payload)
-  if (!isSupabaseConfigured) return { ok: false, error: 'Solo disponible con datos en vivo.' }
-  try {
-    const res = await supabase.from('campaigns').insert(data).select(CAMPAIGN_SELECT).single()
-    if (res.error) throw res.error
-    return { ok: true, data: res.data }
-  } catch (err) {
-    const msg = /duplicate key|unique/i.test(err?.message || '')
-      ? 'Ya existe una campaña con ese enlace (slug). Usa otro nombre.'
-      : err?.message || 'No se pudo crear la campaña.'
-    return { ok: false, error: msg }
   }
 }
 
@@ -523,40 +507,56 @@ export async function updateCampaign(id, patch) {
   }
 }
 
-// CSV import: upsert the daily rows (re-imports of an updated report replace
-// matching days instead of double-counting), then recompute the campaign's
-// totals as the sum of ALL its daily rows and stamp them on the campaign row —
-// the totals on `campaigns` are what the UI reads.
-export async function importCampaignMetrics(campaignId, rows) {
+// Weekly report import (manual fallback on the page — /marketize does the same
+// thing through the service role). Auto-creates campaigns for Meta campaign
+// names we haven't seen (window = report week, fecha_fin open) and extends a
+// known campaign's window when a newer report week arrives. Weekly rows upsert
+// by (campaign_id, semana_inicio) so re-imports never double-count.
+export async function importCampaignWeeks(parsedWeeks) {
   if (!isSupabaseConfigured) return { ok: false, error: 'Solo disponible con datos en vivo.' }
   try {
-    const clean = rows.map((r) => ({
-      campaign_id: campaignId,
-      fecha: r.fecha,
-      spend: Number(r.spend) || 0,
-      impressions: Number(r.impressions) || 0,
-      clicks: Number(r.clicks) || 0,
-      conversations: Number(r.conversations) || 0,
-    }))
-    const up = await supabase.from('campaign_metrics').upsert(clean, { onConflict: 'campaign_id,fecha' })
-    if (up.error) throw up.error
+    const cRes = await supabase.from('campaigns').select(CAMPAIGN_SELECT)
+    if (cRes.error) throw cRes.error
+    const byName = new Map((cRes.data || []).map((c) => [c.nombre, c]))
 
-    const all = await supabase.from('campaign_metrics')
-      .select('spend,impressions,clicks,conversations')
-      .eq('campaign_id', campaignId)
-    if (all.error) throw all.error
-    const totals = (all.data || []).reduce(
-      (a, m) => ({
-        spend: a.spend + Number(m.spend || 0),
-        impressions: a.impressions + (m.impressions || 0),
-        clicks: a.clicks + (m.clicks || 0),
-        conversations: a.conversations + (m.conversations || 0),
-      }),
-      { spend: 0, impressions: 0, clicks: 0, conversations: 0 },
-    )
-    return updateCampaign(campaignId, totals)
+    let created = 0
+    for (const w of parsedWeeks) {
+      let camp = byName.get(w.campaign)
+      if (!camp) {
+        const ins = await supabase.from('campaigns')
+          .insert({ nombre: w.campaign, fecha_inicio: w.semana_inicio })
+          .select(CAMPAIGN_SELECT).single()
+        if (ins.error) throw ins.error
+        camp = ins.data
+        byName.set(camp.nombre, camp)
+        created++
+      } else if (w.semana_inicio < camp.fecha_inicio) {
+        // Backfill can arrive out of order — the window grows, never shrinks.
+        const up = await supabase.from('campaigns')
+          .update({ fecha_inicio: w.semana_inicio }).eq('id', camp.id)
+        if (up.error) throw up.error
+        camp.fecha_inicio = w.semana_inicio
+      }
+      const row = {
+        campaign_id: camp.id,
+        semana_inicio: w.semana_inicio,
+        semana_fin: w.semana_fin,
+        spend: Number(w.spend) || 0,
+        impressions: w.impressions || 0,
+        reach: w.reach || 0,
+        frequency: Number(w.frequency) || 0,
+        link_clicks: w.link_clicks || 0,
+        ctr: Number(w.ctr) || 0,
+        cpm: Number(w.cpm) || 0,
+        conversations: w.conversations || 0,
+      }
+      const up = await supabase.from('campaign_weeks')
+        .upsert(row, { onConflict: 'campaign_id,semana_inicio' })
+      if (up.error) throw up.error
+    }
+    return { ok: true, created, imported: parsedWeeks.length }
   } catch (err) {
-    return { ok: false, error: err?.message || 'No se pudo importar el CSV.' }
+    return { ok: false, error: err?.message || 'No se pudo importar el reporte.' }
   }
 }
 

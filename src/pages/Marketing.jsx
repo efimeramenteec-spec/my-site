@@ -1,24 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import {
+  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
+} from 'recharts'
 
 import { Card } from '../components/Card/Card.jsx'
 import { Badge } from '../components/Badge/Badge.jsx'
 import { Button } from '../components/Button/Button.jsx'
-import { Input } from '../components/Input/Input.jsx'
-import { Toggle } from '../components/Toggle/Toggle.jsx'
+import { Select } from '../components/Select/Select.jsx'
 
-import {
-  getMarketingData, createCampaign, updateCampaign, importCampaignMetrics,
-} from '../lib/queries.js'
+import { getMarketingData, updateCampaign, importCampaignWeeks } from '../lib/queries.js'
 import { parseMetaCsv } from '../lib/metaCsv.js'
+import { computeMarketing, computeFlags, campaignOn } from '../lib/marketing.js'
 import { formatCurrency, formatDateShort, fullName, dateKey } from '../lib/format.js'
 import { IconWallet, IconUsers, IconPulse, IconChat, IconPhone, IconMegaphone } from '../layout/icons.jsx'
 
-// Owner-only marketing funnel: Meta Ads → WhatsApp → llamada 10 min → paciente.
-// Top of the funnel (spend/impressions/clicks/conversations) is entered per
-// campaign — by hand or importing the Meta Ads CSV report. The bottom half
-// (llamadas, pacientes, ingreso) is derived live from sessions/patients via
-// campaign attribution (?c=<slug> links + the Fuente field in Pacientes).
+// Marketing v2 (owner-only). Funnel: Meta Ads → conversación de WhatsApp →
+// llamada gratuita → paciente. Data arrives weekly via /marketize (see
+// MARKETING-CONSULTORIO-2026.md) — this page reads campaign_weeks + derives
+// the bottom of the funnel live from sessions/patients using date-based
+// attribution (src/lib/marketing.js). The CSV button here is the manual
+// fallback for the same weekly report.
 
 const num = new Intl.NumberFormat('es-EC')
 const money2 = (n) =>
@@ -26,111 +28,43 @@ const money2 = (n) =>
     .format(Number(n) || 0)
 const pct = (part, whole) => (whole > 0 ? `${((100 * part) / whole).toFixed(1)}%` : '—')
 
-const isRealSession = (s) =>
-  s.tipo !== 'llamada' && s.estado !== 'cancelada' && s.estado !== 'no_show'
-const isLlamada = (s) =>
-  s.tipo === 'llamada' && s.estado !== 'cancelada' && s.estado !== 'no_show'
+function monthRange(d) {
+  const y = d.getFullYear()
+  const m = d.getMonth()
+  return { from: dateKey(new Date(y, m, 1)), to: dateKey(new Date(y, m + 1, 0)) }
+}
 
-const slugify = (name) =>
-  String(name || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
+const PERIODS = [
+  { value: 'todo', label: 'Todo el historial' },
+  { value: 'este_mes', label: 'Este mes' },
+  { value: 'mes_pasado', label: 'Mes pasado' },
+  { value: 'ultimas_4', label: 'Últimas 4 semanas' },
+  { value: 'personalizado', label: 'Período personalizado…' },
+]
 
-// ─── Metric derivation ───────────────────────────────────────────────────────
-
-function computeMarketing({ campaigns, patients, sessions }) {
-  const today = dateKey()
-  const sessionsByPatient = new Map()
-  for (const s of sessions) {
-    const list = sessionsByPatient.get(s.patient_id)
-    if (list) list.push(s)
-    else sessionsByPatient.set(s.patient_id, [s])
-  }
-  const paidTotal = (p) =>
-    (sessionsByPatient.get(p.id) || []).reduce(
-      (a, s) => a + (s.pagado ? Number(s.monto || 0) : 0), 0)
-  const hasRealSession = (p) => (sessionsByPatient.get(p.id) || []).some(isRealSession)
-
-  // Practice-wide LTV: total paid revenue ÷ patients with ≥1 real session.
-  const withSession = patients.filter(hasRealSession)
-  const totalPaid = withSession.reduce((a, p) => a + paidTotal(p), 0)
-  const ltvGlobal = withSession.length ? totalPaid / withSession.length : 0
-
-  // Practice-wide llamada→paciente conversion (all time): among patients whose
-  // first llamada already happened, how many scheduled a real session after it.
-  let called = 0
-  let converted = 0
-  for (const p of patients) {
-    const list = sessionsByPatient.get(p.id) || []
-    const firstCall = list.filter(isLlamada).map((s) => s.fecha).sort()[0]
-    if (!firstCall || firstCall > today) continue
-    called++
-    if (list.some((s) => isRealSession(s) && s.fecha >= firstCall)) converted++
-  }
-
-  const perCampaign = campaigns.map((c) => {
-    const attributed = patients.filter((p) => p.campaign_id === c.id)
-    const cSessions = sessions.filter((s) => s.campaign_id === c.id)
-    const llamadas = cSessions.filter(isLlamada).length
-    const convertedPatients = attributed.filter(hasRealSession)
-    const revenue = attributed.reduce((a, p) => a + paidTotal(p), 0)
-    const spend = Number(c.spend || 0)
-    // Patients created inside the campaign window with no explicit source —
-    // shown as an ESTIMATE, never mixed into the exact numbers.
-    const end = c.fecha_fin || today
-    const estimated = patients.filter(
-      (p) => !p.fuente && !p.campaign_id &&
-        String(p.created_at || '').slice(0, 10) >= c.fecha_inicio &&
-        String(p.created_at || '').slice(0, 10) <= end,
-    ).length
-    return {
-      campaign: c,
-      llamadas,
-      pacientes: convertedPatients.length,
-      leads: attributed.length,
-      revenue,
-      estimated,
-      cpa: convertedPatients.length ? spend / convertedPatients.length : null,
-      ltv: convertedPatients.length ? revenue / convertedPatients.length : null,
-      roas: spend > 0 ? revenue / spend : null,
+function periodRange(period, custom, now) {
+  switch (period) {
+    case 'este_mes': return monthRange(now)
+    case 'mes_pasado': return monthRange(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+    case 'ultimas_4': {
+      const from = new Date(now); from.setDate(from.getDate() - 27)
+      return { from: dateKey(from), to: dateKey(now) }
     }
-  })
-
-  const totalSpend = perCampaign.reduce((a, r) => a + Number(r.campaign.spend || 0), 0)
-  const totalAcquired = perCampaign.reduce((a, r) => a + r.pacientes, 0)
-  const cpaGlobal = totalAcquired ? totalSpend / totalAcquired : null
-
-  // Warm follow-up list: llamada happened, no real session scheduled since.
-  const orphans = []
-  for (const p of patients) {
-    const list = sessionsByPatient.get(p.id) || []
-    const calls = list.filter(isLlamada).map((s) => s.fecha).sort()
-    const lastCall = calls[calls.length - 1]
-    if (!lastCall || lastCall >= today) continue
-    if (list.some((s) => isRealSession(s) && s.fecha >= lastCall)) continue
-    const days = Math.round((new Date(today) - new Date(lastCall)) / 86400e3)
-    orphans.push({ patient: p, lastCall, days })
-  }
-  orphans.sort((a, b) => a.days - b.days)
-
-  return {
-    header: {
-      totalSpend,
-      totalAcquired,
-      cpaGlobal,
-      ltvGlobal,
-      ltvCac: cpaGlobal ? ltvGlobal / cpaGlobal : null,
-      called,
-      converted,
-    },
-    perCampaign,
-    orphans,
+    case 'personalizado': return { from: custom.from || null, to: custom.to || null }
+    default: return { from: null, to: null }
   }
 }
+
+const CHART_METRICS = [
+  { value: 'costo_conversacion', label: 'Costo por conversación', money: true },
+  { value: 'cpa', label: 'Costo por paciente (CPA)', money: true },
+  { value: 'conversaciones', label: 'Conversaciones' },
+  { value: 'llamadas', label: 'Llamadas agendadas' },
+  { value: 'pacientes', label: 'Pacientes nuevos' },
+  { value: 'frecuencia', label: 'Frecuencia' },
+  { value: 'ctr', label: 'CTR (%)' },
+  { value: 'cpm', label: 'CPM', money: true },
+]
 
 // ─── Subcomponents ───────────────────────────────────────────────────────────
 
@@ -158,267 +92,242 @@ function KpiCard({ label, value, caption, icon: Icon, tint = 'lavender' }) {
   )
 }
 
-function CopyBtn({ url, children }) {
-  const [copied, setCopied] = useState(false)
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch { /* clipboard unavailable — noop */ }
-  }
+const FLAG_STYLES = {
+  red: 'border-red-200 bg-red-50 text-red-700',
+  amber: 'border-amber-200 bg-amber-50 text-amber-700',
+  green: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+}
+const FLAG_DOTS = { red: '●', amber: '●', green: '●' }
+
+function FlagsPanel({ flags, campaignName }) {
   return (
-    <Button variant="secondary" size="sm" onClick={copy}>
-      {copied ? '✓ Copiado' : children}
-    </Button>
+    <Card>
+      <div className="mb-3 flex items-center gap-2.5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-card bg-brand-yellow/25 text-amber-600">
+          <IconPulse size={18} />
+        </div>
+        <div>
+          <h3 className="font-serif text-xl font-bold text-content-primary leading-tight">Señales</h3>
+          <p className="font-caption text-xs text-content-muted">
+            {campaignName ? `Última semana de "${campaignName}" vs la anterior.` : 'Sin campaña activa que evaluar.'}
+          </p>
+        </div>
+      </div>
+      {flags.length === 0 ? (
+        <p className="py-4 text-center font-body text-sm text-content-muted">
+          Nada que requiera tu atención esta semana. ✦
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {flags.map((f, i) => (
+            <div key={i} className={`flex items-start gap-2.5 rounded-card border px-3.5 py-2.5 ${FLAG_STYLES[f.level]}`}>
+              <span aria-hidden="true" className="mt-0.5 text-[10px]">{FLAG_DOTS[f.level]}</span>
+              <p className="font-body text-sm">{f.message}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }
 
-// Impresiones → Conversaciones → Llamadas → Pacientes, with the conversion
-// rate under each hop — the rates are where the insight lives.
-function Funnel({ c, r }) {
+// Conversaciones → Llamadas → Pacientes, with the conversion rate under each
+// hop — the rates are where the insight lives. Impressions/spend are context,
+// not funnel stages (you don't "convert" an impression).
+function Funnel({ m }) {
   const stages = [
-    { label: 'Impresiones', value: c.impressions },
-    { label: 'Conversaciones', value: c.conversations },
-    { label: 'Llamadas', value: r.llamadas },
-    { label: 'Pacientes', value: r.pacientes },
+    { label: 'Conversaciones', value: m.conversations, hint: 'WhatsApp (Meta)' },
+    { label: 'Llamadas', value: m.llamadas, hint: 'agendadas' },
+    { label: 'Pacientes', value: m.pacientes, hint: 'primera sesión' },
   ]
   return (
-    <div className="flex flex-wrap items-stretch gap-2">
-      {stages.map((st, i) => (
-        <React.Fragment key={st.label}>
-          {i > 0 && (
-            <div className="flex flex-col items-center justify-center px-1">
-              <span className="text-content-muted" aria-hidden="true">→</span>
-              <span className="font-caption text-[11px] font-bold text-content-secondary">
-                {pct(st.value, stages[i - 1].value)}
-              </span>
+    <Card>
+      <div className="flex flex-wrap items-stretch gap-2">
+        {stages.map((st, i) => (
+          <React.Fragment key={st.label}>
+            {i > 0 && (
+              <div className="flex flex-col items-center justify-center px-1.5">
+                <span className="text-content-muted" aria-hidden="true">→</span>
+                <span className="font-caption text-[11px] font-bold text-content-secondary">
+                  {pct(st.value, stages[i - 1].value)}
+                </span>
+              </div>
+            )}
+            <div className="flex min-w-[110px] flex-1 flex-col justify-between rounded-card bg-surface-warm px-3.5 py-2.5">
+              <p className="font-caption text-[11px] text-content-muted">{st.label} <span className="opacity-70">· {st.hint}</span></p>
+              <p className="font-heading text-2xl font-bold text-content-primary">{num.format(st.value || 0)}</p>
             </div>
-          )}
-          <div className="flex min-w-[96px] flex-1 flex-col justify-between rounded-card bg-surface-warm px-3 py-2">
-            <p className="font-caption text-[11px] text-content-muted">{st.label}</p>
-            <p className="font-heading text-xl font-bold text-content-primary">{num.format(st.value || 0)}</p>
-          </div>
-        </React.Fragment>
-      ))}
-    </div>
+          </React.Fragment>
+        ))}
+      </div>
+      <p className="mt-3 font-caption text-xs text-content-muted">
+        Contexto del período: {money2(m.spend)} invertidos · {num.format(m.impressions)} impresiones
+        {m.acqSinCampana > 0 && (
+          <span className="text-amber-600"> · {m.acqSinCampana} paciente{m.acqSinCampana === 1 ? '' : 's'} nuevo{m.acqSinCampana === 1 ? '' : 's'} sin campaña activa (orgánico/fuera de ventana)</span>
+        )}
+      </p>
+    </Card>
   )
 }
 
-function Stat({ label, children }) {
+function WeeklyChart({ series, metric, onMetric }) {
+  const def = CHART_METRICS.find((x) => x.value === metric) || CHART_METRICS[0]
+  const data = series.map((w) => ({
+    ...w,
+    semanaLabel: formatDateShort(w.semana),
+    [metric]: w[metric] == null ? null : Number(Number(w[metric]).toFixed(2)),
+  }))
   return (
-    <div>
-      <p className="font-caption text-[11px] text-content-muted">{label}</p>
-      <p className="font-heading text-sm font-bold text-content-primary">{children}</p>
-    </div>
+    <Card>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-serif text-xl font-bold text-content-primary">Evolución semanal</h3>
+        <div className="w-64">
+          <Select options={CHART_METRICS} value={metric} onChange={(e) => onMetric(e.target.value)} placeholder="" />
+        </div>
+      </div>
+      {data.length === 0 ? (
+        <p className="py-10 text-center font-body text-sm text-content-muted">
+          Aún no hay semanas importadas en este período.
+        </p>
+      ) : (
+        <div className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
+              <XAxis dataKey="semanaLabel" tick={{ fontSize: 11 }} />
+              <YAxis yAxisId="gasto" tick={{ fontSize: 11 }} width={44} />
+              <YAxis yAxisId="metric" orientation="right" tick={{ fontSize: 11 }} width={44} />
+              <Tooltip
+                formatter={(value, name) => {
+                  if (name === 'Gasto') return [money2(value), name]
+                  return [def.money ? money2(value) : num.format(value), name]
+                }}
+              />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar yAxisId="gasto" dataKey="gasto" name="Gasto" fill="#CBBDF0" radius={[6, 6, 0, 0]} />
+              <Line
+                yAxisId="metric" type="monotone" dataKey={metric} name={def.label}
+                stroke="#F97316" strokeWidth={2.5} dot={{ r: 3 }} connectNulls
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </Card>
   )
 }
 
-const emptyMetricsForm = (c) => ({
-  spend: String(c.spend ?? 0),
-  impressions: String(c.impressions ?? 0),
-  clicks: String(c.clicks ?? 0),
-  conversations: String(c.conversations ?? 0),
-})
-
-function CampaignCard({ r, onPatch }) {
-  const c = r.campaign
+// Lifetime economics per campaign + editable attribution window. The window
+// (fecha_inicio → fecha_fin) is what drives attribution, so it must be
+// fixable by hand — e.g. May 2026 had several campaigns at once and the
+// backfill needs manual boundaries.
+function CampaignRow({ p, onPatch }) {
+  const c = p.campaign
   const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState(() => emptyMetricsForm(c))
-  const [pendingImport, setPendingImport] = useState(null) // { rows, summary }
+  const [form, setForm] = useState({ fecha_inicio: c.fecha_inicio, fecha_fin: c.fecha_fin || '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-  const fileRef = useRef(null)
 
-  const origin = window.location.origin
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
-
-  const saveMetrics = async () => {
+  const save = async () => {
     setBusy(true)
     setError('')
     const res = await onPatch(c.id, {
-      spend: parseFloat(form.spend) || 0,
-      impressions: parseInt(form.impressions, 10) || 0,
-      clicks: parseInt(form.clicks, 10) || 0,
-      conversations: parseInt(form.conversations, 10) || 0,
+      fecha_inicio: form.fecha_inicio,
+      fecha_fin: form.fecha_fin || null,
     })
     setBusy(false)
     if (!res.ok) setError(res.error)
     else setEditing(false)
   }
 
-  const onFile = async (e) => {
-    const file = e.target.files?.[0]
-    e.target.value = '' // allow re-selecting the same file
-    if (!file) return
-    setError('')
-    setNotice('')
-    const parsed = parseMetaCsv(await file.text())
-    if (!parsed.ok) {
-      setError(parsed.error)
-      return
-    }
-    const t = parsed.rows.reduce(
-      (a, x) => ({ spend: a.spend + x.spend, impressions: a.impressions + x.impressions }),
-      { spend: 0, impressions: 0 },
-    )
-    setPendingImport({
-      rows: parsed.rows,
-      summary: `${parsed.rows.length} días (${parsed.rows[0].fecha} → ${parsed.rows[parsed.rows.length - 1].fecha}) · ${money2(t.spend)} · ${num.format(t.impressions)} impresiones`,
-    })
-  }
-
-  const confirmImport = async () => {
-    setBusy(true)
-    setError('')
-    const res = await importCampaignMetrics(c.id, pendingImport.rows)
-    setBusy(false)
-    setPendingImport(null)
-    if (!res.ok) setError(res.error)
-    else {
-      setNotice('CSV importado — totales actualizados.')
-      onPatch(c.id, null, res.data) // refresh local state with server row
-    }
-  }
-
+  const running = !c.fecha_fin
   return (
-    <Card className="flex flex-col gap-4">
+    <div className="border-b border-stroke/50 py-3 last:border-b-0">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="truncate font-serif text-xl font-bold text-content-primary">{c.nombre}</h3>
-            <Badge variant={c.activa ? 'lavender' : 'neutral'}>{c.activa ? 'Activa' : 'Finalizada'}</Badge>
+            <p className="truncate font-body font-bold text-content-primary">{c.nombre}</p>
+            <Badge variant={running ? 'lavender' : 'neutral'}>{running ? 'En curso' : 'Finalizada'}</Badge>
           </div>
           <p className="font-caption text-xs text-content-muted">
-            {formatDateShort(c.fecha_inicio)}{c.fecha_fin ? ` – ${formatDateShort(c.fecha_fin)}` : ' – en curso'}
-            {' · '}enlace: <span className="font-bold">?c={c.slug}</span>
+            {formatDateShort(c.fecha_inicio)}{c.fecha_fin ? ` – ${formatDateShort(c.fecha_fin)}` : ' – hoy'}
           </p>
         </div>
-        <Toggle
-          checked={!!c.activa}
-          onChange={(v) => onPatch(c.id, { activa: v })}
-          label="Activa"
-        />
+        <div className="grid grid-cols-3 gap-x-5 gap-y-1 text-right sm:grid-cols-6">
+          <MiniStat label="Gasto">{money2(p.spend)}</MiniStat>
+          <MiniStat label="Pacientes">{p.pacientes}</MiniStat>
+          <MiniStat label="CPA">{p.cpa == null ? '—' : money2(p.cpa)}</MiniStat>
+          <MiniStat label="LTV">{p.ltv == null ? '—' : money2(p.ltv)}</MiniStat>
+          <MiniStat label="Ingreso">{formatCurrency(p.revenue)}</MiniStat>
+          <MiniStat label="Payback">
+            {p.pct == null ? '—' : (
+              <span className={p.pct >= 100 ? 'text-emerald-600' : ''}>{Math.round(p.pct)}%</span>
+            )}
+          </MiniStat>
+        </div>
+        <Button variant="ghost" size="sm" onClick={() => setEditing((v) => !v)}>
+          {editing ? 'Cerrar' : 'Editar fechas'}
+        </Button>
       </div>
-
-      <Funnel c={c} r={r} />
-
-      <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
-        <Stat label="Gasto">{money2(c.spend)}</Stat>
-        <Stat label="CPA">{r.cpa == null ? '—' : money2(r.cpa)}</Stat>
-        <Stat label="Ingreso atribuido">{formatCurrency(r.revenue)}</Stat>
-        <Stat label="LTV">{r.ltv == null ? '—' : money2(r.ltv)}</Stat>
-        <Stat label="ROAS">{r.roas == null ? '—' : `${r.roas.toFixed(1)}x`}</Stat>
-        <Stat label="Leads (sin sesión)">{Math.max(0, r.leads - r.pacientes)}</Stat>
-      </div>
-
-      {r.estimated > 0 && (
-        <p className="font-caption text-xs text-amber-600">
-          ≈ {r.estimated} paciente{r.estimated === 1 ? '' : 's'} sin fuente creado{r.estimated === 1 ? '' : 's'} durante
-          la campaña — atribución no confirmada (asígnala en Pacientes → Fuente).
-        </p>
-      )}
-
       {editing && (
-        <div className="grid grid-cols-2 gap-3 rounded-card bg-surface-warm p-4 sm:grid-cols-4">
-          <Input label="Gasto (USD)" type="number" min="0" step="0.01" value={form.spend}
-            onChange={(e) => set('spend', e.target.value)} />
-          <Input label="Impresiones" type="number" min="0" value={form.impressions}
-            onChange={(e) => set('impressions', e.target.value)} />
-          <Input label="Clics" type="number" min="0" value={form.clicks}
-            onChange={(e) => set('clicks', e.target.value)} />
-          <Input label="Conversaciones" type="number" min="0" value={form.conversations}
-            onChange={(e) => set('conversations', e.target.value)} />
-          <div className="col-span-2 flex gap-2 sm:col-span-4">
-            <Button size="sm" onClick={saveMetrics} disabled={busy}>
-              {busy ? 'Guardando…' : 'Guardar cifras'}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancelar</Button>
-          </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-card bg-surface-warm px-3 py-2.5">
+          <input
+            type="date" value={form.fecha_inicio}
+            onChange={(e) => setForm((f) => ({ ...f, fecha_inicio: e.target.value }))}
+            className="rounded-xl border border-stroke bg-white/70 px-3 py-1.5 font-body text-sm"
+          />
+          <span className="font-caption text-xs text-content-muted">a</span>
+          <input
+            type="date" value={form.fecha_fin}
+            onChange={(e) => setForm((f) => ({ ...f, fecha_fin: e.target.value }))}
+            className="rounded-xl border border-stroke bg-white/70 px-3 py-1.5 font-body text-sm"
+          />
+          <span className="font-caption text-[11px] text-content-muted">(fin vacío = sigue en curso)</span>
+          <Button size="sm" onClick={save} disabled={busy}>{busy ? 'Guardando…' : 'Guardar'}</Button>
+          {error && <p className="font-caption text-xs text-red-500">{error}</p>}
         </div>
       )}
-
-      {pendingImport && (
-        <div className="flex flex-wrap items-center gap-3 rounded-card border border-brand-lavender/40 bg-brand-lavender/10 px-4 py-3">
-          <p className="flex-1 font-caption text-sm text-content-primary">
-            Importar {pendingImport.summary}. Los totales de la campaña se recalcularán.
-          </p>
-          <Button size="sm" onClick={confirmImport} disabled={busy}>
-            {busy ? 'Importando…' : 'Confirmar'}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setPendingImport(null)}>Cancelar</Button>
-        </div>
-      )}
-
-      {error && <p className="font-caption text-xs text-red-500">{error}</p>}
-      {notice && <p className="font-caption text-xs text-emerald-600">{notice}</p>}
-
-      <div className="flex flex-wrap gap-2">
-        <CopyBtn url={`${origin}/agendar?c=${c.slug}`}>Enlace llamada</CopyBtn>
-        <CopyBtn url={`${origin}/reservar?c=${c.slug}`}>Enlace sesión</CopyBtn>
-        <Button variant="secondary" size="sm"
-          onClick={() => { setForm(emptyMetricsForm(c)); setEditing((v) => !v) }}>
-          Actualizar cifras
-        </Button>
-        <Button variant="secondary" size="sm" onClick={() => fileRef.current?.click()}>
-          Importar CSV (Meta)
-        </Button>
-        <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
-      </div>
-    </Card>
+    </div>
   )
 }
 
-function NewCampaignForm({ onCreate, onClose }) {
-  const [form, setForm] = useState({
-    nombre: '', slug: '', fecha_inicio: dateKey(), fecha_fin: '', notas: '',
-  })
-  const [slugTouched, setSlugTouched] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  const setNombre = (v) =>
-    setForm((f) => ({ ...f, nombre: v, slug: slugTouched ? f.slug : slugify(v) }))
-
-  const submit = async () => {
-    if (!form.nombre.trim()) { setError('Ponle un nombre a la campaña.'); return }
-    const slug = slugify(form.slug || form.nombre)
-    if (!slug) { setError('El enlace (slug) no puede quedar vacío.'); return }
-    setBusy(true)
-    setError('')
-    const res = await onCreate({
-      nombre: form.nombre.trim(),
-      slug,
-      fecha_inicio: form.fecha_inicio,
-      fecha_fin: form.fecha_fin || null,
-      notas: form.notas.trim() || null,
-    })
-    setBusy(false)
-    if (!res.ok) setError(res.error)
-    else onClose()
-  }
-
+function MiniStat({ label, children }) {
   return (
-    <Card className="flex flex-col gap-4">
-      <h3 className="font-serif text-xl font-bold text-content-primary">Nueva campaña</h3>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Input label="Nombre" value={form.nombre} placeholder="Campaña Ansiedad Julio"
-          onChange={(e) => setNombre(e.target.value)} />
-        <Input label="Enlace (slug)" value={form.slug} hint="Va en el link: /agendar?c=…"
-          onChange={(e) => { setSlugTouched(true); setForm((f) => ({ ...f, slug: e.target.value })) }} />
-        <Input label="Inicio" type="date" value={form.fecha_inicio}
-          onChange={(e) => setForm((f) => ({ ...f, fecha_inicio: e.target.value }))} />
-        <Input label="Fin (opcional)" type="date" value={form.fecha_fin}
-          onChange={(e) => setForm((f) => ({ ...f, fecha_fin: e.target.value }))} />
-      </div>
-      <Input label="Notas (opcional)" value={form.notas} placeholder="Audiencia, creativos, objetivo…"
-        onChange={(e) => setForm((f) => ({ ...f, notas: e.target.value }))} />
-      {error && <p className="font-caption text-xs text-red-500">{error}</p>}
-      <div className="flex gap-2">
-        <Button size="sm" onClick={submit} disabled={busy}>{busy ? 'Creando…' : 'Crear campaña'}</Button>
-        <Button size="sm" variant="ghost" onClick={onClose}>Cancelar</Button>
-      </div>
+    <div>
+      <p className="font-caption text-[10px] text-content-muted">{label}</p>
+      <p className="font-heading text-sm font-bold text-content-primary">{children}</p>
+    </div>
+  )
+}
+
+function CohortCard({ cohorts }) {
+  const monthLabel = (mes) => {
+    const [y, m] = mes.split('-')
+    return new Intl.DateTimeFormat('es-EC', { month: 'short', year: '2-digit' })
+      .format(new Date(Number(y), Number(m) - 1, 1))
+  }
+  return (
+    <Card>
+      <h3 className="font-serif text-xl font-bold text-content-primary">LTV por cohorte</h3>
+      <p className="mb-3 font-caption text-xs text-content-muted">
+        Pacientes agrupados por mes de llegada — el ingreso promedio de cada cohorte sigue
+        creciendo mientras el paciente siga viniendo ("LTV a la fecha").
+      </p>
+      {cohorts.length === 0 ? (
+        <p className="py-4 text-center font-body text-sm text-content-muted">Sin pacientes nuevos aún.</p>
+      ) : (
+        <div className="divide-y divide-stroke/50">
+          {cohorts.map((c) => (
+            <div key={c.mes} className="flex items-center justify-between gap-3 py-2">
+              <p className="font-body text-sm font-bold capitalize text-content-primary">{monthLabel(c.mes)}</p>
+              <p className="font-caption text-xs text-content-muted">
+                {c.pacientes} paciente{c.pacientes === 1 ? '' : 's'}
+              </p>
+              <p className="font-heading text-sm font-bold text-content-primary">{money2(c.ltv)} / paciente</p>
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   )
 }
@@ -435,7 +344,7 @@ function OrphanCalls({ orphans }) {
             Llamadas sin sesión
           </h3>
           <p className="font-caption text-xs text-content-muted">
-            Hicieron la llamada de 10 min y aún no agendan — tu lista de seguimiento.
+            Hicieron la llamada gratuita y aún no agendan — tu lista de seguimiento.
           </p>
         </div>
       </div>
@@ -457,9 +366,7 @@ function OrphanCalls({ orphans }) {
             </div>
           ))}
           {orphans.length > 12 && (
-            <p className="pt-3 font-caption text-xs text-content-muted">
-              +{orphans.length - 12} más…
-            </p>
+            <p className="pt-3 font-caption text-xs text-content-muted">+{orphans.length - 12} más…</p>
           )}
         </div>
       )}
@@ -476,7 +383,21 @@ function SkeletonCard({ className = '' }) {
 export default function Marketing() {
   const ctx = useOutletContext()
   const [data, setData] = useState(null)
-  const [creating, setCreating] = useState(false)
+  const [period, setPeriod] = useState('todo')
+  const [custom, setCustom] = useState({ from: '', to: '' })
+  const [campaignId, setCampaignId] = useState('')
+  const [metric, setMetric] = useState('costo_conversacion')
+  const [pendingImport, setPendingImport] = useState(null) // { weeks, summary }
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const fileRef = useRef(null)
+
+  const load = () =>
+    getMarketingData().then((d) => {
+      setData(d)
+      ctx?.setDataSource?.(d.source)
+    })
 
   useEffect(() => {
     let alive = true
@@ -489,22 +410,22 @@ export default function Marketing() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const computed = useMemo(() => (data ? computeMarketing(data) : null), [data])
+  const now = new Date()
+  const today = dateKey(now)
 
-  const handleCreate = async (payload) => {
-    const res = await createCampaign(payload)
-    if (res.ok) setData((d) => ({ ...d, campaigns: [res.data, ...d.campaigns] }))
-    return res
-  }
+  const m = useMemo(() => {
+    if (!data) return null
+    const { from, to } = periodRange(period, custom, now)
+    return computeMarketing(data, { from, to, campaignId: campaignId || null }, today)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, period, custom, campaignId, today])
 
-  // patch=null + row → just swap in a fresh server row (post-CSV-import).
-  const handlePatch = async (id, patch, freshRow = null) => {
-    if (!patch) {
-      if (freshRow) {
-        setData((d) => ({ ...d, campaigns: d.campaigns.map((c) => (c.id === id ? freshRow : c)) }))
-      }
-      return { ok: true }
-    }
+  const flags = useMemo(
+    () => (data ? computeFlags(data, campaignId || null, today) : []),
+    [data, campaignId, today],
+  )
+
+  const handlePatchCampaign = async (id, patch) => {
     const res = await updateCampaign(id, patch)
     if (res.ok) {
       setData((d) => ({ ...d, campaigns: d.campaigns.map((c) => (c.id === id ? res.data : c)) }))
@@ -512,7 +433,35 @@ export default function Marketing() {
     return res
   }
 
-  if (!data) {
+  const onFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setError('')
+    setNotice('')
+    const parsed = parseMetaCsv(await file.text())
+    if (!parsed.ok) { setError(parsed.error); return }
+    const totalSpend = parsed.weeks.reduce((a, w) => a + w.spend, 0)
+    setPendingImport({
+      weeks: parsed.weeks,
+      summary: `${parsed.weeks.length} fila(s) · ${parsed.weeks[0].semana_inicio} → ${parsed.weeks[parsed.weeks.length - 1].semana_fin} · ${money2(totalSpend)}`,
+    })
+  }
+
+  const confirmImport = async () => {
+    setBusy(true)
+    setError('')
+    const res = await importCampaignWeeks(pendingImport.weeks)
+    setBusy(false)
+    setPendingImport(null)
+    if (!res.ok) setError(res.error)
+    else {
+      setNotice(`Reporte importado: ${res.imported} semana(s)${res.created ? `, ${res.created} campaña(s) nueva(s)` : ''}.`)
+      load()
+    }
+  }
+
+  if (!data || !m) {
     return (
       <div className="space-y-6 pt-2">
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
@@ -523,7 +472,12 @@ export default function Marketing() {
     )
   }
 
-  const { header, perCampaign, orphans } = computed
+  const activeCampaign = data.campaigns.find((c) => c.id === campaignId) ||
+    campaignOn(data.campaigns, today, today)
+  const campaignOptions = [
+    { value: '', label: 'Todas las campañas' },
+    ...data.campaigns.map((c) => ({ value: c.id, label: c.nombre })),
+  ]
 
   return (
     <div className="space-y-6 pt-2">
@@ -533,81 +487,124 @@ export default function Marketing() {
             Embudo de adquisición <span className="text-brand-lavender">✦</span>
           </h2>
           <p className="mt-1 font-body text-sm text-content-secondary">
-            Meta Ads → WhatsApp → llamada 10 min → paciente.
+            Meta Ads → WhatsApp → llamada gratuita → paciente. Se alimenta cada lunes con /marketize.
           </p>
         </div>
-        {!creating && (
-          <Button size="sm" onClick={() => setCreating(true)}>+ Nueva campaña</Button>
-        )}
+        <Button variant="secondary" size="sm" onClick={() => fileRef.current?.click()}>
+          Importar reporte (CSV)
+        </Button>
+        <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
       </div>
 
-      {/* KPI header */}
+      {pendingImport && (
+        <div className="flex flex-wrap items-center gap-3 rounded-card border border-brand-lavender/40 bg-brand-lavender/10 px-4 py-3">
+          <p className="flex-1 font-caption text-sm text-content-primary">
+            Importar {pendingImport.summary}. Las semanas repetidas se reemplazan (nunca se duplican).
+          </p>
+          <Button size="sm" onClick={confirmImport} disabled={busy}>
+            {busy ? 'Importando…' : 'Confirmar'}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setPendingImport(null)}>Cancelar</Button>
+        </div>
+      )}
+      {error && <p className="font-caption text-xs text-red-500">{error}</p>}
+      {notice && <p className="font-caption text-xs text-emerald-600">{notice}</p>}
+
+      {m.overlaps.length > 0 && (
+        <div className="rounded-card border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="font-caption text-sm text-amber-700">
+            ⚠ Ventanas de campaña superpuestas ({m.overlaps.map(([a, b]) => `"${a.nombre}" / "${b.nombre}"`).join(', ')}).
+            La atribución usa la campaña de inicio más reciente — ajusta las fechas abajo para que cada período tenga UNA campaña.
+          </p>
+        </div>
+      )}
+
+      {/* Selectors */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="w-52">
+          <Select options={PERIODS} value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="" />
+        </div>
+        {period === 'personalizado' && (
+          <div className="flex items-center gap-2">
+            <input
+              type="date" value={custom.from}
+              onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))}
+              className="rounded-xl border border-stroke bg-white/70 px-3 py-2 font-body text-sm text-content-primary focus:border-brand-lavender focus:outline-none"
+            />
+            <span className="font-caption text-xs text-content-muted">a</span>
+            <input
+              type="date" value={custom.to}
+              onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))}
+              className="rounded-xl border border-stroke bg-white/70 px-3 py-2 font-body text-sm text-content-primary focus:border-brand-lavender focus:outline-none"
+            />
+          </div>
+        )}
+        <div className="w-60">
+          <Select options={campaignOptions} value={campaignId} onChange={(e) => setCampaignId(e.target.value)} placeholder="" />
+        </div>
+      </div>
+
+      {/* Señales — what needs attention this week */}
+      <FlagsPanel flags={flags} campaignName={activeCampaign?.nombre} />
+
+      {/* KPI header (period-scoped) */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
-          label="Inversión total"
-          value={money2(header.totalSpend)}
-          caption={`${header.totalAcquired} paciente${header.totalAcquired === 1 ? '' : 's'} adquirido${header.totalAcquired === 1 ? '' : 's'} por campañas`}
+          label="Costo por paciente"
+          value={m.cpa == null ? '—' : money2(m.cpa)}
+          caption={`${money2(m.spend)} invertidos ÷ ${m.pacientes} paciente${m.pacientes === 1 ? '' : 's'} nuevo${m.pacientes === 1 ? '' : 's'}`}
           icon={IconMegaphone}
           tint="lavender"
         />
         <KpiCard
-          label="CPA"
-          value={header.cpaGlobal == null ? '—' : money2(header.cpaGlobal)}
-          caption="costo por paciente adquirido"
-          icon={IconWallet}
+          label="Costo por conversación"
+          value={m.costoConversacion == null ? '—' : money2(m.costoConversacion)}
+          caption={`${num.format(m.conversations)} conversaciones iniciadas`}
+          icon={IconChat}
           tint="orange"
         />
         <KpiCard
-          label="LTV"
-          value={money2(header.ltvGlobal)}
-          caption="ingreso pagado promedio por paciente (toda la práctica)"
+          label="LTV a la fecha"
+          value={m.ltv == null ? '—' : money2(m.ltv)}
+          caption="ingreso pagado promedio por paciente adquirido (sigue creciendo)"
           icon={IconUsers}
           tint="pink"
         />
         <KpiCard
           label="LTV : CAC"
-          value={header.ltvCac == null ? '—' : `${header.ltvCac.toFixed(1)}x`}
-          caption={header.ltvCac == null ? 'necesita gasto y pacientes atribuidos' : header.ltvCac >= 3 ? 'saludable (≥3x)' : 'bajo (meta: ≥3x)'}
-          icon={IconPulse}
+          value={m.ltvCac == null ? '—' : `${m.ltvCac.toFixed(1)}x`}
+          caption={m.ltvCac == null ? 'necesita gasto y pacientes atribuidos' : m.ltvCac >= 3 ? 'saludable (≥3x)' : 'bajo (meta: ≥3x)'}
+          icon={IconWallet}
           tint="yellow"
         />
       </div>
 
-      {/* Practice-wide conversion note */}
-      <Card className="flex items-center gap-3 py-4">
-        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-card bg-brand-lavender/15 text-purple-600">
-          <IconChat size={18} />
-        </div>
-        <p className="font-body text-sm text-content-secondary">
-          Conversión llamada → paciente (histórico):{' '}
-          <span className="font-bold text-content-primary">{pct(header.converted, header.called)}</span>
-          {header.called > 0 && (
-            <span className="font-caption text-xs text-content-muted"> · {header.converted} de {header.called} llamadas realizadas</span>
-          )}
+      <Funnel m={m} />
+
+      <WeeklyChart series={m.series} metric={metric} onMetric={setMetric} />
+
+      {/* Campaigns — lifetime economics + attribution windows */}
+      <Card>
+        <h3 className="font-serif text-xl font-bold text-content-primary">Campañas</h3>
+        <p className="mb-2 font-caption text-xs text-content-muted">
+          Economía de por vida (ignora el período de arriba). Las fechas definen la atribución:
+          todo paciente nuevo se asigna a la campaña activa el día que agendó su primera sesión.
         </p>
+        {m.payback.length === 0 ? (
+          <p className="py-6 text-center font-body text-sm text-content-muted">
+            Aún no hay campañas — corre /marketize o importa el reporte semanal de Meta.
+          </p>
+        ) : (
+          m.payback.map((p) => (
+            <CampaignRow key={p.campaign.id} p={p} onPatch={handlePatchCampaign} />
+          ))
+        )}
       </Card>
 
-      {creating && <NewCampaignForm onCreate={handleCreate} onClose={() => setCreating(false)} />}
-
-      {/* Campaigns */}
-      {perCampaign.length === 0 && !creating ? (
-        <Card className="flex flex-col items-center gap-2 py-12 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-card bg-brand-lavender/15 text-purple-500">
-            <IconMegaphone size={22} />
-          </div>
-          <p className="font-body text-content-secondary">Aún no hay campañas.</p>
-          <p className="max-w-md font-caption text-xs text-content-muted">
-            Crea una campaña, usa su enlace ?c= en tus conversaciones de WhatsApp y el embudo
-            se llenará solo con las llamadas, pacientes e ingresos que genere.
-          </p>
-        </Card>
-      ) : (
-        perCampaign.map((r) => (
-          <CampaignCard key={r.campaign.id} r={r} onPatch={handlePatch} />
-        ))
-      )}
-
-      <OrphanCalls orphans={orphans} />
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <CohortCard cohorts={m.cohorts} />
+        <OrphanCalls orphans={m.orphans} />
+      </div>
     </div>
   )
 }
