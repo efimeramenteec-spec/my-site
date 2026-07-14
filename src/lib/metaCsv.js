@@ -61,7 +61,9 @@ const HEADER_MATCHERS = [
   ['ctr', ['ctr (porcentaje de clics en el enlace)', 'ctr (link click-through rate)']],
   ['link_clicks', ['clics en el enlace', 'link clicks']],
   ['impressions', ['impresiones', 'impressions']],
-  ['conversations', ['conversaciones de mensajeria iniciadas', 'messaging conversations started']],
+  // Meta renamed this metric in 2026: "Conversaciones con mensajes iniciadas"
+  // (before: "Conversaciones de mensajería iniciadas") — accept both.
+  ['conversations', ['conversaciones de mensajeria iniciadas', 'conversaciones con mensajes iniciadas', 'messaging conversations started']],
   ['results', ['resultados', 'results']],
   ['result_indicator', ['indicador de resultado', 'result indicator']],
 ]

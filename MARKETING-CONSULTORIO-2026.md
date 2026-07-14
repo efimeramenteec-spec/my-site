@@ -39,13 +39,28 @@ no la tabla principal) y queda guardado con columnas fijas — así el CSV es id
 | Nivel / desglose | **Nombre de la campaña** (sin desglose por edad/género/ubicación) |
 | Rango de fechas | **Últimos 7 días** |
 | Columnas (en este orden idealmente) | Nombre de la campaña · Importe gastado · Impresiones · Alcance · Frecuencia · Clics en el enlace · CTR (porcentaje de clics en el enlace) · CPM · **Conversaciones de mensajería iniciadas** · Costo por conversación de mensajería iniciada |
-| Programación | Enviar por **correo electrónico cada lunes** (formato CSV) a nicolasdltz97@gmail.com |
+| Programación | Enviar por **correo electrónico cada lunes** — llega al buzón de Mariana (**marianavillegaskraemer@gmail.com**), que es el buzón conectado al conector de Gmail |
 
 Notas:
-- La columna crítica es **"Conversaciones de mensajería iniciadas"** — agrégala explícitamente
-  (buscador de columnas → "mensajería"). Si Meta la entrega como "Resultados" + "Indicador de
+- ⚠️ **Cuenta correcta:** el reporte vive en la cuenta **"Efimeramente 2da Cuenta Ads"**
+  (act `2663225010700511`, portfolio comercial "Efimeramente" `1077659662089797`). La sesión
+  de Chrome aterriza por defecto en la cuenta personal de Mariana (`2199122680304491`), que
+  solo tiene borradores — en Ads Reporting hay que cambiar el portfolio en el selector del
+  header antes de tocar nada.
+- La columna crítica es **"Conversaciones con mensajes iniciadas"** (Meta la renombró en 2026;
+  antes "Conversaciones de mensajería iniciadas" — el parser acepta ambas). Búscala con
+  "conversac" en el buscador de columnas. Si Meta la entrega como "Resultados" + "Indicador de
   resultado", el parser también la entiende (solo cuenta filas cuyo indicador sea
   `messaging_conversation_started`).
+- **Dónde se programa el correo:** dentro del reporte guardado → botón de la cuenta (icono
+  junto al selector de portfolio) → **"Configuración del informe"** → toggle **"Programar
+  correo electrónico"** (Entrega: Semanal/lunes + Suscriptores). No está en Compartir ni en
+  Exportar. Los suscriptores solo pueden ser **personas con acceso a la cuenta publicitaria**
+  — Meta no acepta emails arbitrarios y el correo llega al email del login de Meta de esa
+  persona. Suscriptora: **Mariana Villegas Kraemer** → el correo llega a
+  **marianavillegaskraemer@gmail.com**, y ese buzón es el que está conectado al conector de
+  Gmail de Claude (decisión 2026-07-14; el plan de invitar a efimeramenteec@gmail.com se
+  abandonó — ver sección 7).
 - El parser (`src/lib/metaCsv.js`) tolera encabezados en español o inglés, números
   localizados, BOM y filas de campañas inactivas en cero (las salta).
 - **Grano semanal a propósito:** coincide con la cadencia del lunes y hace que la Frecuencia
@@ -111,32 +126,59 @@ no gritar con muestras chicas.
   seguimiento de leads tibios.
 - **Import manual (CSV):** botón de respaldo que hace lo mismo que `/marketize` paso 2.
 
-## 6. Backfill histórico (una sola vez — primer pendiente)
+## 6. Backfill histórico — ✅ HECHO 2026-07-13
 
-Datos de sesiones existen desde mayo; los ads corren desde mayo.
+Ejecutado por Claude vía Chrome + `marketize-import.mjs`: 15 semanas (2026-05-01 →
+2026-07-13), 6 campañas creadas, $1,940.33 de gasto total importado. El CSV quedó en
+`~/Downloads/EFIMERAMENTE-BACKFILL.csv`. **No re-importar ese CSV**: el importador lo
+trataría como reporte "actual" y reabriría las ventanas ya cerradas (además de empujar
+las `fecha_inicio` de vuelta a las fechas de gasto).
 
-1. En Ads Reporting: reporte con las **mismas columnas** del template + desglose temporal
-   **por semana** ("Semana"), rango **1 mayo 2026 → hoy**, nivel campaña. Exportar CSV.
-   (El parser detecta la columna "Semana" y calcula cada rango semanal.)
-2. `node scripts/marketize-import.mjs <backfill.csv>` — poblará todas las semanas y creará
-   las campañas históricas.
-3. **Resolver mayo a mano:** en mayo corrieron 4 campañas a la vez (Campaña Mayo 2026 EM,
-   Campaña_Nueva_Mayo, Campaña-Leads-Mayo, FINAL-FINAL-Mayo2026 — la dominante por gasto).
-   En `/marketing` → Campañas → Editar fechas, ajustar las ventanas para que cada fecha
-   tenga UNA campaña (o aceptar la advertencia de superposición: gana la de inicio más
-   reciente).
+**Ventanas resueltas** (partición sin superposiciones — cada fecha tiene UNA campaña;
+editable en `/marketing` → Campañas → Editar fechas):
+
+| Campaña | Ventana de atribución |
+|---|---|
+| Campaña Mayo 2026 EM | 2026-05-01 → 2026-05-07 |
+| Campaña_Nueva_Mayo | 2026-05-08 (1 día simbólico) |
+| Campaña-Leads-Mayo | 2026-05-09 (1 día simbólico) |
+| FINAL-FINAL-Mayo2026 (dominante) | 2026-05-10 → 2026-06-11 |
+| Estaba_Harta_Junio_2026 | 2026-06-12 → 2026-06-18 |
+| 2026-06_Prospecting_Script1-vs-Script6 | 2026-06-19 → activa |
+
+En la semana 8–14 mayo corrieron 4 campañas a la vez; FINAL-FINAL fue la dominante y se
+queda con la ventana desde el 10 de mayo. Las dos menores conservan 1 día simbólico para
+no perder su historial de gasto en la tabla de campañas.
 
 ## 7. Setup pendiente (una sola vez — LO HACE CLAUDE en la próxima sesión, vía Chrome)
 
 - [x] Activar el **conector de Gmail** en Claude Code — hecho por Nicolas 2026-07-13.
-- [ ] Con Claude in Chrome (sesión logueada de Nicolas): crear el reporte guardado
-      `EFIMERAMENTE-SEMANAL` en Ads Reporting según la sección 2.
-- [ ] Programar su envío semanal por correo (lunes, CSV, a nicolasdltz97@gmail.com).
-- [ ] Exportar el CSV de backfill (sección 6) y correr el importador; luego resolver las
-      ventanas superpuestas de mayo en `/marketing`.
+- [x] Crear el reporte guardado `EFIMERAMENTE-SEMANAL` en Ads Reporting — hecho 2026-07-13
+      (report id `120253784913050119`, cuenta "Efimeramente 2da Cuenta Ads"
+      `act=2663225010700511`). ⚠️ Se creó primero por error en la cuenta personal de Mariana
+      (`2199122680304491`, la default de la sesión) — ese duplicado y su schedule ya fueron
+      eliminados.
+- [x] Programar su envío semanal por correo — hecho 2026-07-13 vía Configuración del informe
+      → "Programar correo electrónico": **Semanal (lunes)**, suscriptor provisional Mariana
+      Villegas Kraemer (Meta no acepta emails arbitrarios, solo gente con acceso a la cuenta).
+- [x] Backfill exportado e importado + ventanas de mayo resueltas — ver sección 6.
+- [x] **Buzón del correo semanal: marianavillegaskraemer@gmail.com** (decisión 2026-07-14).
+      El plan original (invitar a efimeramenteec@gmail.com al portfolio) se **abandonó**:
+      Meta exige que el suscriptor sea una persona activa del negocio, y aceptar la
+      invitación requería crear una cuenta de Facebook real para ese email (Meta bloqueó
+      todos los atajos). En su lugar, el conector de Gmail quedó autorizado contra el buzón
+      de Mariana, que es adonde llega el reporte por ser ella la suscriptora.
+      ⚠️ Limpieza pendiente (Nicolas): en Personas del portfolio quedó una invitación
+      PENDIENTE para efimeramenteec@gmail.com con **acceso total + finanzas** — cancelarla
+      (o degradarla) para que nadie pueda aceptarla con ese nivel de acceso.
+- [x] **Conector de Gmail autorizado** (2026-07-14, buzón marianavillegaskraemer@gmail.com).
+      Ojo: las herramientas del conector aparecen recién en la SIGUIENTE sesión de Claude
+      Code (la lista de tools se fija al inicio de sesión — mismo comportamiento que el
+      conector de Netlify, ver CLAUDE.md).
 - [ ] Verificar si el correo de Meta trae el CSV **adjunto** o solo un **link**; si es link,
-      el protocolo usa el fallback de Chrome (paso 1.3). Si el primer correo programado aún
-      no llegó, esta verificación queda para el primer `/marketize` real.
+      el protocolo usa el fallback de Chrome (paso 1.3). El primer correo programado llega el
+      lunes 2026-07-20 al buzón de Mariana → esta verificación queda para el primer
+      `/marketize` real.
 
 ## 8. Arquitectura (archivos)
 
