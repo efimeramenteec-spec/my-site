@@ -17,6 +17,15 @@ export const isLlamada = (s) =>
 const day = (ts) => String(ts || '').slice(0, 10)
 const rate = (part, whole) => (whole > 0 ? part / whole : null)
 
+// When a session was BOOKED. Normally created_at — but historical rows were
+// bulk-imported (seed/sheet sync), so their created_at is the import date.
+// A booking can never happen AFTER the session itself, so anything with
+// created_at past fecha falls back to fecha.
+export const bookedOn = (s) => {
+  const c = day(s.created_at)
+  return c && c < s.fecha ? c : s.fecha
+}
+
 // Active campaign on a date. One at a time by policy; if windows overlap
 // (e.g. the messy May backfill), the latest-starting campaign wins.
 export function campaignOn(campaigns, date, today) {
@@ -63,7 +72,7 @@ export function acquisitions({ campaigns, patients, sessions }, today) {
     real.sort((a, b) =>
       a.fecha.localeCompare(b.fecha) || String(a.hora_inicio || '').localeCompare(String(b.hora_inicio || '')))
     const first = real[0]
-    const scheduledOn = day(first.created_at) || first.fecha
+    const scheduledOn = bookedOn(first)
     out.push({
       patient: p,
       firstSession: first,
@@ -121,7 +130,7 @@ export function computeMarketing(data, { from = null, to = null, campaignId = nu
     !campaignId || campaignOn(campaigns, dateStr, today)?.id === campaignId
   const llamadas = sessions.filter((s) => {
     if (!isLlamada(s)) return false
-    const booked = day(s.created_at) || s.fecha
+    const booked = bookedOn(s)
     return inPeriod(booked) && matchesCampaign(booked)
   })
 
@@ -138,7 +147,7 @@ export function computeMarketing(data, { from = null, to = null, campaignId = nu
   // Weekly series for the chart: metrics + funnel counts per report week.
   const series = scopedWeeks.map((w) => {
     const inWeek = (d) => d >= w.semana_inicio && d <= w.semana_fin
-    const ll = sessions.filter((s) => isLlamada(s) && inWeek(day(s.created_at) || s.fecha)).length
+    const ll = sessions.filter((s) => isLlamada(s) && inWeek(bookedOn(s))).length
     const pa = allAcq.filter((a) => inWeek(a.scheduledOn) &&
       (!campaignId || a.campaign?.id === campaignId)).length
     return {
@@ -269,7 +278,7 @@ export function computeFlags(data, campaignId, today) {
   // handling, not the campaign.
   const llIn = (w) => sessions.filter((s) => {
     if (!isLlamada(s)) return false
-    const booked = String(s.created_at || '').slice(0, 10) || s.fecha
+    const booked = bookedOn(s)
     return booked >= w.semana_inicio && booked <= w.semana_fin
   }).length
   if (prev && prev.conversations >= 5 && last.conversations >= 5) {
@@ -289,12 +298,11 @@ export function computeFlags(data, campaignId, today) {
   const cAcq = allAcq.filter((a) => a.campaign?.id === campaign.id)
   const cLl = sessions.filter((s) => {
     if (!isLlamada(s)) return false
-    const booked = String(s.created_at || '').slice(0, 10) || s.fecha
-    return campaignOn(campaigns, booked, today)?.id === campaign.id
+    return campaignOn(campaigns, bookedOn(s), today)?.id === campaign.id
   })
   if (cLl.length >= 8 && cAcq.length >= 2) {
     const cutoff = new Date(new Date(today) - 28 * 86400e3).toISOString().slice(0, 10)
-    const recent = cLl.filter((s) => (String(s.created_at || '').slice(0, 10) || s.fecha) >= cutoff)
+    const recent = cLl.filter((s) => bookedOn(s) >= cutoff)
     const recentAcq = cAcq.filter((a) => a.scheduledOn >= cutoff)
     const lifetime = cAcq.length / cLl.length
     if (recent.length >= 4) {
