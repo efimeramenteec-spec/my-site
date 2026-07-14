@@ -126,15 +126,17 @@ Datos de sesiones existen desde mayo; los ads corren desde mayo.
    tenga UNA campaña (o aceptar la advertencia de superposición: gana la de inicio más
    reciente).
 
-## 7. Setup pendiente (checklist de Nicolas, una sola vez)
+## 7. Setup pendiente (una sola vez — LO HACE CLAUDE en la próxima sesión, vía Chrome)
 
-- [ ] Crear el reporte guardado `EFIMERAMENTE-SEMANAL` en Ads Reporting (sección 2).
-- [ ] Programar su envío semanal por correo (lunes, CSV).
-- [ ] Activar el **conector de Gmail** en Claude Code (Settings → Connectors) — disponible
-      recién en la siguiente sesión.
-- [ ] Exportar el CSV de backfill y correr el paso de la sección 6.
-- [ ] Verificar en el primer `/marketize` real si el correo de Meta trae el CSV **adjunto**
-      o solo un **link**; si es link, el protocolo usa el fallback de Chrome (paso 1.3).
+- [x] Activar el **conector de Gmail** en Claude Code — hecho por Nicolas 2026-07-13.
+- [ ] Con Claude in Chrome (sesión logueada de Nicolas): crear el reporte guardado
+      `EFIMERAMENTE-SEMANAL` en Ads Reporting según la sección 2.
+- [ ] Programar su envío semanal por correo (lunes, CSV, a nicolasdltz97@gmail.com).
+- [ ] Exportar el CSV de backfill (sección 6) y correr el importador; luego resolver las
+      ventanas superpuestas de mayo en `/marketing`.
+- [ ] Verificar si el correo de Meta trae el CSV **adjunto** o solo un **link**; si es link,
+      el protocolo usa el fallback de Chrome (paso 1.3). Si el primer correo programado aún
+      no llegó, esta verificación queda para el primer `/marketize` real.
 
 ## 8. Arquitectura (archivos)
 

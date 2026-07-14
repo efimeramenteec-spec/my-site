@@ -46,6 +46,21 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **MARKETING v2 — full redo, BUILT + DEPLOYED** (2026-07-13, Fable 5, commits 42d32bf +
+  bookedOn fix). v1's ?c=-link attribution was unrealistic and was removed entirely.
+  **Everything (protocol, schema, flags, Meta report template, backfill plan) lives in
+  `MARKETING-CONSULTORIO-2026.md` — that doc is self-sufficient; read it, not this entry.**
+  Key facts: weekly Meta CSV (`EFIMERAMENTE-SEMANAL` saved report, scheduled Monday email) →
+  `/marketize` (user-level command, `~/.claude/commands/marketize.md`; Gmail → Downloads →
+  Chrome) → `scripts/marketize-import.mjs` (idempotent upsert into `campaign_weeks` +
+  campaign-window maintenance + terminal briefing). Attribution is date-based
+  (`bookedOn = min(created_at, fecha)` — seeded rows have import-date created_at);
+  `fuente='referido'` excludes a patient. Math shared page↔briefing in `src/lib/marketing.js`.
+  Migrations `marketing_v2` + `marketing_v2_drop_columns` applied in prod (old
+  campaigns/campaign_metrics + patients/sessions.campaign_id dropped; public booking verified
+  live after). Gmail connector activated by Nicolas 2026-07-13 (usable next session).
+  **NEXT SESSION = the 4-item checklist in that doc's §7** (create+schedule the Meta saved
+  report via Chrome, backfill May→today, fix May's overlapping windows, test Gmail retrieval).
 - [x] Sesiones calendar view (week/month/list)
 - [x] Create/edit/cancel sessions with Google Calendar sync
 - [x] Conflict detection (Supabase) + Google Calendar freebusy check in drawer
