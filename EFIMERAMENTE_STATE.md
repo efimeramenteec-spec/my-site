@@ -637,20 +637,44 @@
       embedded/linked cross-origin (list currently mirrors `calendar.mjs`).
 
 ### Contífico invoicing — resume here
-- [ ] **Build `/facturar` (Protocol 2)** — BLOCKED on 5 config answers from Nicolas: **(1)** exact
-      Producto/servicio name for a session line, **(2)** IVA rate (0%? psychology is exempt),
-      **(3)** Descripción template (e.g. `Sesión de terapia psicológica` ± date/therapist),
-      **(4)** Formas de Pago — fill per factura (Transferencia?) or leave blank / required to emit?,
-      **(5)** emit straight to SRI vs "Guardar" as draft for batch review. Then do ONE real invoice
-      live with Nicolas (pause before the SRI submit), then encode the command.
-- [ ] **Eligible-session query for /facturar:** `estado='confirmada' AND pagado AND NOT facturada AND
-      tipo<>'llamada' AND fecha >= current_date-7 AND patient.contifico_id IS NOT NULL`. Patients
-      without `contifico_id` (not yet clients) must be skipped + reported (or run Protocol 1 first).
+- [x] ~~**Build `/facturar` (Protocol 2)**~~ — **SHIPPED.** Full protocol lives in
+      `.claude/commands/facturar.md` (project-level command). All 5 config questions are answered and
+      locked in its "Config reference (confirmed with Nicolas)" section: Producto **SESION INDIVIDUAL**
+      (auto-sets IVA 0%) · Descripción **"Sesión del <fecha>"** · Forma de pago **Otros con Utilización
+      del Sistema Financiero** (= transferencia) · **Emit directly** to SRI (no draft step). Platform =
+      **Contífico (Siigo)**, RUC 1760388700001, browser automation (no free API). Also encodes:
+      Consumidor Final fallback (no cédula, legal <$50), Registrar Persona flow, and the NEVER-INVOICE
+      insurance-format safety list (Sharian Narvaez, Raguel Conforme, Emilie Conforme, Laura Vasquez —
+      enforced by both `patients.facturacion_manual=true` AND by name). **The command file is the source
+      of truth — do NOT re-ask the config questions.**
+- [x] ~~**Eligible-session query for /facturar**~~ — encoded in the command (§1): `estado='confirmada'
+      AND pagado AND NOT facturada AND tipo<>'llamada' AND fecha within rolling last 7 days AND
+      patient.facturacion_manual=false`. Client-ready vs no-cédula (Consumidor Final) vs
+      has-cédula-not-yet-client are split and handled there.
 - [ ] **Finish the 10 client-pending patients:** get the 9 placeholder emails (Aichele Oliver,
       Huidobro Juliana, Cevallos Jacqueline, Racines Alisson, Conforme Emilie, Padilla Camila,
       Almache Karina, Ortiz Shally, Chiriboga Joaquin), then bulk-create them (Protocol 1) + stamp.
-- [ ] **Fill the 96 missing cédulas** from `~/Downloads/cedulas_por_revisar.csv` (24 invalid-in-sheet,
-      72 blank), then bulk-create those as clients too. Only patients with a cédula can be invoiced.
+- [ ] **Fill the missing cédulas** — IN PROGRESS (session 2026-07-17). Mined `Sesiones_Consultorio (6).xlsx`
+      (cédulas live only in the `Sesiones` tab "Cédula / RUC" col; `Pacientes` tab has none) + cross-checked
+      `~/Downloads/cedulas_por_revisar.csv`. Of 98 missing, only **3 were cleanly recoverable + SRI-checksum
+      valid** → WROTE them: **Ericka Rosero 1711714467, Luis Rodríguez 1761592334, María Pernia 1762003042**.
+      The rest can't be salvaged from files: ~72 are blank (must ask patient), ~18 have a wrong/partial value
+      (mostly 9-digit = a dropped digit), Kamila Ramírez has two valid options (`1350954739` vs `1350974539` —
+      Nicolas picks). **Remaining gather list → `~/Downloads/cedulas_por_recolectar.csv`** (categorized:
+      HAS-A-LEAD / BLANK / COMPOSITE / TEST-JUNK / NEVER-INVOICE). Hand the filled CSV back and Claude will
+      checksum-validate + bulk-write. Verified all 4 NEVER-INVOICE patients are `facturacion_manual=true`
+      (Emilie & Laura already have cédulas so they weren't in the missing set — that's why they looked absent).
+- [x] ~~**Patient data hygiene**~~ — DONE 2026-07-17. Merged 2 duplicate patients created by phone-format
+      variants slipping past the `telefono` UNIQUE constraint: **Renata Hidalgo** (llamadas + real session were
+      split across 2 rows) and **Isabel Durán**. Repointed `sessions` + `whatsapp_messages` to the survivor,
+      then deleted the dup. Also normalized phones table-wide: **9 fixed** (stripped spaces/dashes/hidden
+      Unicode, dropped stray trunk-0s), 166 already clean. **6 flagged, can't auto-fix → `~/Downloads/
+      telefonos_por_revisar.csv`** (Juan Flores & M. de Lourdes Altamirano = missing digits; Micaela Castro =
+      collides with Germania Domínguez's number; Santiago Maldonado = ambiguous trailing `-2`; Daniel y Daniela
+      `8` & Michelle Tinajero `9` = garbage). NOT an error: the Conforme/Vásquez trio share `+593999643019`
+      (insurance family). Still-open cleanup: split the composite rows ("Daniel y Daniela", "Thomas (Gabriela
+      P. y Matheo Q.)") into individual patients. NOTE: app-side, phones aren't normalized on write — spaces
+      bypass the UNIQUE constraint, so dups can recur until an input-normalization fix lands.
 - [ ] **`contifico_id` is a marker (= core cédula), not the real Contífico persona id.** Fine for the
       cédula-based Persona lookup in Protocol 2; upgrade to the real id only if a flow needs it.
 
