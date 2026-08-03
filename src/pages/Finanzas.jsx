@@ -5,21 +5,24 @@ import { Card } from '../components/Card/Card.jsx'
 import { Select } from '../components/Select/Select.jsx'
 import { getFinanzasData } from '../lib/queries.js'
 import { dateKey, weekRange, formatCurrency, fullName, capitalize, formatDateShort, toDate } from '../lib/format.js'
+import { sessionProvision } from '../lib/provision.js'
 
 // Money page (replaced the old Dashboard, 2026-07-04). Definitions (Nicolas):
 // - "Real" session = not cancelled and not a llamada (free 10-min intro calls
 //   never charge nor provision).
 // - Provisión = per-session amount owed to the therapist (therapists.provision_rate,
-//   $24 default; Mariana 0 — she keeps 100%). Paid monthly for ALL non-cancelled
-//   sessions of the month, regardless of cobrado (unpaid patients are the
-//   practice's problem, the therapist is paid either way).
+//   $24 default; Mariana 0 — she keeps 100%; Pareja pays $30). Shared calc in
+//   provision.js (sessionProvision) so Finanzas and the Sesiones report agree.
+//   Paid monthly for ALL non-cancelled sessions of the month, regardless of
+//   cobrado (unpaid patients are the practice's problem, the therapist is paid
+//   either way).
 // - The standalone Provisión card is therefore strictly CURRENT MONTH; every
 //   other metric follows the period selector.
 
 const isReal = (s) =>
   s.tipo !== 'llamada' && s.estado !== 'cancelada' && s.estado !== 'no_show'
 
-const rateOf = (s) => Number(s.therapist?.provision_rate ?? 24)
+const rateOf = (s) => sessionProvision(s, s.therapist?.provision_rate)
 
 function monthRange(d) {
   const y = d.getFullYear()
@@ -377,7 +380,7 @@ export default function Finanzas() {
                   {row.therapist ? fullName(row.therapist) : 'Sin terapeuta'}
                 </span>
                 <span className="font-caption text-xs text-content-muted">
-                  {row.sesiones} × {formatCurrency(rateOf(row))}
+                  {row.sesiones} {row.sesiones === 1 ? 'sesión' : 'sesiones'}
                 </span>
                 <span className="w-20 text-right font-heading text-sm font-bold text-content-primary">
                   {formatCurrency(row.monto)}

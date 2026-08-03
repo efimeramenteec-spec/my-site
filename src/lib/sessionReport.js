@@ -10,10 +10,10 @@
 // actually downloads a report (keeps them out of the main bundle).
 import { ESTADO_SESION, TIPO_SESION } from './constants.js'
 import { formatCurrency, formatTime, fullName } from './format.js'
+import { sessionProvision, PROVISION_DEFAULT } from './provision.js'
 
 const LOCALE = 'es-EC'
 const BRAND = [180, 138, 228] // #B48AE4 lavender — table header fill
-const DEFAULT_RATE = 24
 
 // Plural label for the totals line, driven by the estado filter.
 const ESTADO_PLURAL = {
@@ -76,17 +76,28 @@ export async function downloadSessionReport({ sessions = [], therapists = [], fi
 
   if (rows.length === 0) return { ok: false, error: 'No hay sesiones (sin llamadas) para el reporte con los filtros actuales.' }
 
-  const rateById = new Map(therapists.map((t) => [t.id, Number(t.provision_rate ?? DEFAULT_RATE)]))
-  const rateOf = (s) => (rateById.has(s.terapeuta_id) ? rateById.get(s.terapeuta_id) : DEFAULT_RATE)
+  const rateById = new Map(therapists.map((t) => [t.id, Number(t.provision_rate ?? PROVISION_DEFAULT)]))
+  const baseRateOf = (s) => (rateById.has(s.terapeuta_id) ? rateById.get(s.terapeuta_id) : PROVISION_DEFAULT)
+  // Per-session provision — shared with Finanzas so they never disagree.
+  const payFor = (s) => sessionProvision(s, baseRateOf(s))
   const montoTotal = rows.reduce((sum, s) => sum + Number(s.monto || 0), 0)
 
   // Pay counts ONLY sessions that actually happened (confirmada / legacy
   // completada) — a pending or cancelled session is never paid. So the figure
   // is correct even if the report isn't filtered to Confirmada.
   const payRows = rows.filter((s) => s.estado === 'confirmada' || s.estado === 'completada')
-  const pay = payRows.reduce((sum, s) => sum + rateOf(s), 0)
-  const rates = [...new Set(payRows.map(rateOf))]
-  const uniformRate = rates.length === 1 ? rates[0] : null
+  const pay = payRows.reduce((sum, s) => sum + payFor(s), 0)
+
+  // Breakdown by rate (e.g. "12 × $24 + 3 × $30"); paid rows only (rate > 0).
+  const byRate = new Map()
+  for (const s of payRows) {
+    const r = payFor(s)
+    if (r > 0) byRate.set(r, (byRate.get(r) || 0) + 1)
+  }
+  const breakdown = [...byRate.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([rate, n]) => `${n} × ${formatCurrency(rate)}`)
+    .join(' + ')
 
   // Period text: explicit range if set, else derived from the data.
   const desde = filters.desde || rows[0].fecha
@@ -97,9 +108,9 @@ export async function downloadSessionReport({ sessions = [], therapists = [], fi
   const totalLine = estadoWord
     ? `TOTAL DE SESIONES ${estadoWord}: ${rows.length}`
     : `TOTAL DE SESIONES: ${rows.length}`
-  const payLine = uniformRate != null
-    ? `MONTO A PAGAR (${payRows.length} confirmadas × ${formatCurrency(uniformRate)}): ${formatCurrency(pay)}`
-    : `MONTO A PAGAR (${payRows.length} confirmadas): ${formatCurrency(pay)}`
+  const payLine = breakdown
+    ? `MONTO A PAGAR (${breakdown}): ${formatCurrency(pay)}`
+    : `MONTO A PAGAR: ${formatCurrency(pay)}`
 
   // Scope line pieces.
   const scope = [
