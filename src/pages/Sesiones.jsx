@@ -9,8 +9,9 @@ import { SesionDrawer } from '../features/sesiones/SesionDrawer.jsx'
 import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName, formatTime } from '../lib/format.js'
 import { CONFIRMACION } from '../lib/constants.js'
 import { findConflict } from '../lib/conflicts.js'
-import { IconChevronRight, IconPlus } from '../layout/icons.jsx'
+import { IconChevronRight, IconPlus, IconDownload } from '../layout/icons.jsx'
 import { useAuth } from '../lib/auth.jsx'
+import { downloadSessionReport } from '../lib/sessionReport.js'
 
 const VIEWS = [
   ['semana', 'Semana'],
@@ -37,7 +38,7 @@ export default function Sesiones() {
     const saved = loadUi().cursor && new Date(loadUi().cursor)
     return saved && !isNaN(saved) ? saved : new Date()
   })
-  const [filters, setFilters] = useState(() => ({ terapeuta: '', estado: '', pago: '', ...loadUi().filters }))
+  const [filters, setFilters] = useState(() => ({ terapeuta: '', estado: '', pago: '', desde: '', hasta: '', ...loadUi().filters }))
 
   useEffect(() => {
     try {
@@ -71,16 +72,37 @@ export default function Sesiones() {
       (!filters.pago || (filters.pago === 'pagada' ? !!s.pagado : !s.pagado)),
   )
 
+  // Lista adds a date range (Desde/Hasta) + name search on top of the shared
+  // filters. fecha is 'YYYY-MM-DD', so string compare == date compare.
+  const q = search.trim().toLowerCase()
   const visibleSessions =
-    view === 'lista' && search.trim()
+    view === 'lista'
       ? sessions.filter((s) => {
-          const name = `${s.patient?.nombre || ''} ${s.patient?.apellido || ''}`.toLowerCase()
-          return name.includes(search.trim().toLowerCase())
+          if (filters.desde && s.fecha < filters.desde) return false
+          if (filters.hasta && s.fecha > filters.hasta) return false
+          if (q) {
+            const name = `${s.patient?.nombre || ''} ${s.patient?.apellido || ''}`.toLowerCase()
+            if (!name.includes(q)) return false
+          }
+          return true
         })
       : sessions
 
   function shift(dir) {
     setCursor((c) => (view === 'mes' ? addMonths(c, dir) : addDays(c, dir * 7)))
+  }
+
+  async function handleDownloadReport() {
+    const terapeutaName = fullAccess
+      ? (filters.terapeuta ? fullName((data?.therapists || []).find((t) => t.id === filters.terapeuta)) : null)
+      : fullName((data?.therapists || []).find((t) => t.id === terapeutaId))
+    const res = await downloadSessionReport({
+      sessions: visibleSessions,
+      therapists: data?.therapists || [],
+      filters,
+      terapeutaName,
+    })
+    if (!res.ok) window.alert(res.error || 'No se pudo generar el reporte.')
   }
 
   const openCreate = (defaultDate = null) => setDrawer({ open: true, mode: 'create', initial: null, defaultDate })
@@ -214,13 +236,43 @@ export default function Sesiones() {
         </div>
 
         {view === 'lista' && (
-          <input
-            type="text"
-            placeholder="Buscar paciente…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="rounded-xl border border-stroke bg-white/70 px-4 py-2 font-body text-sm text-content-primary placeholder:text-content-muted focus:border-brand-lavender focus:outline-none focus:ring-2 focus:ring-brand-lavender/20"
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              placeholder="Buscar paciente…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="rounded-xl border border-stroke bg-white/70 px-4 py-2 font-body text-sm text-content-primary placeholder:text-content-muted focus:border-brand-lavender focus:outline-none focus:ring-2 focus:ring-brand-lavender/20"
+            />
+            <label className="flex items-center gap-1.5 font-heading text-xs font-bold text-content-secondary">
+              Desde
+              <input
+                type="date"
+                value={filters.desde}
+                max={filters.hasta || undefined}
+                onChange={(e) => setFilters((f) => ({ ...f, desde: e.target.value }))}
+                className="rounded-xl border border-stroke bg-white/70 px-3 py-2 font-body text-sm text-content-primary focus:border-brand-lavender focus:outline-none focus:ring-2 focus:ring-brand-lavender/20"
+              />
+            </label>
+            <label className="flex items-center gap-1.5 font-heading text-xs font-bold text-content-secondary">
+              Hasta
+              <input
+                type="date"
+                value={filters.hasta}
+                min={filters.desde || undefined}
+                onChange={(e) => setFilters((f) => ({ ...f, hasta: e.target.value }))}
+                className="rounded-xl border border-stroke bg-white/70 px-3 py-2 font-body text-sm text-content-primary focus:border-brand-lavender focus:outline-none focus:ring-2 focus:ring-brand-lavender/20"
+              />
+            </label>
+            {(filters.desde || filters.hasta) && (
+              <button
+                onClick={() => setFilters((f) => ({ ...f, desde: '', hasta: '' }))}
+                className="font-heading text-xs font-bold text-content-secondary underline-offset-2 hover:text-content-primary hover:underline"
+              >
+                Limpiar fechas
+              </button>
+            )}
+          </div>
         )}
 
         <div className="flex flex-wrap items-center gap-2">
@@ -233,6 +285,16 @@ export default function Sesiones() {
           <div className="w-36">
             <Select options={pagoOptions} value={filters.pago} onChange={(e) => setFilters((f) => ({ ...f, pago: e.target.value }))} placeholder="" />
           </div>
+          {view === 'lista' && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleDownloadReport}
+              disabled={!data || visibleSessions.filter((s) => s.tipo !== 'llamada').length === 0}
+            >
+              <IconDownload size={16} /> Descargar reporte
+            </Button>
+          )}
           <Button size="sm" onClick={() => openCreate()}>
             <IconPlus size={16} /> Nueva sesión
           </Button>

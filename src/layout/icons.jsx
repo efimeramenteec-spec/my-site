@@ -52,6 +52,12 @@ export const IconPulse = (p) => (
   </Svg>
 )
 
+export const IconDownload = (p) => (
+  <Svg {...p}>
+    <path d="M12 3v12M7 11l5 5 5-5M4 20h16" />
+  </Svg>
+)
+
 export const IconWallet = (p) => (
   <Svg {...p}>
     <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H18a3 3 0 0 1 3 3v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z" />

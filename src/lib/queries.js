@@ -113,7 +113,7 @@ export async function getSessionsData() {
           .order('fecha', { ascending: true }).order('hora_inicio', { ascending: true }),
         supabase.from('patients').select('id,nombre,apellido,telefono,terapeuta_id,estado_general,tarifa,metodo_pago')
           .order('nombre', { ascending: true }),
-        supabase.from('therapists').select('id,nombre,apellido,color,calendar_email,activo')
+        supabase.from('therapists').select('id,nombre,apellido,color,calendar_email,activo,provision_rate')
           .order('nombre', { ascending: true }),
       ])
       if (sRes.error) throw sRes.error
