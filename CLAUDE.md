@@ -12,6 +12,8 @@ session," read `EFIMERAMENTE_STATE.md`. For visual/design tokens, read `BRAND.md
 ## Stack & infra
 
 - **Frontend:** React 18 + Vite 6, React Router 6, Tailwind 3, Recharts. Plain `.jsx`, no TypeScript.
+  `jspdf` + `jspdf-autotable` are used ONLY by the Sesiones session report and are **dynamically
+  imported** (`src/lib/sessionReport.js`) so they stay out of the main bundle — keep it that way.
 - **Backend:** Supabase (Postgres + Auth + RLS). Netlify serverless functions for anything needing secrets.
 - **Hosting:** Netlify. Live at **https://efimeramente-panel.netlify.app** (deploys on push to `main`).
 - **Supabase project ID:** `vnityzpuhnkumsyfnskz` → `https://vnityzpuhnkumsyfnskz.supabase.co`
@@ -86,12 +88,16 @@ Key detail: session `estado` is `programada` (Pendiente) | `confirmada` | `cance
 ### Other lib files
 - `conflicts.js` — session overlap detection against **Supabase** sessions (local, synchronous).
 - `format.js` — date/week helpers (`dateKey`, `weekRange`, `addDays`).
+- `provision.js` — `sessionProvision(session, baseRate)`: what the practice owes a therapist per
+  session. Base = `therapists.provision_rate` ($24 default, Mariana 0 = keeps 100%); **Pareja
+  sessions pay $30**. Shared by Finanzas AND the Sesiones report so payroll numbers can't drift.
+- `sessionReport.js` — builds the Sesiones → Lista payroll PDF (lazy jsPDF; llamadas excluded).
 - `auth.jsx` — `AuthProvider` / `useAuth`; loads the `profiles` row to get `role` + `terapeuta_id`.
 
 ### Pages (`src/pages/`)
 - **Built:** `Finanzas` (home page — money metrics: por cobrar + expandable Deudores list
   [oldest debt first], bruto, proyectado, neto, provisión de terapeutas via
-  `therapists.provision_rate` [$24 default, Mariana 0], ingreso por terapeuta, pendientes de
+  `therapists.provision_rate` [$24 default, Mariana 0; Pareja $30 — shared calc in `provision.js`], ingreso por terapeuta, pendientes de
   facturar [= pagadas sin factura], 12-month trend chart; period selector; llamadas + cancelled
   sessions never count anywhere. Related session columns: `pagado`, `facturada` [manual toggle],
   `paid_at` [server-stamped on pago flip — cash-flow groundwork]. Hard rule: cancelled sessions

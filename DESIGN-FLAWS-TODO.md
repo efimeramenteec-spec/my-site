@@ -45,6 +45,11 @@ Verified headless: totals + Mariana-$0 + llamada-exclusion + empty-guard all cor
 **USAGE NOTE for Nicolas:** filter Estado = Confirmada for a clean payroll report (the count
 line then matches the pay line exactly).
 
+**Follow-up shipped (commit ea3e71c):** Pareja (couple) sessions provision **$30**, not $24.
+Rule moved to shared `src/lib/provision.js` (`sessionProvision`) used by BOTH the report and
+Finanzas so they can't drift (Mariana stays $0 for any type). Report shows a rate breakdown
+(`3 × $24 + 1 × $30`); Finanzas provisión updated to match.
+
 <details><summary>original spec</summary>
 
 **Goal (Nicolas):** A download button in the Lista view that exports the **currently

@@ -46,6 +46,29 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **Therapist session report (PDF) + Pareja $30 provision** (2026-08-03, Opus, commits
+  674c7ec + ea3e71c, both deployed + verified live). Kicked off a **design-flaws polish pass**
+  now that the architecture phase is done — running list lives in **`DESIGN-FLAWS-TODO.md`**
+  (read it to resume). Shipped this session:
+  - **"Descargar reporte" button in Sesiones → Lista** — exports the currently-filtered rows
+    to a branded PDF, for sending each therapist a verifiable list of their sessions so they can
+    confirm pay. New **Desde/Hasta date filters** in Lista (WYSIWYG: report == on-screen rows).
+    `src/lib/sessionReport.js` (jsPDF + jspdf-autotable, **lazy-loaded** via dynamic import so
+    they stay out of the main bundle — verified as separate chunks). Totals footer: session count
+    + **Monto a pagar** with a per-rate breakdown. Llamadas excluded; pay counts only
+    confirmada/completada rows so it's correct even without an estado filter. `queries.js` now
+    fetches `provision_rate` with the Sesiones therapists; `icons.jsx` gained `IconDownload`.
+    **USAGE:** filter Estado=Confirmada for a clean payroll report (count line then matches pay).
+  - **Pareja (couple) sessions provision $30**, not the $24 base (Nicolas). Factored the
+    per-session provision into **`src/lib/provision.js`** (`sessionProvision(session, baseRate)`)
+    — Pareja $30, else base ($24 default), **Mariana always $0** (0-base = keeps 100%, any type).
+    Both the **report** and **Finanzas** (trend, período, mensual, per-therapist provisión) call
+    it, so they can't drift. Report shows a breakdown (e.g. `3 × $24 + 1 × $30`); Finanzas
+    per-therapist caption changed from a now-inaccurate "N × $rate" to a plain session count.
+    Verified: 6/6 helper unit cases + headless report ($102 for 3×$24+1×$30) + build green.
+  - **OPEN / next:** design-flaw **#1 — llamadas born `confirmada`** (spec'd in
+    `DESIGN-FLAWS-TODO.md`, NOT built): overrides the "Born Pendiente" invariant for
+    `tipo==='llamada'` in `queries.js#createSession` + `public-booking.mjs`.
 - [x] **MARKETING v2 — full redo, BUILT + DEPLOYED** (2026-07-13, Fable 5, commits 42d32bf +
   bookedOn fix). v1's ?c=-link attribution was unrealistic and was removed entirely.
   **Everything (protocol, schema, flags, Meta report template, backfill plan) lives in
@@ -619,6 +642,16 @@
     plus any new no-cédula patients (invoice those as Consumidor Final or collect the cédula).
 
 ## Pending / Backlog
+
+### Design-flaws polish pass (started 2026-08-03) — see `DESIGN-FLAWS-TODO.md`
+Running list of small flaws/nice-to-haves now that all modules are built. Doc is the source
+of truth; open items as of 2026-08-03:
+- [ ] **#1 Llamadas born `confirmada`** (spec'd, NOT built) — carve a `tipo==='llamada'`
+      exception into the "Born Pendiente" invariant: `queries.js#createSession` +
+      `public-booking.mjs`. Reasoning: a 10-min cold call isn't confirmed by the patient; it's
+      `confirmada` from scheduling through any outcome.
+- [x] ~~#2 Therapist session report (PDF)~~ — DONE 2026-08-03 (+ Pareja $30 provision). See
+      Completed Features.
 
 ### Go-live remainder (public booking + push)
 - [x] ~~Nicolas: set `VAPID_PRIVATE_KEY` in Netlify~~ — DONE 2026-07-02: verified live via the
