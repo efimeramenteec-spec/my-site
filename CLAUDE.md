@@ -128,8 +128,9 @@ same page auto-scoped by RLS to their own patients/sessions — no role logic in
 (protocol, flag thresholds, Meta report template, backfill). One-paragraph orientation:
 funnel **Meta Ads → WhatsApp conversaciones → llamada gratuita → paciente**. Data arrives
 weekly: Meta emails the saved report `EFIMERAMENTE-SEMANAL` every Monday; the `/marketize`
-command (user-level, `~/.claude/commands/marketize.md`) fetches it (Gmail → Downloads →
-Chrome), runs `scripts/marketize-import.mjs` (upserts `campaign_weeks` by
+command (user-level, `~/.claude/commands/marketize.md`) asks Nicolas for the CSV (manual
+hand-off — auto-download deferred), runs `scripts/marketize-import.mjs` (restores the week
+column from the filename if a manual export dropped it; upserts `campaign_weeks` by
 (campaign_id, semana_inicio); auto-creates campaigns by exact Meta name; maintains
 fecha_inicio/fecha_fin windows) and prints a briefing. **Attribution is date-based:** one
 campaign runs at a time, so a new patient (first real session) belongs to the campaign whose

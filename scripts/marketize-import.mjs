@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // /marketize importer — the heavy lifting of the Monday protocol.
-// See MARKETING-CONSULTORIO-2026.md. Claude Code fetches the weekly Meta
-// report CSV (Gmail → Downloads → Chrome, in that order) and runs:
+// See MARKETING-CONSULTORIO-2026.md. Nicolas hands Claude Code the weekly Meta
+// report CSV (auto-download deferred — see §3.i) and it runs:
 //
 //   node scripts/marketize-import.mjs <report.csv> [--dry-run]
 //
@@ -53,7 +53,46 @@ const pctOf = (part, whole) => (whole > 0 ? `${((100 * part) / whole).toFixed(1)
 
 // ─── Parse ───────────────────────────────────────────────────────────────────
 
-const parsed = parseMetaCsv(readFileSync(csvPath, 'utf8'))
+// Meta's manual "Export → CSV" (the pivot) OMITS the report-date column that the
+// scheduled email includes, so those CSVs fail with `Faltan columnas … Inicio del
+// informe`. The week is unambiguous — it's in the filename
+// (`EFIMERAMENTE-SEMANAL-Jul-27-2026-Aug-2-2026.csv`) — so we restore the label the
+// pivot dropped instead of asking a human every week. This is NOT guessing data:
+// filename, date selector and email subject all agree on the week (see
+// MARKETING-CONSULTORIO-2026.md §3.i). A DIFFERENT missing column = a real template
+// change and still aborts loudly below.
+const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 }
+function weekFromFilename(path) {
+  const base = path.replace(/^.*[/\\]/, '')
+  const m = base.match(/([A-Za-z]{3,})-(\d{1,2})-(\d{4})-([A-Za-z]{3,})-(\d{1,2})-(\d{4})/)
+  if (!m) return null
+  const iso = (mon, d, y) => {
+    const mm = MONTHS[mon.slice(0, 3).toLowerCase()]
+    if (!mm) return null
+    return `${y}-${String(mm).padStart(2, '0')}-${String(Number(d)).padStart(2, '0')}`
+  }
+  const start = iso(m[1], m[2], m[3]), end = iso(m[4], m[5], m[6])
+  return start && end ? { start, end } : null
+}
+function injectWeekColumns(text, start, end) {
+  const lines = text.split(/\r?\n/).filter((l) => l.length > 0)
+  return lines.map((l, i) => (i === 0
+    ? `${l},"Reporting starts","Reporting ends"`
+    : `${l},${start},${end}`)).join('\n') + '\n'
+}
+
+let csvText = readFileSync(csvPath, 'utf8')
+let parsed = parseMetaCsv(csvText)
+if (!parsed.ok && /Inicio del informe/.test(parsed.error)) {
+  const wk = weekFromFilename(csvPath)
+  if (wk) {
+    const retry = parseMetaCsv(injectWeekColumns(csvText, wk.start, wk.end))
+    if (retry.ok) {
+      console.log(`ℹ Export manual sin columna de semana — repuesta desde el nombre del archivo: ${wk.start} → ${wk.end}\n`)
+      parsed = retry
+    }
+  }
+}
 if (!parsed.ok) die(parsed.error)
 const { weeks: parsedWeeks } = parsed
 

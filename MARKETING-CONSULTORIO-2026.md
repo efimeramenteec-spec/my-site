@@ -26,6 +26,15 @@ manual: la atribución se calcula por fechas.
   automáticamente y son **editables en /marketing → Campañas → "Editar fechas"** (necesario
   para resolver mayo 2026, cuando corrieron varias campañas a la vez). Si dos ventanas se
   superponen, gana la campaña de inicio más reciente y el módulo muestra una advertencia.
+- **Semana de transición Prospecting → Julio_2026 (13–19 jul 2026):** `Julio_2026` arrancó el
+  13 jul mientras `2026-06_Prospecting_Script1-vs-Script6` todavía tenía gasto residual
+  (~$66) esa misma semana, así que Meta reporta ambas y sus ventanas se superponen. Decisión
+  (Nicolas, 2026-07-22): los pacientes nuevos de esa semana son de `Julio_2026` — que ya es el
+  resultado del desempate "inicio más reciente" — y se **cerró `Prospecting` en 2026-07-12**
+  (fecha_fin) para eliminar el solape. ⚠️ Re-importar el CSV de esa semana **reabre**
+  Prospecting (aparece con gasto en un reporte ≤10 días → el importador la asume activa); el
+  cierre se vuelve permanente solo, cuando la semana pasa a ser backfill (>10 días, ~29 jul).
+  Si se reabre antes, re-cerrar a mano en "Editar fechas".
 
 ## 2. El reporte semanal de Meta (template)
 
@@ -63,6 +72,15 @@ Notas:
   abandonó — ver sección 7).
 - El parser (`src/lib/metaCsv.js`) tolera encabezados en español o inglés, números
   localizados, BOM y filas de campañas inactivas en cero (las salta).
+- **Columna de la semana (`Inicio del informe` / `Reporting starts`):** el parser la
+  necesita para saber a qué semana pertenece cada fila. El correo programado de Meta la
+  incluye, pero un **Exportar manual** desde el pivote en Chrome la **omite**. Esto ya
+  **no requiere intervención**: `marketize-import.mjs` detecta la ausencia y **repone la
+  semana desde el nombre del archivo** (`EFIMERAMENTE-SEMANAL-<Mes>-<D>-<Año>-<Mes>-<D>-<Año>.csv`),
+  imprimiendo `ℹ Export manual sin columna de semana …`. Solo aborta si el nombre del
+  archivo perdió su rango de fechas estilo Meta, o si falta una columna **distinta** (eso
+  sí es un cambio real de template). (Antes esto era un loop manual cada semana; se
+  automatizó 2026-08-06. Origen del comportamiento: 2026-07-22, reporte del 13–19 jul.)
 - **Grano semanal a propósito:** coincide con la cadencia del lunes y hace que la Frecuencia
   (señal de fatiga creativa) sea directamente interpretable a 7 días.
 
@@ -70,14 +88,24 @@ Notas:
 
 Nicolas escribe `/marketize` en Claude Code. Claude entonces:
 
-1. **Consigue el CSV de la semana**, en este orden de preferencia:
-   1. **Gmail (conector):** buscar el correo del reporte de Meta de los últimos 7 días
-      (remitente Meta/Facebook, asunto con "EFIMERAMENTE-SEMANAL") y descargar el CSV
-      adjunto al scratchpad. *(Si el correo trae solo un link de descarga y no un adjunto,
-      pasar al paso 2 o 3.)*
-   2. **Descargas:** el CSV más reciente en `~/Downloads` que matchee el reporte (≤7 días).
-   3. **Chrome (Claude in Chrome):** abrir Ads Reporting → reporte guardado
-      `EFIMERAMENTE-SEMANAL` → Exportar CSV.
+1. **Pídele el CSV de la semana a Nicolas.** Claude **no** intenta bajarlo solo (ni
+   Gmail, ni Descargas, ni Chrome): el correo programado de Meta solo trae *links* de
+   descarga detrás del login de Facebook, así que todo intento automático termina con
+   Nicolas descargándolo a mano igual. Por eso, directo: pídele la ruta del archivo (o
+   que lo adjunte) y espérala. La automatización del download queda **pendiente a
+   propósito** — se cablea otro día; mientras tanto el hand-off manual **es** el
+   protocolo, no un fallback.
+   - El CSV de Nicolas normalmente es un **Exportar manual** del pivote de Meta, que
+     **omite la columna de fecha del informe** (`Inicio del informe` / `Reporting starts`).
+     No pasa nada y **no hay que pedir que se agregue nada**: el importador detecta la
+     ausencia y **repone la semana desde el nombre del archivo** (imprime
+     `ℹ Export manual sin columna de semana …`). Por eso el archivo debe conservar el
+     nombre estilo Meta `EFIMERAMENTE-SEMANAL-<Mes>-<D>-<Año>-<Mes>-<D>-<Año>.csv`
+     (p. ej. `…-Jul-27-2026-Aug-2-2026.csv`) — de ahí sale la semana. Esto no es inventar
+     datos: nombre de archivo, selector de fechas y asunto del correo coinciden.
+   - Para exportar a mano en Chrome (referencia, Nicolas ya lo hace): Ads Reporting →
+     portfolio **Efimeramente** (cuenta `2663225010700511`) → reporte guardado
+     `EFIMERAMENTE-SEMANAL` → rango = la semana (lun–dom) → **Exportar → CSV**.
 2. **Ejecuta el importador:** `node scripts/marketize-import.mjs <ruta-del-csv>`
    - Upsert de filas semanales en `campaign_weeks` por `(campaign_id, semana_inicio)` —
      re-importar el mismo archivo nunca duplica.
@@ -114,6 +142,16 @@ no gritar con muestras chicas.
 - **Señales:** el mismo panel de banderas del briefing.
 - **KPIs:** Costo por paciente (la métrica hero) · Costo por conversación · LTV a la fecha ·
   LTV:CAC (meta ≥3x).
+- ⚠️ **Dos "costo por paciente" que NO coinciden — es correcto, miden cosas distintas.**
+  El briefing del lunes reporta el **costo por paciente de la semana** (gasto de la campaña esa
+  semana ÷ pacientes atribuidos esa semana; apples-to-apples). La página, con el selector de
+  campaña, muestra el **costo por paciente acumulado de la campaña** (todo el gasto cargado ÷
+  todos los pacientes atribuidos a la fecha). A media campaña el número de la página **está
+  sesgado hacia abajo**: los pacientes se atribuyen por fecha de reserva hasta *hoy*, pero el
+  gasto solo llega hasta el último domingo importado — el denominador crece días antes que el
+  numerador. Sube al importar la semana siguiente. Para juzgar eficiencia usa el número
+  **semanal completo**; trata el acumulado de media campaña como **piso optimista**, no verdad
+  final. (Origen del análisis: sesión 2026-07-22 — ver §9.)
 - **Embudo:** Conversaciones → Llamadas → Pacientes con % en cada salto (impresiones/gasto
   son contexto, no etapas).
 - **Evolución semanal:** gráfico de barras (gasto) + línea con métrica seleccionable
@@ -203,3 +241,38 @@ como contrato. El "MCP oficial de Meta" que circula en blogs (mcp.meta.com, @met
 el MCP de Pipeboard (Meta Business Partner, github.com/pipeboard-co/meta-ads-mcp) — plan C
 si el flujo Gmail/Chrome molesta, a costa de meter un tercero entre la cuenta de ads y
 nosotros.
+
+## 9. Bitácora de sesiones (insights + qué vigilar)
+
+### 2026-07-22 — primer reporte de `Julio_2026` (semana 13–19 jul)
+
+**Qué pasó / qué se hizo:**
+- Primer `/marketize` de la campaña `Julio_2026` (creada en el import, arrancó 2026-07-13).
+- El correo de Meta traía solo link (sin adjunto) → se exportó por Chrome. **El export manual
+  no trae la columna de fecha del informe** → se agregó `Reporting starts`/`Reporting ends` a
+  mano (ver §2 y §3.iii). Codificado para que no vuelva a bloquear.
+- **Ventanas:** `Prospecting` y `Julio_2026` se solapaban (Prospecting tenía gasto residual
+  ~$66 la semana 13–19). Se cerró `Prospecting` en **2026-07-12** (ver §1). La atribución de
+  esos pacientes ya era de `Julio_2026` por el desempate "inicio más reciente".
+- **Bug de datos limpiado:** una fila stale de `campaign_weeks` del import de prueba
+  `MARKETIZE-TEST` (Prospecting, semana 2026-07-10→07-16, $134.52/26 conv) **se solapaba** con
+  la semana real y duplicaba gasto/conversaciones → inflaba el embudo del período ($328/59 en
+  vez de $193.54/33). **Borrada.** Verificado que no quedan más solapes de semanas por campaña.
+
+**Lectura de la campaña (con el número correcto):**
+- Costo por paciente **semana 13–19 = $31.83** ($127.32 ÷ 4). Costo por paciente **acumulado
+  = $14.15** ($127.32 ÷ 9) — más bajo por el sesgo de spend-lag (ver §5). Ambos correctos.
+- **Velocidad acelerando:** 4 pacientes en 13–19, **5 más en 20–22** (3 días). No parecía
+  flopping; la señal 🔴 de la semana 1 era ruido de muestra chica + LTV inmaduro.
+
+**Qué vigilar en el próximo `/marketize` (lunes 2026-07-27, semana 20–26 jul):**
+1. **Costo por paciente acumulado de `Julio_2026` debería SUBIR** al cargar el gasto de 20–26
+   (el denominador ya tiene los 9 pacientes; entra el numerador que faltaba). Si se estabiliza
+   cerca del CPA histórico (~$13.68) → campaña sana. Si se dispara muy por encima → revisar.
+2. **¿Sigue la aceleración de pacientes?** 9 en los primeros 10 días fue buen ritmo; confirmar
+   que la semana 20–26 lo sostiene.
+3. **Fuga conversación→llamada (15.3% en la semana 1):** ver si persiste. Si sí, el problema
+   es el cierre por WhatsApp, no el anuncio (señal #4).
+4. **`Prospecting` puede reabrirse** si se re-importa el CSV del 13–19 antes de que esa semana
+   supere los 10 días (~29 jul); después queda cerrada sola. Si aparece reabierta, re-cerrar en
+   2026-07-12.
