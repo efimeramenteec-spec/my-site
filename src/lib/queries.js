@@ -194,7 +194,11 @@ export async function updateSession(id, patch) {
       if (calEmail && eventId) {
         const isCancelled = session.estado === 'cancelada' || session.estado === 'no_show'
         if (isCancelled) {
-          callCalendar('delete', calEmail, null, eventId).then(() => {})
+          // Soft-cancel: keep the Calendar event (greyed, "CANCELADA — " prefix)
+          // but free the slot, so it stays a visual reference without blocking a
+          // rebooking. Reactivating a session hits the else branch below, whose
+          // full update() rebuilds a normal (opaque, default-colour) event.
+          callCalendar('cancel', calEmail, null, eventId).then(() => {})
         } else {
           callCalendar('update', calEmail, buildCalendarEvent(session), eventId).then(() => {})
         }

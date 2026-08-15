@@ -7,8 +7,9 @@
 //                            kill-switch AND the 23–25h window). Lives here because
 //                            scheduled functions can't be HTTP-invoked. ⚠️ REAL send.
 //   • POST                 → Twilio inbound webhook: a quick-reply button tap sets
-//                            the matching session's estado (and deletes the Google
-//                            Calendar event on cancellation). Returns empty TwiML 200.
+//                            the matching session's estado (and soft-cancels the
+//                            Google Calendar event on cancellation — greyed
+//                            "CANCELADA — ", slot freed). Returns empty TwiML 200.
 //
 // Twilio posts application/x-www-form-urlencoded with From, ButtonPayload, ButtonText.
 // Wire this URL as the template's inbound webhook in Twilio:
@@ -32,22 +33,23 @@ const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, 
 const BUTTON_TO_ESTADO = { confirmed: 'confirmada', canceled: 'cancelada' }
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
 
-// Best-effort: remove the therapist's Google Calendar event when a session is
-// cancelled via WhatsApp, mirroring the in-app cancel (queries.js updateSession).
+// Best-effort: soft-cancel the therapist's Google Calendar event when a session
+// is cancelled via WhatsApp, mirroring the in-app cancel (queries.js updateSession).
+// The event stays as a greyed "CANCELADA — " reference but its slot is freed.
 // Never throws — a calendar hiccup must not break the Twilio 200 contract.
-async function deleteCalendarEvent(calendarId, eventId) {
+async function cancelCalendarEvent(calendarId, eventId) {
   if (!calendarId || !eventId) return
   try {
     const res = await fetch(CALENDAR_FN, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'delete', calendarId, eventId }),
+      body: JSON.stringify({ action: 'cancel', calendarId, eventId }),
     })
     const j = await res.json().catch(() => ({}))
-    if (j.success) console.log(`[twilio-webhook] calendar event ${eventId} deleted`)
-    else console.warn('[twilio-webhook] calendar delete not successful:', j.error)
+    if (j.success) console.log(`[twilio-webhook] calendar event ${eventId} cancelled`)
+    else console.warn('[twilio-webhook] calendar cancel not successful:', j.error)
   } catch (e) {
-    console.warn('[twilio-webhook] calendar delete failed (non-blocking):', e.message)
+    console.warn('[twilio-webhook] calendar cancel failed (non-blocking):', e.message)
   }
 }
 
@@ -145,10 +147,11 @@ export default async (req) => {
   if (uErr) { console.error('[twilio-webhook] update failed:', uErr.message); return twiml(200) }
   console.log(`[twilio-webhook] session ${session.id} → ${estado} (patient ${patient.id})`)
 
-  // 4. On cancellation, also remove the Google Calendar event (best-effort), so a
-  //    WhatsApp cancel matches an in-app cancel. Confirmations keep the event.
+  // 4. On cancellation, soft-cancel the Google Calendar event (best-effort), so a
+  //    WhatsApp cancel matches an in-app cancel: the event stays visible as a
+  //    greyed "CANCELADA — " reference but frees its slot. Confirmations keep it.
   if (estado === 'cancelada') {
-    await deleteCalendarEvent(session.therapist?.calendar_email, session.google_event_id)
+    await cancelCalendarEvent(session.therapist?.calendar_email, session.google_event_id)
   }
 
   // 5. Push-notify the therapist (best-effort — notifyTherapist never throws).

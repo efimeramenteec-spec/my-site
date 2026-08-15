@@ -1,7 +1,7 @@
 // netlify/functions/calendar.mjs
 // Google Calendar write-back for Efimeramente — modern Netlify Function.
 // Secrets never reach the browser. POST { action, calendarId, event, eventId }.
-// Actions: create | update | delete | freebusy.
+// Actions: create | update | cancel | delete | freebusy.
 
 import { getCalendarClient, queryFreebusy } from '../lib/calendar.mjs'
 
@@ -57,6 +57,29 @@ export default async (req) => {
     if (action === 'update') {
       if (!eventId || !calEvent) return json({ success: false, error: 'Missing eventId or event body for update' })
       const res = await calendar.events.update({ calendarId, eventId, requestBody: calEvent })
+      return json({ success: true, eventId: res.data.id })
+    }
+
+    if (action === 'cancel') {
+      // Soft-cancel: keep the event as a visual reference but free the slot.
+      // freebusy ignores transparency:'transparent', so the time becomes bookable
+      // again; the grey colour + "CANCELADA — " prefix make it unmistakable on the
+      // calendar. patch (not update) preserves start/end/description, so callers
+      // need only the eventId. Idempotent — re-cancelling never double-prefixes.
+      // (Nicolas, 2026-08-15: replaced the old hard delete so cancellations stay
+      // visible instead of disappearing.)
+      if (!eventId) return json({ success: false, error: 'Missing eventId for cancel' })
+      const cur = await calendar.events.get({ calendarId, eventId })
+      const summary = cur.data.summary || 'Sesión'
+      const res = await calendar.events.patch({
+        calendarId,
+        eventId,
+        requestBody: {
+          summary: summary.startsWith('CANCELADA — ') ? summary : `CANCELADA — ${summary}`,
+          transparency: 'transparent',
+          colorId: '8', // Graphite (grey)
+        },
+      })
       return json({ success: true, eventId: res.data.id })
     }
 

@@ -157,7 +157,11 @@ at `/.netlify/functions/<name>` or `/api/<name>`. Shared send logic lives in
 `netlify/lib/whatsapp.mjs` (`normalizePhone`, `sendWhatsAppReminder`, `deliverReminder`).
 
 ### `calendar.mjs` — Google Calendar write-back
-POST with `{ action, calendarId, event, eventId }`. Actions: `create` | `update` | `delete` | `freebusy`.
+POST with `{ action, calendarId, event, eventId }`. Actions: `create` | `update` | `cancel` | `delete` | `freebusy`.
+- `cancel` soft-cancels a session's event: `events.patch` prefixes the title with `CANCELADA — `, sets
+  `colorId:'8'` (grey) and `transparency:'transparent'` so it stays visible but no longer blocks the slot
+  (freebusy ignores transparent events). Idempotent (no double-prefix). Reactivating a session runs a full
+  `update`, which rebuilds a normal opaque/default-colour event. `delete` remains for hard removals only.
 - Auth: `GOOGLE_SERVICE_ACCOUNT_KEY` env (base64 JSON of service account `efimeramente-calendar@…`).
 - Each therapist shares their Google Calendar with that service account; their Gmail is stored in
   `therapists.calendar_email` and used as the calendarId. Synced event id → `sessions.google_event_id`.
@@ -205,8 +209,9 @@ The one HTTP-reachable WhatsApp function. Three paths:
   Lives here (not on `send-reminders`) because scheduled functions can't be hit over HTTP.
 - `POST` — Twilio inbound: a quick-reply tap matches the patient by phone (normalized E.164 or
   last-9-digits), finds their soonest reminded `programada` session, sets estado
-  (`confirmed`→`confirmada`, `canceled`→`cancelada`), and on cancellation also deletes the Google
-  Calendar event. Always returns empty TwiML 200.
+  (`confirmed`→`confirmada`, `canceled`→`cancelada`), and on cancellation also soft-cancels the
+  Google Calendar event (greyed "CANCELADA — " title + `transparency:transparent` so the slot frees
+  but stays visible — the `cancel` action, not a delete). Always returns empty TwiML 200.
 
 ### Web Push notifications (therapists' + owner's phones)
 Pushes fire on: patient **confirms** (Twilio reply), patient **cancels** (Twilio reply),
