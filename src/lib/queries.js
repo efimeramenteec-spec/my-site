@@ -20,6 +20,25 @@ const SESSION_COLUMNS = [
 const pickColumns = (obj) =>
   Object.fromEntries(SESSION_COLUMNS.filter((k) => k in obj).map((k) => [k, obj[k]]))
 
+// PostgREST caps a single response at 1000 rows. The sessions table crossed
+// that in Aug 2026, silently truncating every full-table read (newest sessions
+// vanished from Sesiones/Finanzas/Seguimiento/Marketing, oldest from a patient's
+// history). `fetchAll` pages through with .range() so a full read is always
+// complete. `makeQuery` must return a FRESH query builder each call (builders
+// are single-use). Pass a deterministic order (unique tiebreaker) so paging is
+// stable. Throws on error like a normal awaited query; returns all rows.
+const PAGE_SIZE = 1000
+async function fetchAll(makeQuery) {
+  const rows = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await makeQuery().range(from, from + PAGE_SIZE - 1)
+    if (error) return { data: null, error }
+    rows.push(...(data || []))
+    if (!data || data.length < PAGE_SIZE) break
+  }
+  return { data: rows, error: null }
+}
+
 // \u2500\u2500\u2500 Dashboard \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
 // Finance-only slim select: the Finanzas page reads ALL session history, so
@@ -33,8 +52,8 @@ export async function getFinanzasData() {
   if (isSupabaseConfigured) {
     try {
       const [sRes, tRes] = await Promise.all([
-        supabase.from('sessions').select(FINANZAS_SESSION_SELECT)
-          .order('fecha', { ascending: true }),
+        fetchAll(() => supabase.from('sessions').select(FINANZAS_SESSION_SELECT)
+          .order('fecha', { ascending: true }).order('id', { ascending: true })),
         supabase.from('therapists').select('id,nombre,apellido,color,activo,provision_rate')
           .order('nombre', { ascending: true }),
       ])
@@ -109,8 +128,9 @@ export async function getSessionsData() {
   if (isSupabaseConfigured) {
     try {
       const [sRes, pRes, tRes] = await Promise.all([
-        supabase.from('sessions').select(SESSION_SELECT)
-          .order('fecha', { ascending: true }).order('hora_inicio', { ascending: true }),
+        fetchAll(() => supabase.from('sessions').select(SESSION_SELECT)
+          .order('fecha', { ascending: true }).order('hora_inicio', { ascending: true })
+          .order('id', { ascending: true })),
         supabase.from('patients').select('id,nombre,apellido,telefono,terapeuta_id,estado_general,tarifa,metodo_pago')
           .order('nombre', { ascending: true }),
         supabase.from('therapists').select('id,nombre,apellido,color,calendar_email,activo,provision_rate')
@@ -267,11 +287,12 @@ export async function getPatientsData() {
           .from('therapists')
           .select('id,nombre,apellido,color,activo,calendar_email')
           .order('nombre', { ascending: true }),
-        supabase
+        fetchAll(() => supabase
           .from('sessions')
           .select('id,patient_id,terapeuta_id,fecha,hora_inicio,tipo,modalidad,estado,monto,pagado,metodo_pago')
           .order('fecha', { ascending: false })
-          .order('hora_inicio', { ascending: false }),
+          .order('hora_inicio', { ascending: false })
+          .order('id', { ascending: true })),
       ])
       if (pRes.error) throw pRes.error
       if (tRes.error) throw tRes.error
@@ -375,8 +396,8 @@ export async function getSeguimientoData() {
         supabase.from('patients')
           .select('id,nombre,apellido,telefono,terapeuta_id,estado_general,frecuencia,created_at')
           .order('nombre', { ascending: true }),
-        supabase.from('sessions').select(SEGUIMIENTO_SESSION_SELECT)
-          .order('fecha', { ascending: true }),
+        fetchAll(() => supabase.from('sessions').select(SEGUIMIENTO_SESSION_SELECT)
+          .order('fecha', { ascending: true }).order('id', { ascending: true })),
         supabase.from('therapists').select('id,nombre,apellido,color,activo')
           .order('nombre', { ascending: true }),
       ])
@@ -470,9 +491,9 @@ export async function getMarketingData() {
           .order('semana_inicio', { ascending: true }),
         supabase.from('patients')
           .select('id,nombre,apellido,telefono,estado_general,fuente,created_at'),
-        supabase.from('sessions')
+        fetchAll(() => supabase.from('sessions')
           .select('id,patient_id,terapeuta_id,fecha,hora_inicio,tipo,estado,monto,pagado,created_at')
-          .order('fecha', { ascending: true }),
+          .order('fecha', { ascending: true }).order('id', { ascending: true })),
       ])
       if (cRes.error) throw cRes.error
       if (wRes.error) throw wRes.error
