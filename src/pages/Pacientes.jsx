@@ -354,7 +354,7 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
             onChange={(e) => set('estado_general', e.target.value)}
             options={toOptions(ESTADO_PACIENTE)}
             placeholder={null}
-            hint="Inactivo y Descontinuado salen del Seguimiento (adherencia y en riesgo)."
+            hint="Los pacientes inactivos salen del Seguimiento (adherencia y en riesgo)."
           />
           <Select
             label="Frecuencia"
