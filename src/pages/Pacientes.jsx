@@ -9,9 +9,11 @@ import { Select } from '../components/Select/Select.jsx'
 
 import { useAuth } from '../lib/auth.jsx'
 import { getPatientsData, createPatient, updatePatient, deletePatient } from '../lib/queries.js'
-import { formatCurrency, formatTime, formatDateShort, fullName } from '../lib/format.js'
+import { formatCurrency, formatTime, formatDateShort, fullName, patientLabel, patientSearchText } from '../lib/format.js'
+import { hasPackage as patientHasPackage } from '../lib/packages.js'
 import {
   ESTADO_PACIENTE,
+  TIPO_PACIENTE,
   METODO_PAGO,
   TIPO_SESION,
   ESTADO_SESION,
@@ -53,7 +55,7 @@ function SectionTitle({ children }) {
 
 // ─── Patient row (list) ─────────────────────────────────────────
 
-function PatientRow({ patient, therapist, isSelected, onClick }) {
+function PatientRow({ patient, therapist, hasPackage = false, isSelected, onClick }) {
   const estado = ESTADO_PACIENTE[patient.estado_general] || { label: patient.estado_general, badge: 'neutral' }
 
   return (
@@ -71,8 +73,9 @@ function PatientRow({ patient, therapist, isSelected, onClick }) {
       <TherapistDot color={therapist?.color} />
 
       <div className="min-w-0 flex-1">
-        <p className="truncate font-body font-bold text-content-primary">
-          {fullName(patient)}
+        <p className="flex items-center font-body font-bold text-content-primary">
+          <span className="truncate">{patientLabel(patient)}</span>
+          {hasPackage && <span title="Cliente de paquete" className="ml-1 flex-shrink-0 text-amber-500">★</span>}
         </p>
         <p className="mt-0.5 truncate font-caption text-xs text-content-muted">
           {therapist ? `${therapist.nombre} ${therapist.apellido}` : '—'}
@@ -94,41 +97,32 @@ function PatientRow({ patient, therapist, isSelected, onClick }) {
 
 // ─── Patient detail panel ───────────────────────────────────────
 
+const formFromPatient = (patient) => ({
+  tipo_paciente: patient.tipo_paciente || 'individual',
+  nombre: patient.nombre || '',
+  apellido: patient.apellido || '',
+  nombre_2: patient.nombre_2 || '',
+  apellido_2: patient.apellido_2 || '',
+  telefono: patient.telefono || '',
+  email: patient.email || '',
+  cedula: patient.cedula || '',
+  terapeuta_id: patient.terapeuta_id || '',
+  tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
+  metodo_pago: patient.metodo_pago || 'transferencia',
+  estado_general: patient.estado_general || 'activo',
+  fuente: patient.fuente || '',
+  frecuencia: patient.frecuencia || '',
+})
+
 function PatientDetail({ patient, therapist, therapists = [], sessions, fullAccess = true, onClose, onSave, onDelete }) {
-  const [form, setForm] = useState({
-    nombre: patient.nombre || '',
-    apellido: patient.apellido || '',
-    telefono: patient.telefono || '',
-    email: patient.email || '',
-    cedula: patient.cedula || '',
-    terapeuta_id: patient.terapeuta_id || '',
-    tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
-    metodo_pago: patient.metodo_pago || 'transferencia',
-    estado_general: patient.estado_general || 'activo',
-    fuente: patient.fuente || '',
-    frecuencia: patient.frecuencia || '',
-    notas: patient.notas || '',
-  })
+  const [form, setForm] = useState(() => formFromPatient(patient))
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
-    setForm({
-      nombre: patient.nombre || '',
-      apellido: patient.apellido || '',
-      telefono: patient.telefono || '',
-      email: patient.email || '',
-      cedula: patient.cedula || '',
-      terapeuta_id: patient.terapeuta_id || '',
-      tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
-      metodo_pago: patient.metodo_pago || 'transferencia',
-      estado_general: patient.estado_general || 'activo',
-      fuente: patient.fuente || '',
-      frecuencia: patient.frecuencia || '',
-      notas: patient.notas || '',
-    })
+    setForm(formFromPatient(patient))
     setSaved(false)
     setError(null)
   }, [patient.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -136,24 +130,33 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
   const handleSave = async () => {
+    const isIndividual = form.tipo_paciente === 'individual'
     // Owner can fix identity/contact typos, but these must never be blanked.
-    if (fullAccess && (!form.nombre.trim() || !form.apellido.trim() || !form.telefono.trim())) {
-      setError('Nombre, apellido y teléfono no pueden quedar vacíos.')
-      return
+    if (fullAccess) {
+      if (!form.nombre.trim() || !form.apellido.trim() || !form.telefono.trim()) {
+        setError('Nombre, apellido y teléfono no pueden quedar vacíos.')
+        return
+      }
+      if (!isIndividual && (!form.nombre_2.trim() || !form.apellido_2.trim())) {
+        setError('La segunda persona necesita nombre y apellido.')
+        return
+      }
     }
     setSaving(true)
     setError(null)
-    // Therapists only edit the clinical trio; identity, contact, reassignment,
+    // Therapists only edit estado + frecuencia; identity, contact, reassignment,
     // billing and marketing attribution stay owner-only (the RLS WITH CHECK
     // would reject an identity/terapeuta_id change from them anyway).
     const patch = {
       estado_general: form.estado_general,
       frecuencia: form.frecuencia || null,
-      notas: form.notas.trim() || null,
     }
     if (fullAccess) {
+      patch.tipo_paciente = form.tipo_paciente
       patch.nombre = form.nombre.trim()
       patch.apellido = form.apellido.trim()
+      patch.nombre_2 = isIndividual ? null : form.nombre_2.trim()
+      patch.apellido_2 = isIndividual ? null : form.apellido_2.trim()
       patch.telefono = form.telefono.trim()
       patch.email = form.email.trim() || null
       patch.cedula = form.cedula.trim() || null
@@ -179,7 +182,7 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
         ? `Se borran el paciente y sus ${n} ${n === 1 ? 'sesión' : 'sesiones'} (incluidos sus eventos de Google Calendar).`
         : 'No tiene sesiones registradas.'
     const ok = window.confirm(
-      `¿Eliminar a ${fullName(patient)}?\n\n${detail} Esta acción no se puede deshacer.`,
+      `¿Eliminar a ${patientLabel(patient)}?\n\n${detail} Esta acción no se puede deshacer.`,
     )
     if (!ok) return
     setDeleting(true)
@@ -214,7 +217,10 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
             </span>
           </div>
           <h2 className="font-serif text-2xl font-bold leading-tight text-content-primary">
-            {fullName(patient)}
+            {patientLabel(patient)}
+            {patientHasPackage(sessions) && (
+              <span title="Cliente de paquete" className="ml-1.5 text-amber-500">★</span>
+            )}
           </h2>
           {patient.motivo_consulta && (
             <p className="mt-1 font-body text-sm text-content-secondary">
@@ -261,18 +267,38 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
           <SectionTitle>Configuración</SectionTitle>
           {fullAccess && (
             <>
+              <Select
+                label="Tipo de paciente"
+                value={form.tipo_paciente}
+                onChange={(e) => set('tipo_paciente', e.target.value)}
+                options={toOptions(TIPO_PACIENTE)}
+              />
               <div className="grid grid-cols-2 gap-3">
                 <Input
-                  label="Nombre"
+                  label={withRole('Nombre', personRoles(form.tipo_paciente).one)}
                   value={form.nombre}
                   onChange={(e) => set('nombre', e.target.value)}
                 />
                 <Input
-                  label="Apellido"
+                  label={withRole('Apellido', personRoles(form.tipo_paciente).one)}
                   value={form.apellido}
                   onChange={(e) => set('apellido', e.target.value)}
                 />
               </div>
+              {personRoles(form.tipo_paciente).two && (
+                <div className="grid grid-cols-2 gap-3">
+                  <Input
+                    label={withRole('Nombre', personRoles(form.tipo_paciente).two)}
+                    value={form.nombre_2}
+                    onChange={(e) => set('nombre_2', e.target.value)}
+                  />
+                  <Input
+                    label={withRole('Apellido', personRoles(form.tipo_paciente).two)}
+                    value={form.apellido_2}
+                    onChange={(e) => set('apellido_2', e.target.value)}
+                  />
+                </div>
+              )}
               <Input
                 label="Teléfono"
                 type="tel"
@@ -360,26 +386,8 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
           </Button>
         </section>
 
-        {/* Expediente / notas */}
-        <section className="space-y-2">
-          <SectionTitle>Expediente</SectionTitle>
-          <textarea
-            value={form.notas}
-            onChange={(e) => set('notas', e.target.value)}
-            rows={4}
-            placeholder="Notas clínicas, antecedentes, observaciones…"
-            className="w-full resize-none rounded-xl border border-stroke bg-white px-4 py-3 font-body text-sm text-content-primary placeholder:text-content-muted focus:border-brand-lavender focus:outline-none focus:ring-2 focus:ring-brand-lavender/20"
-          />
-          <Button
-            variant="secondary"
-            size="sm"
-            className="w-full"
-            onClick={handleSave}
-            disabled={saving}
-          >
-            {saved ? '✓ Guardado' : saving ? 'Guardando…' : 'Guardar expediente'}
-          </Button>
-        </section>
+        {/* Expediente removed 2026-08-31 (C1): no clinical/personal free-text
+            stored in the app while security isn't guaranteed. */}
 
         {/* Session history */}
         <section>
@@ -467,8 +475,11 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
 // ─── Create patient drawer ──────────────────────────────────────
 
 const EMPTY_FORM = {
+  tipo_paciente: 'individual',
   nombre: '',
   apellido: '',
+  nombre_2: '',
+  apellido_2: '',
   telefono: '',
   email: '',
   cedula: '',
@@ -478,6 +489,16 @@ const EMPTY_FORM = {
   metodo_pago: 'transferencia',
   frecuencia: '',
 }
+
+// For pareja/menor, the two people get role suffixes on their name fields;
+// individual has just one unlabelled person. Person 1 is always the contact
+// (the tutor for a minor). Returns null for the second person when individual.
+function personRoles(tipo) {
+  if (tipo === 'pareja') return { one: 'Persona 1', two: 'Persona 2' }
+  if (tipo === 'menor') return { one: 'Tutor', two: 'Menor' }
+  return { one: '', two: null }
+}
+const withRole = (base, role) => (role ? `${base} (${role})` : base)
 
 function CreatePatientDrawer({ therapists, fullAccess = true, terapeutaId = null, onClose, onCreate }) {
   const [form, setForm] = useState({ ...EMPTY_FORM })
@@ -494,6 +515,11 @@ function CreatePatientDrawer({ therapists, fullAccess = true, terapeutaId = null
     const e = {}
     if (!form.nombre.trim()) e.nombre = 'Requerido'
     if (!form.apellido.trim()) e.apellido = 'Requerido'
+    // Pareja/Menor need the second person's name too.
+    if (form.tipo_paciente !== 'individual') {
+      if (!form.nombre_2.trim()) e.nombre_2 = 'Requerido'
+      if (!form.apellido_2.trim()) e.apellido_2 = 'Requerido'
+    }
     if (!form.telefono.trim()) e.telefono = 'Requerido'
     // Email + cédula are required to be able to invoice the patient in Contífico.
     if (!form.email.trim()) e.email = 'Requerido para facturar'
@@ -514,9 +540,13 @@ function CreatePatientDrawer({ therapists, fullAccess = true, terapeutaId = null
     setApiError(null)
     // Therapists create patients assigned to THEMSELVES with default billing
     // (mirrors the inline create in SesionDrawer; RLS enforces the same).
+    const isIndividual = form.tipo_paciente === 'individual'
     const res = await onCreate({
+      tipo_paciente: form.tipo_paciente,
       nombre: form.nombre.trim(),
       apellido: form.apellido.trim(),
+      nombre_2: isIndividual ? null : form.nombre_2.trim(),
+      apellido_2: isIndividual ? null : form.apellido_2.trim(),
       telefono: form.telefono.trim(),
       email: form.email.trim() || null,
       cedula: form.cedula.trim() || null,
@@ -558,21 +588,45 @@ function CreatePatientDrawer({ therapists, fullAccess = true, terapeutaId = null
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
+          <Select
+            label="Tipo de paciente"
+            value={form.tipo_paciente}
+            onChange={(e) => set('tipo_paciente', e.target.value)}
+            options={toOptions(TIPO_PACIENTE)}
+          />
+
           <div className="grid grid-cols-2 gap-3">
             <Input
-              label="Nombre"
+              label={withRole('Nombre', personRoles(form.tipo_paciente).one)}
               value={form.nombre}
               onChange={(e) => set('nombre', e.target.value)}
               error={errors.nombre}
               autoFocus
             />
             <Input
-              label="Apellido"
+              label={withRole('Apellido', personRoles(form.tipo_paciente).one)}
               value={form.apellido}
               onChange={(e) => set('apellido', e.target.value)}
               error={errors.apellido}
             />
           </div>
+
+          {personRoles(form.tipo_paciente).two && (
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label={withRole('Nombre', personRoles(form.tipo_paciente).two)}
+                value={form.nombre_2}
+                onChange={(e) => set('nombre_2', e.target.value)}
+                error={errors.nombre_2}
+              />
+              <Input
+                label={withRole('Apellido', personRoles(form.tipo_paciente).two)}
+                value={form.apellido_2}
+                onChange={(e) => set('apellido_2', e.target.value)}
+                error={errors.apellido_2}
+              />
+            </div>
+          )}
 
           <Input
             label="Teléfono"
@@ -701,7 +755,6 @@ const ESTADO_FILTERS = [
   { value: 'all', label: 'Todos' },
   { value: 'activo', label: 'Activos' },
   { value: 'inactivo', label: 'Inactivos' },
-  { value: 'descontinuado', label: 'Descontinuados' },
 ]
 
 export default function Pacientes() {
@@ -739,7 +792,7 @@ export default function Pacientes() {
       if (filterEstado !== 'all' && p.estado_general !== filterEstado) return false
       if (filterTerapeuta !== 'all' && p.terapeuta_id !== filterTerapeuta) return false
       if (q) {
-        const name = fullName(p).toLowerCase()
+        const name = patientSearchText(p) // covers both people (pareja/menor)
         const t = therapistMap[p.terapeuta_id]
         const tName = t ? fullName(t).toLowerCase() : ''
         const motivo = (p.motivo_consulta || '').toLowerCase()
@@ -755,6 +808,12 @@ export default function Pacientes() {
   const patientSessions = selectedId && data
     ? data.sessions.filter((s) => s.patient_id === selectedId)
     : []
+
+  // Patients who have ever bought a package (⭐), derived from anchor sessions.
+  const packagePatientIds = useMemo(
+    () => new Set((data?.sessions || []).filter((s) => s.package_anchor).map((s) => s.patient_id)),
+    [data],
+  )
 
   const handleUpdate = useCallback(async (id, patch) => {
     const res = await updatePatient(id, patch)
@@ -897,6 +956,7 @@ export default function Pacientes() {
                   key={p.id}
                   patient={p}
                   therapist={therapistMap[p.terapeuta_id]}
+                  hasPackage={packagePatientIds.has(p.id)}
                   isSelected={p.id === selectedId}
                   onClick={() => setSelectedId((cur) => (cur === p.id ? null : p.id))}
                 />

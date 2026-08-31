@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Button } from '../../components/Button/Button.jsx'
 import { Select } from '../../components/Select/Select.jsx'
 import { PatientSelect } from './PatientSelect.jsx'
 import { dateKey, addDays, addMinutesToTime, formatTime, fullName } from '../../lib/format.js'
-import { TIPO_FORM, MODALIDAD, DURACION_MIN, TARIFA_DEFAULT, toOptions } from '../../lib/constants.js'
+import { TIPO_FORM, TIPO_PACIENTE, MODALIDAD, DURACION_MIN, TARIFA_DEFAULT, toOptions } from '../../lib/constants.js'
 import { findConflict } from '../../lib/conflicts.js'
 import { checkFreebusy } from '../../lib/queries.js'
+import { remainingPackSlots } from '../../lib/packages.js'
 
 const nativeInput =
   'w-full rounded-xl bg-white border border-stroke px-4 py-3 font-body text-content-primary ' +
@@ -39,7 +40,15 @@ function blankForm(defaultDate, therapists) {
   }
 }
 
-const blankPatient = () => ({ nombre: '', apellido: '', telefono: '+593', email: '', cedula: '', motivo_consulta: '' })
+const blankPatient = () => ({ tipo_paciente: 'individual', nombre: '', apellido: '', nombre_2: '', apellido_2: '', telefono: '+593', email: '', cedula: '', motivo_consulta: '' })
+
+// Role suffixes for pareja/menor name fields (mirrors Pacientes). Person 1 is
+// always the contact (tutor for a minor); individual has no second person.
+const npRoles = (tipo) =>
+  tipo === 'pareja' ? { one: 'Persona 1', two: 'Persona 2' }
+    : tipo === 'menor' ? { one: 'Tutor', two: 'Menor' }
+    : { one: '', two: null }
+const roleLabel = (base, role) => (role ? `${base} (${role})` : base)
 
 export function SesionDrawer({ open, mode = 'create', initial, defaultDate, patients = [], therapists = [], sessions = [], fullAccess = true, terapeutaId = null, onClose, onSubmit, onCreatePatient }) {
   const [form, setForm] = useState(() => blankForm(defaultDate, therapists))
@@ -52,6 +61,16 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
   const [npErrors, setNpErrors] = useState({})
   const [npSaving, setNpSaving] = useState(false)
   const [npError, setNpError] = useState('')
+  // #4 packages: whether THIS session starts a 4-pack (edit, owner-only), and
+  // whether a new session is prepaid because the patient's current pack still
+  // has open slots (create; user can override the pre-checked default).
+  const [packageAnchor, setPackageAnchor] = useState(false)
+  const [prepaid, setPrepaid] = useState(false)
+
+  const packRemaining = useMemo(
+    () => remainingPackSlots(sessions.filter((s) => s.patient_id === form.patient_id)),
+    [sessions, form.patient_id],
+  )
 
   useEffect(() => {
     if (!open) return
@@ -65,8 +84,10 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
         modalidad: initial.modalidad || 'presencial',
         monto: initial.monto ?? TARIFA_DEFAULT,
       })
+      setPackageAnchor(!!initial.package_anchor)
     } else {
       setForm(blankForm(defaultDate, therapists))
+      setPackageAnchor(false)
     }
     setErrors({})
     setSubmitError('')
@@ -76,6 +97,13 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode, initial])
 
+  // New sessions default to prepaid when the patient's current pack still has
+  // open slots. Re-evaluated whenever the chosen patient (and thus packRemaining)
+  // changes; the user can still override the checkbox before saving.
+  useEffect(() => {
+    if (mode !== 'edit') setPrepaid(packRemaining > 0)
+  }, [mode, packRemaining, open])
+
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }))
   const setNp = (key, val) => setNewPatient((p) => ({ ...p, [key]: val }))
 
@@ -84,8 +112,13 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
   // therapist the session is currently set to. Tarifa/método use DB defaults.
   async function handleCreatePatient() {
     const e = {}
+    const isIndividual = newPatient.tipo_paciente === 'individual'
     if (!newPatient.nombre.trim()) e.nombre = 'Requerido'
     if (!newPatient.apellido.trim()) e.apellido = 'Requerido'
+    if (!isIndividual) {
+      if (!newPatient.nombre_2.trim()) e.nombre_2 = 'Requerido'
+      if (!newPatient.apellido_2.trim()) e.apellido_2 = 'Requerido'
+    }
     if (!newPatient.telefono.trim() || newPatient.telefono.trim() === '+593') e.telefono = 'Requerido'
     // Email + cédula required so the patient can be invoiced in Contífico.
     if (!newPatient.email.trim()) e.email = 'Requerido para facturar'
@@ -100,8 +133,11 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     setNpSaving(true)
     setNpError('')
     const res = await onCreatePatient({
+      tipo_paciente: newPatient.tipo_paciente,
       nombre: newPatient.nombre.trim(),
       apellido: newPatient.apellido.trim(),
+      nombre_2: isIndividual ? null : newPatient.nombre_2.trim(),
+      apellido_2: isIndividual ? null : newPatient.apellido_2.trim(),
       telefono: newPatient.telefono.trim(),
       email: newPatient.email.trim() || null,
       cedula: newPatient.cedula.trim() || null,
@@ -215,8 +251,8 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     }
     const payload =
       mode === 'edit' && initial
-        ? { ...base, estado: initial.estado, pagado: initial.pagado, metodo_pago: initial.metodo_pago }
-        : { ...base, estado: 'programada', pagado: false, metodo_pago: patient?.metodo_pago || 'transferencia' }
+        ? { ...base, estado: initial.estado, pagado: initial.pagado, metodo_pago: initial.metodo_pago, package_anchor: packageAnchor }
+        : { ...base, estado: 'programada', pagado: prepaid, metodo_pago: patient?.metodo_pago || 'transferencia' }
 
     const res = await onSubmit(payload)
     setSaving(false)
@@ -323,9 +359,31 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
             </Field>
           </div>
 
-          <p className="font-caption text-xs text-content-muted">
-            Se agenda como <span className="font-bold text-content-secondary">pendiente de confirmación</span> y sin pagar. La confirmación y el pago se gestionan en la vista de Lista.
-          </p>
+          {/* #4: new session prepaid because the patient's pack has open slots */}
+          {mode !== 'edit' && packRemaining > 0 && (
+            <label className="flex items-start gap-2.5 rounded-card border border-amber-200 bg-amber-50 px-4 py-3">
+              <input type="checkbox" checked={prepaid} onChange={(e) => setPrepaid(e.target.checked)} className="mt-0.5 h-4 w-4 accent-amber-500" />
+              <span className="font-caption text-xs text-amber-800">
+                <span className="font-bold">★ Cubierta por paquete.</span> Al paciente le {packRemaining === 1 ? 'queda 1 sesión prepagada' : `quedan ${packRemaining} sesiones prepagadas`}; se marcará como pagada.
+              </span>
+            </label>
+          )}
+
+          {/* #4: owner marks THIS session as the start of a 4-pack */}
+          {mode === 'edit' && fullAccess && (
+            <label className="flex items-start gap-2.5 rounded-card border border-stroke/50 px-4 py-3">
+              <input type="checkbox" checked={packageAnchor} onChange={(e) => setPackageAnchor(e.target.checked)} className="mt-0.5 h-4 w-4 accent-amber-500" />
+              <span className="font-caption text-xs text-content-secondary">
+                <span className="font-bold">★ Inicio de paquete de 4.</span> Marca esta sesión como la primera de un paquete prepagado; las siguientes 3 sesiones del paciente se agendarán como pagadas por defecto.
+              </span>
+            </label>
+          )}
+
+          {mode !== 'edit' && !prepaid && (
+            <p className="font-caption text-xs text-content-muted">
+              Se agenda como <span className="font-bold text-content-secondary">pendiente de confirmación</span> y sin pagar. La confirmación y el pago se gestionan en la vista de Lista.
+            </p>
+          )}
 
           {submitError && <p className="rounded-xl bg-red-50 px-4 py-3 font-caption text-sm text-red-600">{submitError}</p>}
         </div>
@@ -355,14 +413,33 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
             </div>
 
             <div className="flex-1 space-y-4 overflow-y-auto px-6 py-6">
+              <Field label="Tipo de paciente">
+                <select className={nativeInput} value={newPatient.tipo_paciente} onChange={(e) => setNp('tipo_paciente', e.target.value)}>
+                  {toOptions(TIPO_PACIENTE).map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </Field>
+
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Nombre" error={npErrors.nombre}>
+                <Field label={roleLabel('Nombre', npRoles(newPatient.tipo_paciente).one)} error={npErrors.nombre}>
                   <input autoFocus className={nativeInput} value={newPatient.nombre} onChange={(e) => setNp('nombre', e.target.value)} />
                 </Field>
-                <Field label="Apellido" error={npErrors.apellido}>
+                <Field label={roleLabel('Apellido', npRoles(newPatient.tipo_paciente).one)} error={npErrors.apellido}>
                   <input className={nativeInput} value={newPatient.apellido} onChange={(e) => setNp('apellido', e.target.value)} />
                 </Field>
               </div>
+
+              {npRoles(newPatient.tipo_paciente).two && (
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label={roleLabel('Nombre', npRoles(newPatient.tipo_paciente).two)} error={npErrors.nombre_2}>
+                    <input className={nativeInput} value={newPatient.nombre_2} onChange={(e) => setNp('nombre_2', e.target.value)} />
+                  </Field>
+                  <Field label={roleLabel('Apellido', npRoles(newPatient.tipo_paciente).two)} error={npErrors.apellido_2}>
+                    <input className={nativeInput} value={newPatient.apellido_2} onChange={(e) => setNp('apellido_2', e.target.value)} />
+                  </Field>
+                </div>
+              )}
 
               <Field label="Teléfono" error={npErrors.telefono}>
                 <input type="tel" className={nativeInput} value={newPatient.telefono} onChange={(e) => setNp('telefono', e.target.value)} placeholder="+593…" />

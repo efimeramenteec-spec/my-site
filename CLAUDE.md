@@ -102,10 +102,25 @@ Key detail: session `estado` is `programada` (Pendiente) | `confirmada` | `cance
   sessions never count anywhere. Related session columns: `pagado`, `facturada` [manual toggle],
   `paid_at` [server-stamped on pago flip — cash-flow groundwork]. Hard rule: cancelled sessions
   can never be pagado/facturada — enforced in `queries.js#updateSession`), `Sesiones`,
-  `Pacientes` (largest, full expediente), `Seguimiento` (see below), `Marketing` (owner-only
+  `Pacientes` (largest), `Seguimiento` (see below), `Marketing` (owner-only
   acquisition funnel — see below), `Login`, `DesignSystem`.
 - **All modules are built** — no placeholders remain (2026-07-04).
 - Session create/edit UI lives in `src/features/sesiones/` (`SesionDrawer.jsx`, `views.jsx`, `PatientSelect.jsx`).
+
+### 2026-08-31 model changes (six-feature batch — see EFIMERAMENTE_STATE.md)
+- **Patients have a type:** `patients.tipo_paciente` = `individual` | `pareja` | `menor`, with a
+  second person in `nombre_2`/`apellido_2` (person 1 = contact / tutor). NEVER build a patient
+  display name by hand — use `patientLabel(p)` (format.js); search with `patientSearchText(p)`
+  (covers both people). `pareja`→"A + B", `menor`→"A (Tutor) + B (Menor)".
+- **Patient states are just `activo` | `inactivo`** now (descontinuado was merged into inactivo).
+- **No patient "Expediente"/free-text `notas`** — removed for privacy (C1). `patients.notas` may
+  still exist in the DB (drop pending) but is neither read nor written. (Session-level `notas`,
+  used as the calendar description, is unrelated and still active.)
+- **New session columns:** `metodo_pago` is now chosen when marking paid in Lista (exactly 3:
+  transferencia/paypal/payphone); `convirtio` (nullable) = llamada conversion override, else
+  derived live (`src/lib/conversion.js`, no cron); `package_anchor` (bool) marks the first session
+  of a prepaid 4-pack (`src/lib/packages.js`) — pack covers anchor + next 3 real sessions, which
+  default to paid at scheduling, and any patient with an anchor shows a ⭐.
 
 ### Seguimiento module (owner + therapists, `src/pages/Seguimiento.jsx`)
 **Patient adherence to therapy** (Nicolas's spec, 2026-07-04). Core input: `patients.frecuencia`

@@ -9,7 +9,7 @@
 // jsPDF + autotable are imported dynamically so they only load when the user
 // actually downloads a report (keeps them out of the main bundle).
 import { ESTADO_SESION, TIPO_SESION } from './constants.js'
-import { formatCurrency, formatTime, fullName } from './format.js'
+import { formatCurrency, formatTime, fullName, patientLabel } from './format.js'
 import { sessionProvision, PROVISION_DEFAULT } from './provision.js'
 
 const LOCALE = 'es-EC'
@@ -155,7 +155,7 @@ export async function downloadSessionReport({ sessions = [], therapists = [], fi
     body: rows.map((s) => [
       fmtDay(s.fecha),
       formatTime(s.hora_inicio),
-      fullName(s.patient),
+      patientLabel(s.patient),
       TIPO_SESION[s.tipo] || s.tipo || '—',
       ESTADO_SESION[s.estado]?.label || s.estado || '—',
       s.pagado ? 'Sí' : 'No',

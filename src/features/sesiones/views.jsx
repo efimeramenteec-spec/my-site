@@ -3,6 +3,7 @@ import { Toggle } from '../../components/Toggle/Toggle.jsx'
 import {
   formatTime,
   fullName,
+  patientLabel,
   formatCurrency,
   weekDays,
   monthMatrix,
@@ -10,7 +11,17 @@ import {
   capitalize,
   toDate,
 } from '../../lib/format.js'
-import { CONFIRMACION, TIPO_SESION, MODALIDAD, METODO_PAGO } from '../../lib/constants.js'
+import { CONFIRMACION, TIPO_SESION, MODALIDAD, METODO_PAGO, METODO_PAGO_ORDER } from '../../lib/constants.js'
+import { llamadaConverted } from '../../lib/conversion.js'
+import { hasPackage } from '../../lib/packages.js'
+
+// ⭐ marker for patients who have ever bought a package (#4).
+function PackageStar({ patientSessions }) {
+  if (!hasPackage(patientSessions)) return null
+  return (
+    <span title="Cliente de paquete" className="ml-1 flex-shrink-0 text-amber-500" aria-label="Cliente de paquete">★</span>
+  )
+}
 import { IconVideo, IconPin, IconPlus } from '../../layout/icons.jsx'
 
 const ESTADO_COLOR = {
@@ -57,6 +68,37 @@ function ConfSeg({ value, onChange }) {
   )
 }
 
+// Inline 2-state conversion control for llamadas (#3, 2026-08-31). Llamadas
+// aren't confirmed/cancelled, so they use this instead of ConfSeg: did the
+// intro call turn into a real patient? Red "No convirtió" (default) / green
+// "Convirtió". Clicking sets a manual override (sessions.convirtio).
+function ConvSeg({ converted, onChange }) {
+  const opts = [
+    { value: false, short: 'No convirtió', color: '#ef4444' },
+    { value: true, short: 'Convirtió', color: '#22c55e' },
+  ]
+  return (
+    <div className="inline-flex rounded-pill border border-stroke/70 bg-white/70 p-0.5">
+      {opts.map((o) => {
+        const active = converted === o.value
+        return (
+          <button
+            key={String(o.value)}
+            type="button"
+            onClick={() => onChange(o.value)}
+            style={active ? { backgroundColor: o.color } : undefined}
+            className={`rounded-pill px-2.5 py-1 font-caption text-[11px] font-bold transition-colors ${
+              active ? 'text-white' : 'text-content-muted hover:text-content-primary'
+            }`}
+          >
+            {o.short}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Week ───────────────────────────────────────────────────────
 
 export function WeekView({ sessions, cursor, onEdit, onCreateOn }) {
@@ -85,7 +127,7 @@ export function WeekView({ sessions, cursor, onEdit, onCreateOn }) {
                     className="w-full rounded-lg border border-white/70 bg-white/85 px-2 py-1.5 text-left shadow-soft transition-all duration-200 hover:shadow-card"
                   >
                     <p className="font-heading text-xs font-bold text-content-primary leading-tight">{formatTime(s.hora_inicio)}</p>
-                    <p className="truncate font-body text-[13px] text-content-primary">{fullName(s.patient)}</p>
+                    <p className="truncate font-body text-[13px] text-content-primary">{patientLabel(s.patient)}</p>
                     <div className="mt-0.5 flex items-center gap-1 text-content-muted">
                       <ModIcon modalidad={s.modalidad} size={11} />
                       <span className="truncate font-caption text-[10px]">{TIPO_SESION[s.tipo] || s.tipo}</span>
@@ -186,7 +228,32 @@ function ReminderLegend({ s, today }) {
   return null
 }
 
-export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid, onToggleFacturada, onDelete }) {
+// Pay picker for the Lista (2026-08-31): "Sin pagar" or one of the 3 methods.
+// Choosing a method marks the session paid WITH that method; "Sin pagar" marks
+// it unpaid. Green when paid, muted when not — so each row shows payment status
+// AND method at a glance. Replaces the old on/off pago toggle.
+function PagoSelect({ s, onSetPago }) {
+  const value = s.pagado ? (s.metodo_pago || 'transferencia') : ''
+  return (
+    <select
+      value={value}
+      onChange={(e) => onSetPago(s, e.target.value)}
+      aria-label="Estado de pago"
+      className={`rounded-lg border px-2 py-1 font-heading text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-lavender/20 ${
+        value
+          ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+          : 'border-stroke bg-white text-content-muted'
+      }`}
+    >
+      <option value="">Sin pagar</option>
+      {METODO_PAGO_ORDER.map((m) => (
+        <option key={m} value={m}>{METODO_PAGO[m]}</option>
+      ))}
+    </select>
+  )
+}
+
+export function ListView({ sessions, sessionsByPatient = {}, onEdit, onSetEstado, onSetConvirtio, onSetPago, onToggleFacturada, onDelete }) {
   const today = dateKey(new Date())
 
   // Single continuous list: furthest-future first, scrolling down goes
@@ -215,7 +282,10 @@ export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid, onToggle
           </div>
 
           <div className="min-w-[150px] flex-1">
-            <p className="truncate font-body font-bold text-content-primary">{fullName(s.patient)}</p>
+            <p className="flex items-center font-body font-bold text-content-primary">
+              <span className="truncate">{patientLabel(s.patient)}</span>
+              <PackageStar patientSessions={sessionsByPatient[s.patient_id] || []} />
+            </p>
             <div className="mt-0.5 flex items-center gap-2 font-caption text-xs text-content-muted">
               <span>{TIPO_SESION[s.tipo] || s.tipo}</span>
               <span aria-hidden="true">·</span>
@@ -232,14 +302,23 @@ export function ListView({ sessions, onEdit, onSetEstado, onTogglePaid, onToggle
             <ReminderLegend s={s} today={today} />
           </div>
 
-          <ConfSeg value={s.estado} onChange={(estado) => onSetEstado(s, estado)} />
+          {llamada ? (
+            <ConvSeg
+              converted={llamadaConverted(s, sessionsByPatient[s.patient_id] || [])}
+              onChange={(v) => onSetConvirtio(s, v)}
+            />
+          ) : (
+            <ConfSeg value={s.estado} onChange={(estado) => onSetEstado(s, estado)} />
+          )}
 
           <div className="flex items-center gap-2.5">
-            <Toggle checked={!noBilling && !!s.pagado} disabled={noBilling} onChange={(v) => onTogglePaid(s, v)} />
-            <div className="leading-tight">
+            <div className="leading-tight text-right">
               <p className={`font-heading text-sm font-bold ${noBilling ? 'text-content-muted line-through' : 'text-content-primary'}`}>{formatCurrency(s.monto)}</p>
-              <p className="font-caption text-[11px] text-content-muted">{cancelled ? 'No se cobra' : llamada ? 'Gratis' : s.pagado ? METODO_PAGO[s.metodo_pago] || 'Pagada' : 'Sin pagar'}</p>
+              {noBilling && (
+                <p className="font-caption text-[11px] text-content-muted">{cancelled ? 'No se cobra' : 'Gratis'}</p>
+              )}
             </div>
+            {!noBilling && <PagoSelect s={s} onSetPago={onSetPago} />}
           </div>
 
           {/* Facturación — manual for now. Sky blue on purpose: visually

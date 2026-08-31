@@ -2,6 +2,7 @@
 // transparently falls back to demo data on misconfig or network error,
 // returning a `source: 'live' | 'demo'` flag the UI can surface.
 import { supabase, isSupabaseConfigured } from './supabase.js'
+import { patientLabel } from './format.js'
 import {
   getDemoStore,
   demoCreateSession, demoUpdateSession, demoDeleteSession,
@@ -9,13 +10,13 @@ import {
 } from './demoStore.js'
 // Joined select used everywhere we need patient + therapist names/colors.
 const SESSION_SELECT =
-  'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,facturada,metodo_pago,notas,google_event_id,reminder_sent_at,' +
-  'patient:patients(id,nombre,apellido,telefono),therapist:therapists(id,nombre,apellido,color,calendar_email)'
+  'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,facturada,metodo_pago,notas,convirtio,package_anchor,google_event_id,reminder_sent_at,' +
+  'patient:patients(id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono),therapist:therapists(id,nombre,apellido,color,calendar_email)'
 
 // Only real columns may be written to the sessions table.
 const SESSION_COLUMNS = [
   'patient_id', 'terapeuta_id', 'fecha', 'hora_inicio', 'hora_fin',
-  'tipo', 'modalidad', 'estado', 'monto', 'pagado', 'facturada', 'metodo_pago', 'notas', 'google_event_id',
+  'tipo', 'modalidad', 'estado', 'monto', 'pagado', 'facturada', 'metodo_pago', 'notas', 'convirtio', 'package_anchor', 'google_event_id',
 ]
 const pickColumns = (obj) =>
   Object.fromEntries(SESSION_COLUMNS.filter((k) => k in obj).map((k) => [k, obj[k]]))
@@ -46,7 +47,7 @@ async function fetchAll(makeQuery) {
 const FINANZAS_SESSION_SELECT =
   'id,terapeuta_id,patient_id,fecha,tipo,estado,monto,pagado,facturada,paid_at,' +
   'therapist:therapists(id,nombre,apellido,color,provision_rate),' +
-  'patient:patients(id,nombre,apellido,telefono)'
+  'patient:patients(id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono)'
 
 export async function getFinanzasData() {
   if (isSupabaseConfigured) {
@@ -76,9 +77,7 @@ const TZ = 'America/Guayaquil'
 const TZ_OFFSET = '-05:00'
 
 function buildCalendarEvent(session) {
-  const patientName = session.patient
-    ? `${session.patient.nombre} ${session.patient.apellido}`
-    : 'Paciente'
+  const patientName = session.patient ? patientLabel(session.patient) : 'Paciente'
   return {
     summary: `Sesión — ${patientName} · ${session.modalidad === 'en_linea' ? 'En línea' : 'Presencial'}`,
     description: session.notas || '',
@@ -131,7 +130,7 @@ export async function getSessionsData() {
         fetchAll(() => supabase.from('sessions').select(SESSION_SELECT)
           .order('fecha', { ascending: true }).order('hora_inicio', { ascending: true })
           .order('id', { ascending: true })),
-        supabase.from('patients').select('id,nombre,apellido,telefono,terapeuta_id,estado_general,tarifa,metodo_pago')
+        supabase.from('patients').select('id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,terapeuta_id,estado_general,tarifa,metodo_pago')
           .order('nombre', { ascending: true }),
         supabase.from('therapists').select('id,nombre,apellido,color,calendar_email,activo,provision_rate')
           .order('nombre', { ascending: true }),
@@ -162,15 +161,26 @@ export async function createSession(payload) {
       const res = await supabase.from('sessions').insert(data).select(SESSION_SELECT).single()
       if (res.error) throw res.error
       const session = res.data
+      // Calendar sync stays best-effort (never blocks the save), but a failure
+      // used to be completely silent — a transient Google API hiccup left the
+      // session with no event and no google_event_id, and nobody knew (this is
+      // how David Ponce's 2026-08-26 session went missing). Signal the miss so
+      // the UI can warn; the session itself is already saved.
+      let calendarWarning = false
       const calEmail = session.therapist?.calendar_email
       if (calEmail) {
         const calRes = await callCalendar('create', calEmail, buildCalendarEvent(session))
         if (calRes.success && calRes.eventId) {
           supabase.from('sessions').update({ google_event_id: calRes.eventId }).eq('id', session.id).then(() => {})
           session.google_event_id = calRes.eventId
+        } else {
+          calendarWarning = true
         }
+      } else {
+        // No calendar shared for this therapist → no event will ever be created.
+        calendarWarning = true
       }
-      return { ok: true, data: session }
+      return { ok: true, data: session, calendarWarning }
     } catch (err) {
       return { ok: false, error: err?.message || 'No se pudo guardar la sesi\u00f3n.' }
     }
@@ -263,12 +273,16 @@ export async function deleteSession(id) {
 // \u2500\u2500\u2500 Pacientes \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
 const PATIENT_SELECT =
-  'id,nombre,apellido,telefono,email,cedula,contifico_id,fecha_nacimiento,terapeuta_id,' +
-  'motivo_consulta,estado_general,notas,tarifa,metodo_pago,fuente,frecuencia,created_at,updated_at'
+  'id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,email,cedula,contifico_id,fecha_nacimiento,terapeuta_id,' +
+  'motivo_consulta,estado_general,tarifa,metodo_pago,fuente,frecuencia,created_at,updated_at'
 
+// patients.notas (the "Expediente" free-text) intentionally dropped from the
+// app 2026-08-31 (C1) — no clinical/personal notes stored while security isn't
+// guaranteed. Not read (PATIENT_SELECT) nor written (PATIENT_COLUMNS).
 const PATIENT_COLUMNS = [
-  'nombre', 'apellido', 'telefono', 'email', 'cedula', 'contifico_id', 'fecha_nacimiento',
-  'terapeuta_id', 'motivo_consulta', 'estado_general', 'notas',
+  'nombre', 'apellido', 'nombre_2', 'apellido_2', 'tipo_paciente',
+  'telefono', 'email', 'cedula', 'contifico_id', 'fecha_nacimiento',
+  'terapeuta_id', 'motivo_consulta', 'estado_general',
   'tarifa', 'metodo_pago', 'fuente', 'frecuencia',
 ]
 const pickPatientColumns = (obj) =>
@@ -289,7 +303,7 @@ export async function getPatientsData() {
           .order('nombre', { ascending: true }),
         fetchAll(() => supabase
           .from('sessions')
-          .select('id,patient_id,terapeuta_id,fecha,hora_inicio,tipo,modalidad,estado,monto,pagado,metodo_pago')
+          .select('id,patient_id,terapeuta_id,fecha,hora_inicio,tipo,modalidad,estado,monto,pagado,metodo_pago,package_anchor')
           .order('fecha', { ascending: false })
           .order('hora_inicio', { ascending: false })
           .order('id', { ascending: true })),
@@ -394,7 +408,7 @@ export async function getSeguimientoData() {
     try {
       const [pRes, sRes, tRes] = await Promise.all([
         supabase.from('patients')
-          .select('id,nombre,apellido,telefono,terapeuta_id,estado_general,frecuencia,created_at')
+          .select('id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,terapeuta_id,estado_general,frecuencia,created_at')
           .order('nombre', { ascending: true }),
         fetchAll(() => supabase.from('sessions').select(SEGUIMIENTO_SESSION_SELECT)
           .order('fecha', { ascending: true }).order('id', { ascending: true })),
@@ -490,7 +504,7 @@ export async function getMarketingData() {
           .select('id,campaign_id,semana_inicio,semana_fin,spend,impressions,reach,frequency,link_clicks,ctr,cpm,conversations')
           .order('semana_inicio', { ascending: true }),
         supabase.from('patients')
-          .select('id,nombre,apellido,telefono,estado_general,fuente,created_at'),
+          .select('id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,estado_general,fuente,created_at'),
         fetchAll(() => supabase.from('sessions')
           .select('id,patient_id,terapeuta_id,fecha,hora_inicio,tipo,estado,monto,pagado,created_at')
           .order('fecha', { ascending: true }).order('id', { ascending: true })),

@@ -103,6 +103,29 @@ export function fullName(person) {
   return [person.nombre, person.apellido].filter(Boolean).join(' ')
 }
 
+// Composite patient display name (#1, 2026-08-31). Patients can be Individual,
+// Pareja (two people) or Menor de Edad (tutor + minor). Falls back gracefully to
+// the single name when there's no second person or type. Person 1 = nombre/
+// apellido (the contact); person 2 = nombre_2/apellido_2.
+//   pareja → "Juan Perez + María Gonzalez"
+//   menor  → "Juan Perez (Tutor) + Miguel Alvarez (Menor)"
+export function patientLabel(p) {
+  if (!p) return '—'
+  const p1 = [p.nombre, p.apellido].filter(Boolean).join(' ')
+  const p2 = [p.nombre_2, p.apellido_2].filter(Boolean).join(' ')
+  if (!p2) return p1 || '—'
+  if (p.tipo_paciente === 'pareja') return `${p1} + ${p2}`
+  if (p.tipo_paciente === 'menor') return `${p1} (Tutor) + ${p2} (Menor)`
+  return p1 || '—'
+}
+
+// Lowercased searchable text covering BOTH people, so a patient is found by
+// either name (the whole point of storing the second person).
+export function patientSearchText(p) {
+  if (!p) return ''
+  return [p.nombre, p.apellido, p.nombre_2, p.apellido_2].filter(Boolean).join(' ').toLowerCase()
+}
+
 export function initials(person) {
   if (!person) return '—'
   return [person.nombre?.[0], person.apellido?.[0]].filter(Boolean).join('').toUpperCase()

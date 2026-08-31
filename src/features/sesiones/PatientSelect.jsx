@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { fullName, initials } from '../../lib/format.js'
+import { fullName, patientLabel, patientSearchText, initials } from '../../lib/format.js'
 
 /** Searchable patient combobox styled to match the DS glass inputs. */
 export function PatientSelect({ patients = [], value, onChange, error, onCreateNew }) {
@@ -18,7 +18,7 @@ export function PatientSelect({ patients = [], value, onChange, error, onCreateN
   }, [])
 
   const filtered = query
-    ? patients.filter((p) => fullName(p).toLowerCase().includes(query.toLowerCase()))
+    ? patients.filter((p) => patientSearchText(p).includes(query.toLowerCase()))
     : patients
 
   return (
@@ -40,7 +40,7 @@ export function PatientSelect({ patients = [], value, onChange, error, onCreateN
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-lavender/15 font-caption text-[10px] font-bold text-purple-600">
                 {initials(selected)}
               </span>
-              {fullName(selected)}
+              {patientLabel(selected)}
             </span>
           ) : (
             <span className="text-content-muted">Seleccionar paciente…</span>
@@ -97,7 +97,7 @@ export function PatientSelect({ patients = [], value, onChange, error, onCreateN
                       {initials(p)}
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate font-body text-sm text-content-primary">{fullName(p)}</span>
+                      <span className="block truncate font-body text-sm text-content-primary">{patientLabel(p)}</span>
                       {p.telefono && (
                         <span className="block truncate font-caption text-xs text-content-muted">{p.telefono}</span>
                       )}

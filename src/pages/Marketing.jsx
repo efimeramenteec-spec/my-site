@@ -12,7 +12,7 @@ import { Select } from '../components/Select/Select.jsx'
 import { getMarketingData, updateCampaign, importCampaignWeeks } from '../lib/queries.js'
 import { parseMetaCsv } from '../lib/metaCsv.js'
 import { computeMarketing, computeFlags, campaignOn } from '../lib/marketing.js'
-import { formatCurrency, formatDateShort, fullName, dateKey } from '../lib/format.js'
+import { formatCurrency, formatDateShort, fullName, patientLabel, dateKey } from '../lib/format.js'
 import { IconWallet, IconUsers, IconPulse, IconChat, IconPhone, IconMegaphone } from '../layout/icons.jsx'
 
 // Marketing v2 (owner-only). Funnel: Meta Ads → conversación de WhatsApp →
@@ -357,7 +357,7 @@ function OrphanCalls({ orphans }) {
           {orphans.slice(0, 12).map(({ patient, lastCall, days }) => (
             <div key={patient.id} className="flex items-center justify-between gap-3 py-2.5">
               <div className="min-w-0">
-                <p className="truncate font-body font-bold text-content-primary">{fullName(patient)}</p>
+                <p className="truncate font-body font-bold text-content-primary">{patientLabel(patient)}</p>
                 <p className="font-caption text-xs text-content-muted">{patient.telefono || 'sin teléfono'}</p>
               </div>
               <Badge variant={days > 7 ? 'pink' : 'yellow'}>

@@ -7,7 +7,7 @@ import { Card } from '../components/Card/Card.jsx'
 import { Badge } from '../components/Badge/Badge.jsx'
 import { getSeguimientoData } from '../lib/queries.js'
 import { adherence, isAttended, hasUpcoming } from '../lib/adherence.js'
-import { dateKey, fullName, formatDateShort, capitalize, toDate } from '../lib/format.js'
+import { dateKey, fullName, patientLabel, formatDateShort, capitalize, toDate } from '../lib/format.js'
 import { FRECUENCIA_PACIENTE } from '../lib/constants.js'
 
 // Seguimiento — patient adherence to therapy (owner + therapists; RLS scopes
@@ -87,10 +87,10 @@ export default function Seguimiento() {
     }
     const attendedOf = (p) => (byPatient[p.id] || []).filter((s) => isAttended(s, today))
 
-    // Only ACTIVO patients are tracked (Nicolas, 2026-07-04): inactivo /
-    // descontinuado aren't expected to come, so adherence and "en riesgo"
-    // ignore them. Historical charts below still count everyone — the past
-    // doesn't change when a patient leaves.
+    // Only ACTIVO patients are tracked (Nicolas, 2026-07-04): inactivo patients
+    // aren't currently coming, so adherence and "en riesgo" ignore them.
+    // Historical charts below still count everyone — the past doesn't change
+    // when a patient leaves.
     const tracked = data.patients.filter((p) => p.estado_general === 'activo')
 
     // ── Adherencia ──
@@ -118,8 +118,8 @@ export default function Seguimiento() {
 
     // ── Pacientes en riesgo ──
     // Came at least once, nothing on the calendar, and silent for longer than
-    // twice their expected interval. Only activo patients — inactivo/
-    // descontinuado were already written off deliberately.
+    // twice their expected interval. Only activo patients — inactivo were
+    // already set aside deliberately.
     const enRiesgo = []
     for (const p of tracked) {
       const attended = attendedOf(p)
@@ -244,7 +244,7 @@ export default function Seguimiento() {
               <div key={r.patient.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5">
                 <TherapistDot color={r.therapist?.color} />
                 <div className="min-w-[160px] flex-1">
-                  <p className="truncate font-body font-bold text-content-primary">{fullName(r.patient)}</p>
+                  <p className="truncate font-body font-bold text-content-primary">{patientLabel(r.patient)}</p>
                   {r.patient.telefono && (
                     <p className="font-caption text-xs text-content-muted">{r.patient.telefono}</p>
                   )}
@@ -281,7 +281,7 @@ export default function Seguimiento() {
             <div key={r.patient.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5">
               <TherapistDot color={r.therapist?.color} />
               <div className="min-w-[160px] flex-1">
-                <p className="truncate font-body font-bold text-content-primary">{fullName(r.patient)}</p>
+                <p className="truncate font-body font-bold text-content-primary">{patientLabel(r.patient)}</p>
                 <p className="font-caption text-xs text-content-muted">
                   desde {formatDateShort(r.desde)}
                 </p>
@@ -307,13 +307,13 @@ export default function Seguimiento() {
         {m.sinSesiones.length > 0 && (
           <p className="mt-3 font-caption text-xs text-content-muted">
             Con frecuencia pero aún sin sesiones confirmadas:{' '}
-            {m.sinSesiones.map((r) => fullName(r.patient)).join(', ')}.
+            {m.sinSesiones.map((r) => patientLabel(r.patient)).join(', ')}.
           </p>
         )}
         {m.sinFrecuencia.length > 0 && (
           <p className="mt-2 font-caption text-xs text-amber-600">
             Sin frecuencia definida (no aparecen arriba):{' '}
-            {m.sinFrecuencia.map((r) => `${fullName(r.patient)} (${r.asistidas})`).join(', ')}.
+            {m.sinFrecuencia.map((r) => `${patientLabel(r.patient)} (${r.asistidas})`).join(', ')}.
           </p>
         )}
       </Card>

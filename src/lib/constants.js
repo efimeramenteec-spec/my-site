@@ -52,23 +52,33 @@ export const MODALIDAD = {
   en_linea:   'En línea',
 }
 
-// Payment methods (set per patient at creation, recorded on the session).
-export const METODO_PAGO = {
-  transferencia: 'Transferencia',
-  payphone:      'PayPhone',
-  paypal:        'PayPal',
-  cash:          'Cash',
+// patients.tipo_paciente (#1, 2026-08-31). Pareja/Menor carry a second person
+// (nombre_2/apellido_2). See patientLabel() in format.js for the display name.
+export const TIPO_PACIENTE = {
+  individual: 'Individual',
+  pareja:     'Pareja',
+  menor:      'Menor de edad',
 }
 
-// patients.estado_general — redefined 2026-07-04 (was activo/pausado/alta/baja).
-// activo = expected to keep coming (default). inactivo = hasn't come back but
-// might. descontinuado = gone or explicitly quit. Only ACTIVO patients are
-// tracked in Seguimiento (adherence / en riesgo). Legacy values were migrated
-// in the DB (patient-estado-overhaul.sql); display code falls back gracefully.
+// Payment methods — exactly three (Nicolas, 2026-08-31). Recorded on the session
+// when it's marked paid (picker in Sesiones → Lista) and defaulted per patient.
+export const METODO_PAGO = {
+  transferencia: 'Transferencia',
+  paypal:        'PayPal',
+  payphone:      'PayPhone',
+}
+// Order for the pay picker in Lista.
+export const METODO_PAGO_ORDER = ['transferencia', 'paypal', 'payphone']
+
+// patients.estado_general — simplified 2026-08-31 (C2) to just two states; the
+// old "descontinuado" was redundant/unclear vs "inactivo" and was merged into
+// it (migrate-descontinuado-to-inactivo.sql). activo = expected to keep coming
+// (default). inactivo = not currently coming (may or may not return). Only
+// ACTIVO patients are tracked in Seguimiento (adherence / en riesgo). Display
+// code falls back gracefully for any legacy value.
 export const ESTADO_PACIENTE = {
-  activo:        { label: 'Activo',        badge: 'lavender' },
-  inactivo:      { label: 'Inactivo',      badge: 'yellow' },
-  descontinuado: { label: 'Descontinuado', badge: 'neutral' },
+  activo:   { label: 'Activo',   badge: 'lavender' },
+  inactivo: { label: 'Inactivo', badge: 'yellow' },
 }
 
 // whatsapp_messages.respuesta_cita

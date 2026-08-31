@@ -46,6 +46,48 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **Six-feature brainstorm batch — BUILT + PUSHED** (2026-08-31, Opus). Built
+  simplest→complex in one session, single push; Nicolas live-checks on deploy. All
+  ideas captured in **`IDEAS-BACKLOG.md`**. DB migrations applied to prod via the Supabase
+  connector (all additive/safe). What shipped:
+  - **C1 — Expediente removed.** The patient free-text `notas` ("Expediente") is gone from the
+    UI + data layer AND the DB column was **dropped** (`supabase/drop-patients-notas.sql`) — no
+    PII stored while security isn't guaranteed. The 10 existing notes were backed up first to
+    `~/Downloads/EFIMERAMENTE-expediente-notas-respaldo.md` (8 were package-payment notes with
+    first-session dates — useful for seeding the #4 ⭐ anchors). `motivo_consulta` left intact
+    (only "expediente" was named). NOTE: session-level `sessions.notas` (calendar description) is
+    unrelated and stays.
+  - **C2 — Patient states collapsed to activo | inactivo.** 44 `descontinuado` → `inactivo`,
+    CHECK tightened (`supabase/migrate-descontinuado-to-inactivo.sql`). constants/filters/demo updated.
+  - **#2 — Payment method on pay.** The Lista pago on/off toggle became a compact select
+    **Sin pagar / PayPal / Transferencia / PayPhone** (`PagoSelect` in views.jsx); choosing a
+    method marks paid + writes `metodo_pago`. `METODO_PAGO` trimmed to exactly 3 (dropped unused
+    `cash`). `handleSetPago` replaces `handleTogglePaid`.
+  - **#3 — Llamada Convirtió/No Convirtió.** Llamada rows swap the estado control (`ConfSeg`) for
+    a 2-state **No convirtió (red, default) / Convirtió (green)** control (`ConvSeg`), therapist-
+    settable. Manual override in `sessions.convirtio` (nullable); when NULL it's **derived live**
+    (patient has a later non-llamada, non-cancelled session) — NO cron. Logic:
+    `src/lib/conversion.js` (`sessions-convirtio.sql`).
+  - **#1 — Patient type (Individual / Pareja / Menor de edad).** New
+    `patients.tipo_paciente` + `nombre_2`/`apellido_2` (`supabase/patient-type-second-person.sql`,
+    existing rows default individual). Registration + edit (create drawer, inline SesionDrawer
+    create, PatientDetail) show a type picker + a second-person name pair with role labels
+    (Persona 1/2, or Tutor/Menor). Display + search via new **`patientLabel`** /
+    **`patientSearchText`** in format.js (`Juan Perez + María Gonzalez`,
+    `Juan Perez (Tutor) + Miguel Alvarez (Menor)`), wired into Sesiones/Pacientes/Seguimiento/
+    Marketing/Finanzas/report/calendar-title/pickers; search finds either person. Person 1 =
+    contact (tutor for a minor).
+  - **#4 — 4-session packages.** `sessions.package_anchor` flag
+    (`supabase/sessions-package-anchor.sql`) marks the FIRST session of a prepaid 4-pack; the
+    owner sets it in the **session drawer (edit, owner-only)**. Everything else derives
+    (`src/lib/packages.js`): pack covers the anchor + next 3 real (non-llamada, non-cancelled)
+    sessions; scheduling a new session for a patient with open pack slots **defaults it to paid**
+    (pre-checked, overridable checkbox in the create drawer); a **⭐ star** shows next to any
+    patient who has ever had a pack (Sesiones Lista + Pacientes list/detail). This is the
+    midflight-seeding mechanism Nicolas asked for — no upfront list needed, he'll mark anchors
+    in-app one by one.
+  - **Verified:** `npm run build` green; pure helpers node-unit-checked (conversion 7/7,
+    patientLabel 6/6, packages all pass). Pushed to `main` → Netlify; **Nicolas to live-check.**
 - [x] **Therapist session report (PDF) + Pareja $30 provision** (2026-08-03, Opus, commits
   674c7ec + ea3e71c, both deployed + verified live). Kicked off a **design-flaws polish pass**
   now that the architecture phase is done — running list lives in **`DESIGN-FLAWS-TODO.md`**

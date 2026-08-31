@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { Card } from '../components/Card/Card.jsx'
 import { Button } from '../components/Button/Button.jsx'
@@ -6,9 +6,10 @@ import { Select } from '../components/Select/Select.jsx'
 import { getSessionsData, createSession, updateSession, deleteSession, createPatient, notifySessionEstado } from '../lib/queries.js'
 import { WeekView, MonthView, ListView } from '../features/sesiones/views.jsx'
 import { SesionDrawer } from '../features/sesiones/SesionDrawer.jsx'
-import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName, formatTime } from '../lib/format.js'
+import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName, patientLabel, formatTime } from '../lib/format.js'
 import { CONFIRMACION } from '../lib/constants.js'
 import { findConflict } from '../lib/conflicts.js'
+import { groupSessionsByPatient } from '../lib/conversion.js'
 import { IconChevronRight, IconPlus, IconDownload } from '../layout/icons.jsx'
 import { useAuth } from '../lib/auth.jsx'
 import { downloadSessionReport } from '../lib/sessionReport.js'
@@ -62,6 +63,14 @@ export default function Sesiones() {
     loadData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Conversion for llamadas is derived from the patient's FULL session history
+  // (unfiltered), so a later real session still counts even when the Lista
+  // filters would hide it.
+  const sessionsByPatient = useMemo(
+    () => groupSessionsByPatient(data?.sessions || []),
+    [data],
+  )
 
   const sessions = (data?.sessions || []).filter(
     (s) =>
@@ -126,6 +135,16 @@ export default function Sesiones() {
         notifySessionEstado(drawer.initial.id)
       }
       await loadData()
+      // The session saved, but the Google Calendar event didn't get created
+      // (transient Google API failure, or the therapist hasn't shared their
+      // calendar). Surface it instead of failing silently — otherwise the
+      // session simply never shows up on the calendar and nobody notices.
+      if (res.calendarWarning) {
+        window.alert(
+          'La sesión se guardó, pero NO se pudo crear el evento en Google Calendar. ' +
+            'Verifica el calendario del terapeuta; puede que debas crear el evento manualmente.',
+        )
+      }
     }
     return res
   }
@@ -149,7 +168,7 @@ export default function Sesiones() {
   async function handleDelete(s) {
     const when = `${s.fecha} ${formatTime(s.hora_inicio)}`
     const ok = window.confirm(
-      `¿Eliminar la sesión de ${fullName(s.patient)} (${when})?\n\n` +
+      `¿Eliminar la sesión de ${patientLabel(s.patient)} (${when})?\n\n` +
         'Se borra definitivamente, junto con su evento de Google Calendar. ' +
         'Esta acción no se puede deshacer.',
     )
@@ -157,6 +176,14 @@ export default function Sesiones() {
     const res = await deleteSession(s.id)
     if (res.ok) await loadData()
     else window.alert(res.error || 'No se pudo eliminar la sesión.')
+  }
+
+  // Llamada conversion (manual override). Sets sessions.convirtio true/false;
+  // NULL (never set) means the app auto-derives it. Available to therapists too.
+  async function handleSetConvirtio(s, converted) {
+    const res = await updateSession(s.id, { convirtio: converted })
+    if (res.ok) await loadData()
+    else window.alert(res.error || 'No se pudo actualizar la conversión.')
   }
 
   async function handleToggleFacturada(s, facturada) {
@@ -171,14 +198,18 @@ export default function Sesiones() {
     else window.alert(res.error || 'No se pudo actualizar la facturación.')
   }
 
-  async function handleTogglePaid(s, paid) {
+  // Pay picker (Lista): metodo is '' → mark unpaid, or one of
+  // transferencia/paypal/payphone → mark paid with that method.
+  async function handleSetPago(s, metodo) {
     // Llamadas gratuitas are free intro calls — never charged.
     if (s.tipo === 'llamada') return
+    const paid = !!metodo
     if (paid && (s.estado === 'cancelada' || s.estado === 'no_show')) {
       window.alert('Una sesión cancelada no se cobra.')
       return
     }
-    const res = await updateSession(s.id, { pagado: paid })
+    const patch = paid ? { pagado: true, metodo_pago: metodo } : { pagado: false }
+    const res = await updateSession(s.id, patch)
     if (res.ok) await loadData()
     else window.alert(res.error || 'No se pudo actualizar el pago.')
   }
@@ -316,9 +347,11 @@ export default function Sesiones() {
         ) : (
           <ListView
             sessions={visibleSessions}
+            sessionsByPatient={sessionsByPatient}
             onEdit={openEdit}
             onSetEstado={handleSetEstado}
-            onTogglePaid={handleTogglePaid}
+            onSetConvirtio={handleSetConvirtio}
+            onSetPago={handleSetPago}
             onToggleFacturada={handleToggleFacturada}
             onDelete={fullAccess ? handleDelete : undefined}
           />
