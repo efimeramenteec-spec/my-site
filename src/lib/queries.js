@@ -274,7 +274,7 @@ export async function deleteSession(id) {
 
 const PATIENT_SELECT =
   'id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,email,cedula,contifico_id,fecha_nacimiento,terapeuta_id,' +
-  'motivo_consulta,estado_general,tarifa,metodo_pago,fuente,frecuencia,created_at,updated_at'
+  'motivo_consulta,estado_general,tarifa,metodo_pago,frecuencia,created_at,updated_at'
 
 // patients.notas (the "Expediente" free-text) intentionally dropped from the
 // app 2026-08-31 (C1) — no clinical/personal notes stored while security isn't
@@ -283,7 +283,7 @@ const PATIENT_COLUMNS = [
   'nombre', 'apellido', 'nombre_2', 'apellido_2', 'tipo_paciente',
   'telefono', 'email', 'cedula', 'contifico_id', 'fecha_nacimiento',
   'terapeuta_id', 'motivo_consulta', 'estado_general',
-  'tarifa', 'metodo_pago', 'fuente', 'frecuencia',
+  'tarifa', 'metodo_pago', 'frecuencia',
 ]
 const pickPatientColumns = (obj) =>
   Object.fromEntries(PATIENT_COLUMNS.filter((k) => k in obj).map((k) => [k, obj[k]]))
@@ -504,9 +504,9 @@ export async function getMarketingData() {
           .select('id,campaign_id,semana_inicio,semana_fin,spend,impressions,reach,frequency,link_clicks,ctr,cpm,conversations')
           .order('semana_inicio', { ascending: true }),
         supabase.from('patients')
-          .select('id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,estado_general,fuente,created_at'),
+          .select('id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,estado_general,created_at'),
         fetchAll(() => supabase.from('sessions')
-          .select('id,patient_id,terapeuta_id,fecha,hora_inicio,tipo,estado,monto,pagado,created_at')
+          .select('id,patient_id,terapeuta_id,fecha,hora_inicio,tipo,estado,monto,pagado,convirtio,created_at')
           .order('fecha', { ascending: true }).order('id', { ascending: true })),
       ])
       if (cRes.error) throw cRes.error

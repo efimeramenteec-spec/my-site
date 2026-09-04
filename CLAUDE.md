@@ -107,6 +107,17 @@ Key detail: session `estado` is `programada` (Pendiente) | `confirmada` | `cance
 - **All modules are built** — no placeholders remain (2026-07-04).
 - Session create/edit UI lives in `src/features/sesiones/` (`SesionDrawer.jsx`, `views.jsx`, `PatientSelect.jsx`).
 
+### 2026-09-04 changes (second batch — see EFIMERAMENTE_STATE.md)
+- **3 consultorios cap:** at most **3 concurrent `presencial` sessions** (across ALL therapists);
+  a 4th overlapping presencial is blocked. Logic in `conflicts.js` (`roomsFull` /
+  `presencialOverlapCount` / `CONSULTORIOS`), enforced in `SesionDrawer` + `Sesiones#handleSubmit`.
+  En línea/llamada don't count. NOT yet enforced in public `/reservar`.
+- **⭐ star** now marks the **first session of a 4-pack** (per-row `s.package_anchor` in Sesiones
+  Lista), NOT "this patient buys packages" (patient-level stars removed).
+- **`patients.fuente` removed** from the app (attribution is fully automatic now). Column left
+  dormant in the DB. Marketing no longer excludes `fuente==='referido'` — referrals now count.
+- Inline "Nuevo paciente" (in the session drawer) has an **owner therapist picker** now.
+
 ### 2026-08-31 model changes (six-feature batch — see EFIMERAMENTE_STATE.md)
 - **Patients have a type:** `patients.tipo_paciente` = `individual` | `pareja` | `menor`, with a
   second person in `nombre_2`/`apellido_2` (person 1 = contact / tutor). NEVER build a patient

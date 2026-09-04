@@ -13,13 +13,13 @@ import {
 } from '../../lib/format.js'
 import { CONFIRMACION, TIPO_SESION, MODALIDAD, METODO_PAGO, METODO_PAGO_ORDER } from '../../lib/constants.js'
 import { llamadaConverted } from '../../lib/conversion.js'
-import { hasPackage } from '../../lib/packages.js'
 
-// ⭐ marker for patients who have ever bought a package (#4).
-function PackageStar({ patientSessions }) {
-  if (!hasPackage(patientSessions)) return null
+// ⭐ marks the FIRST session of a 4-session package (the anchor row). Changed
+// 2026-09-04 from a patient-level "buys packages" badge to this per-session flag.
+function PackageStar({ anchor }) {
+  if (!anchor) return null
   return (
-    <span title="Cliente de paquete" className="ml-1 flex-shrink-0 text-amber-500" aria-label="Cliente de paquete">★</span>
+    <span title="Primera sesión de un paquete de 4" className="ml-1 flex-shrink-0 text-amber-500" aria-label="Primera sesión de paquete">★</span>
   )
 }
 import { IconVideo, IconPin, IconPlus } from '../../layout/icons.jsx'
@@ -284,7 +284,7 @@ export function ListView({ sessions, sessionsByPatient = {}, onEdit, onSetEstado
           <div className="min-w-[150px] flex-1">
             <p className="flex items-center font-body font-bold text-content-primary">
               <span className="truncate">{patientLabel(s.patient)}</span>
-              <PackageStar patientSessions={sessionsByPatient[s.patient_id] || []} />
+              <PackageStar anchor={s.package_anchor} />
             </p>
             <div className="mt-0.5 flex items-center gap-2 font-caption text-xs text-content-muted">
               <span>{TIPO_SESION[s.tipo] || s.tipo}</span>

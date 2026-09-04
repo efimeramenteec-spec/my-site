@@ -10,14 +10,12 @@ import { Select } from '../components/Select/Select.jsx'
 import { useAuth } from '../lib/auth.jsx'
 import { getPatientsData, createPatient, updatePatient, deletePatient } from '../lib/queries.js'
 import { formatCurrency, formatTime, formatDateShort, fullName, patientLabel, patientSearchText } from '../lib/format.js'
-import { hasPackage as patientHasPackage } from '../lib/packages.js'
 import {
   ESTADO_PACIENTE,
   TIPO_PACIENTE,
   METODO_PAGO,
   TIPO_SESION,
   ESTADO_SESION,
-  FUENTE_PACIENTE,
   FRECUENCIA_PACIENTE,
   toOptions,
   TARIFA_DEFAULT,
@@ -55,7 +53,7 @@ function SectionTitle({ children }) {
 
 // ─── Patient row (list) ─────────────────────────────────────────
 
-function PatientRow({ patient, therapist, hasPackage = false, isSelected, onClick }) {
+function PatientRow({ patient, therapist, isSelected, onClick }) {
   const estado = ESTADO_PACIENTE[patient.estado_general] || { label: patient.estado_general, badge: 'neutral' }
 
   return (
@@ -73,9 +71,8 @@ function PatientRow({ patient, therapist, hasPackage = false, isSelected, onClic
       <TherapistDot color={therapist?.color} />
 
       <div className="min-w-0 flex-1">
-        <p className="flex items-center font-body font-bold text-content-primary">
-          <span className="truncate">{patientLabel(patient)}</span>
-          {hasPackage && <span title="Cliente de paquete" className="ml-1 flex-shrink-0 text-amber-500">★</span>}
+        <p className="truncate font-body font-bold text-content-primary">
+          {patientLabel(patient)}
         </p>
         <p className="mt-0.5 truncate font-caption text-xs text-content-muted">
           {therapist ? `${therapist.nombre} ${therapist.apellido}` : '—'}
@@ -110,7 +107,6 @@ const formFromPatient = (patient) => ({
   tarifa: String(patient.tarifa ?? TARIFA_DEFAULT),
   metodo_pago: patient.metodo_pago || 'transferencia',
   estado_general: patient.estado_general || 'activo',
-  fuente: patient.fuente || '',
   frecuencia: patient.frecuencia || '',
 })
 
@@ -163,7 +159,6 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
       patch.terapeuta_id = form.terapeuta_id || null
       patch.tarifa = parseFloat(form.tarifa) || TARIFA_DEFAULT
       patch.metodo_pago = form.metodo_pago
-      patch.fuente = form.fuente || null
     }
     const res = await onSave(patient.id, patch)
     setSaving(false)
@@ -218,9 +213,6 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
           </div>
           <h2 className="font-serif text-2xl font-bold leading-tight text-content-primary">
             {patientLabel(patient)}
-            {patientHasPackage(sessions) && (
-              <span title="Cliente de paquete" className="ml-1.5 text-amber-500">★</span>
-            )}
           </h2>
           {patient.motivo_consulta && (
             <p className="mt-1 font-body text-sm text-content-secondary">
@@ -364,16 +356,6 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
             placeholder="Sin definir…"
             hint="Cada cuánto se espera que venga — alimenta la adherencia en Seguimiento."
           />
-          {fullAccess && (
-            <Select
-              label="Fuente"
-              value={form.fuente}
-              onChange={(e) => set('fuente', e.target.value)}
-              options={toOptions(FUENTE_PACIENTE)}
-              placeholder="Sin registrar…"
-              hint="Marca 'Referido' para excluirlo de la atribución de campañas (Marketing)."
-            />
-          )}
           {error && <p className="font-caption text-xs text-red-500">{error}</p>}
           <Button
             variant="secondary"
@@ -809,12 +791,6 @@ export default function Pacientes() {
     ? data.sessions.filter((s) => s.patient_id === selectedId)
     : []
 
-  // Patients who have ever bought a package (⭐), derived from anchor sessions.
-  const packagePatientIds = useMemo(
-    () => new Set((data?.sessions || []).filter((s) => s.package_anchor).map((s) => s.patient_id)),
-    [data],
-  )
-
   const handleUpdate = useCallback(async (id, patch) => {
     const res = await updatePatient(id, patch)
     if (res.ok) {
@@ -956,7 +932,6 @@ export default function Pacientes() {
                   key={p.id}
                   patient={p}
                   therapist={therapistMap[p.terapeuta_id]}
-                  hasPackage={packagePatientIds.has(p.id)}
                   isSelected={p.id === selectedId}
                   onClick={() => setSelectedId((cur) => (cur === p.id ? null : p.id))}
                 />

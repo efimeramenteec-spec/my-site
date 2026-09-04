@@ -12,6 +12,7 @@ import { Select } from '../components/Select/Select.jsx'
 import { getMarketingData, updateCampaign, importCampaignWeeks } from '../lib/queries.js'
 import { parseMetaCsv } from '../lib/metaCsv.js'
 import { computeMarketing, computeFlags, campaignOn } from '../lib/marketing.js'
+import { llamadaConverted, groupSessionsByPatient } from '../lib/conversion.js'
 import { formatCurrency, formatDateShort, fullName, patientLabel, dateKey } from '../lib/format.js'
 import { IconWallet, IconUsers, IconPulse, IconChat, IconPhone, IconMegaphone } from '../layout/icons.jsx'
 
@@ -425,6 +426,36 @@ export default function Marketing() {
     [data, campaignId, today],
   )
 
+  // "Nuevos pacientes este mes" headline + the month's llamadas with their
+  // conversion status. Fixed to the current calendar month (ignores the period
+  // selector) — it's the top-of-page snapshot.
+  const mes = useMemo(() => {
+    if (!data) return null
+    const { from, to } = monthRange(now)
+    const byPatient = groupSessionsByPatient(data.sessions)
+    const patientById = Object.fromEntries(data.patients.map((p) => [p.id, p]))
+    const isReal = (s) => s.tipo !== 'llamada' && s.estado !== 'cancelada' && s.estado !== 'no_show'
+    // New patients this month = first-ever real session falls in this month.
+    let nuevos = 0
+    for (const p of data.patients) {
+      const real = (byPatient[p.id] || []).filter(isReal).sort((a, b) => a.fecha.localeCompare(b.fecha))
+      if (real.length && real[0].fecha >= from && real[0].fecha <= to) nuevos++
+    }
+    const llamadas = data.sessions
+      .filter((s) => s.tipo === 'llamada' && s.fecha >= from && s.fecha <= to)
+      .map((s) => ({
+        id: s.id,
+        fecha: s.fecha,
+        patient: patientById[s.patient_id],
+        converted: llamadaConverted(s, byPatient[s.patient_id] || []),
+      }))
+      .sort((a, b) => b.fecha.localeCompare(a.fecha))
+    return { nuevos, llamadas }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, today])
+
+  const [showLlamadas, setShowLlamadas] = useState(false)
+
   const handlePatchCampaign = async (id, patch) => {
     const res = await updateCampaign(id, patch)
     if (res.ok) {
@@ -495,6 +526,54 @@ export default function Marketing() {
         </Button>
         <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
       </div>
+
+      {/* Headline: new patients this month → tap to see the month's llamadas
+          and which converted. Fixed to the current calendar month. */}
+      {mes && (
+        <Card
+          className="cursor-pointer transition-shadow hover:shadow-card"
+          onClick={() => setShowLlamadas((v) => !v)}
+          role="button"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-caption text-xs font-bold uppercase tracking-wide text-content-muted">
+                Nuevos pacientes este mes
+              </p>
+              <p className="mt-1 font-heading text-4xl font-bold text-content-primary">{mes.nuevos}</p>
+            </div>
+            <div className="text-right">
+              <p className="font-caption text-xs text-content-muted">
+                {mes.llamadas.length} llamada{mes.llamadas.length === 1 ? '' : 's'} este mes
+              </p>
+              <p className="mt-0.5 font-caption text-xs font-bold text-brand-lavender">
+                {showLlamadas ? 'Ocultar llamadas ▲' : 'Ver llamadas ▼'}
+              </p>
+            </div>
+          </div>
+          {showLlamadas && (
+            <div className="mt-4 border-t border-stroke/50 pt-3">
+              {mes.llamadas.length === 0 ? (
+                <p className="font-caption text-sm text-content-muted">No hubo llamadas este mes.</p>
+              ) : (
+                <ul className="divide-y divide-stroke/40">
+                  {mes.llamadas.map((l) => (
+                    <li key={l.id} className="flex items-center justify-between gap-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate font-body text-sm font-bold text-content-primary">{patientLabel(l.patient)}</p>
+                        <p className="font-caption text-xs text-content-muted">{formatDateShort(l.fecha)}</p>
+                      </div>
+                      <span className={`flex-shrink-0 rounded-pill px-2.5 py-1 font-caption text-[11px] font-bold ${l.converted ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>
+                        {l.converted ? 'Convirtió' : 'No convirtió'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </Card>
+      )}
 
       {pendingImport && (
         <div className="flex flex-wrap items-center gap-3 rounded-card border border-brand-lavender/40 bg-brand-lavender/10 px-4 py-3">

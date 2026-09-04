@@ -4,7 +4,7 @@ import { Select } from '../../components/Select/Select.jsx'
 import { PatientSelect } from './PatientSelect.jsx'
 import { dateKey, addDays, addMinutesToTime, formatTime, fullName } from '../../lib/format.js'
 import { TIPO_FORM, TIPO_PACIENTE, MODALIDAD, DURACION_MIN, TARIFA_DEFAULT, toOptions } from '../../lib/constants.js'
-import { findConflict } from '../../lib/conflicts.js'
+import { findConflict, roomsFull, CONSULTORIOS } from '../../lib/conflicts.js'
 import { checkFreebusy } from '../../lib/queries.js'
 import { remainingPackSlots } from '../../lib/packages.js'
 
@@ -40,7 +40,7 @@ function blankForm(defaultDate, therapists) {
   }
 }
 
-const blankPatient = () => ({ tipo_paciente: 'individual', nombre: '', apellido: '', nombre_2: '', apellido_2: '', telefono: '+593', email: '', cedula: '', motivo_consulta: '' })
+const blankPatient = () => ({ tipo_paciente: 'individual', nombre: '', apellido: '', nombre_2: '', apellido_2: '', telefono: '+593', email: '', cedula: '', motivo_consulta: '', terapeuta_id: '' })
 
 // Role suffixes for pareja/menor name fields (mirrors Pacientes). Person 1 is
 // always the contact (tutor for a minor); individual has no second person.
@@ -124,10 +124,12 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     if (!newPatient.email.trim()) e.email = 'Requerido para facturar'
     else if (!newPatient.email.includes('@')) e.email = 'Email inválido'
     if (!newPatient.cedula.trim()) e.cedula = 'Requerido para facturar'
+    // Owner picks the patient's therapist explicitly; therapists get themselves.
+    if (fullAccess && !newPatient.terapeuta_id) e.terapeuta_id = 'Selecciona un terapeuta'
     setNpErrors(e)
     if (Object.keys(e).length) return
 
-    const assignTo = fullAccess ? form.terapeuta_id : terapeutaId
+    const assignTo = fullAccess ? newPatient.terapeuta_id : terapeutaId
     if (!assignTo) { setNpError('No se pudo determinar el terapeuta.'); return }
 
     setNpSaving(true)
@@ -197,6 +199,12 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     { terapeuta_id: form.terapeuta_id, fecha: form.fecha, hora_inicio: form.hora_inicio, tipo: form.tipo },
     mode === 'edit' && initial ? initial.id : null,
   )
+  // Only 3 consultorios: a 4th overlapping PRESENCIAL session has nowhere to go.
+  const roomsBlocked = roomsFull(
+    sessions,
+    { modalidad: form.modalidad, fecha: form.fecha, hora_inicio: form.hora_inicio, hora_fin: endTime ? endTime + ':00' : '' },
+    mode === 'edit' && initial ? initial.id : null,
+  )
 
   // Soft Google Calendar conflict check: once date, time and therapist are
   // chosen, ask that therapist's calendar whether the window is already busy.
@@ -234,6 +242,10 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     if (!validate()) return
     if (conflict) {
       setSubmitError('Hay un conflicto de horario. Cambia la fecha u hora.')
+      return
+    }
+    if (roomsBlocked) {
+      setSubmitError(`No hay consultorio disponible: ya hay ${CONSULTORIOS} sesiones presenciales en ese horario.`)
       return
     }
     setSaving(true)
@@ -294,7 +306,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
             value={form.patient_id}
             onChange={onPatient}
             error={errors.patient_id}
-            onCreateNew={onCreatePatient ? () => { setNewPatient(blankPatient()); setNpErrors({}); setNpError('') } : undefined}
+            onCreateNew={onCreatePatient ? () => { setNewPatient({ ...blankPatient(), terapeuta_id: fullAccess ? form.terapeuta_id : terapeutaId }); setNpErrors({}); setNpError('') } : undefined}
           />
 
           {unpaid.old && (
@@ -352,6 +364,15 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
             </div>
           )}
 
+          {roomsBlocked && !conflict && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+              <p className="font-heading text-sm font-bold text-rose-700">Sin consultorio disponible</p>
+              <p className="mt-0.5 font-caption text-xs text-rose-600">
+                Ya hay {CONSULTORIOS} sesiones presenciales en ese horario y solo hay {CONSULTORIOS} consultorios. Usa otra hora o agéndala En línea.
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <Select label="Modalidad" options={toOptions(MODALIDAD)} value={form.modalidad} onChange={(e) => set('modalidad', e.target.value)} placeholder="Modalidad…" />
             <Field label="Tarifa (USD)" error={errors.monto}>
@@ -390,7 +411,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
 
         <div className="flex items-center justify-end gap-3 border-t border-stroke/60 px-6 py-4">
           <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button type="submit" variant="primary" disabled={saving || !!conflict}>
+          <Button type="submit" variant="primary" disabled={saving || !!conflict || roomsBlocked}>
             {saving ? 'Guardando…' : mode === 'edit' ? 'Guardar cambios' : 'Crear sesión'}
           </Button>
         </div>
@@ -413,6 +434,17 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
             </div>
 
             <div className="flex-1 space-y-4 overflow-y-auto px-6 py-6">
+              {fullAccess && (
+                <Field label="Terapeuta" error={npErrors.terapeuta_id}>
+                  <select className={nativeInput} value={newPatient.terapeuta_id} onChange={(e) => setNp('terapeuta_id', e.target.value)}>
+                    <option value="">Selecciona terapeuta…</option>
+                    {therapists.map((t) => (
+                      <option key={t.id} value={t.id}>{fullName(t)}</option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+
               <Field label="Tipo de paciente">
                 <select className={nativeInput} value={newPatient.tipo_paciente} onChange={(e) => setNp('tipo_paciente', e.target.value)}>
                   {toOptions(TIPO_PACIENTE).map((o) => (

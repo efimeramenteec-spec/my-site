@@ -8,7 +8,7 @@ import { WeekView, MonthView, ListView } from '../features/sesiones/views.jsx'
 import { SesionDrawer } from '../features/sesiones/SesionDrawer.jsx'
 import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName, patientLabel, formatTime } from '../lib/format.js'
 import { CONFIRMACION } from '../lib/constants.js'
-import { findConflict } from '../lib/conflicts.js'
+import { findConflict, roomsFull, CONSULTORIOS } from '../lib/conflicts.js'
 import { groupSessionsByPatient } from '../lib/conversion.js'
 import { IconChevronRight, IconPlus, IconDownload } from '../layout/icons.jsx'
 import { useAuth } from '../lib/auth.jsx'
@@ -120,9 +120,14 @@ export default function Sesiones() {
 
   async function handleSubmit(payload) {
     // Backstop: never allow a double-booking even if the drawer guard was bypassed.
-    const conflict = findConflict(data?.sessions || [], payload, drawer.mode === 'edit' ? drawer.initial.id : null)
+    const excludeId = drawer.mode === 'edit' ? drawer.initial.id : null
+    const conflict = findConflict(data?.sessions || [], payload, excludeId)
     if (conflict) {
       return { ok: false, error: `Choca con ${fullName(conflict.patient)} (${formatTime(conflict.hora_inicio)}–${formatTime(conflict.hora_fin)}).` }
+    }
+    // Only 3 consultorios: block a 4th overlapping presencial session.
+    if (roomsFull(data?.sessions || [], payload, excludeId)) {
+      return { ok: false, error: `No hay consultorio disponible: ya hay ${CONSULTORIOS} sesiones presenciales en ese horario.` }
     }
     const res = drawer.mode === 'edit' ? await updateSession(drawer.initial.id, payload) : await createSession(payload)
     if (res.ok) {

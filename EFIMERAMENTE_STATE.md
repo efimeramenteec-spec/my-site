@@ -46,6 +46,35 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **Second batch — 5 changes** (2026-09-04, Opus). Built simplest→complex, one push.
+  Ideas in `IDEAS-BACKLOG.md`. (Between batches: onboarded therapist **Sophia Vergara**
+  — therapist row [turquoise `#14B8A6`, $24], calendar sync, auth user + profile created
+  directly via SQL, availability; and seeded 6 package anchors from the expediente backup.)
+  What shipped:
+  - **Remove "Fuente" field** (option A). Attribution is automatic, so the manual source
+    field was obsolete — removed from Pacientes forms + `FUENTE_PACIENTE` + `PATIENT_SELECT`/
+    `COLUMNS` + Marketing select. Accepted tradeoff: `marketing.js` no longer excludes
+    `fuente==='referido'` patients, so referrals now count in campaign attribution. DB column
+    `patients.fuente` left **dormant** (not dropped — avoids the stale-bundle demo fallback).
+  - **⭐ star → anchor-session-only.** Was a patient-level "buys packages" badge; now a
+    per-session marker shown ONLY on the anchor row (`s.package_anchor`) in Sesiones → Lista.
+    Removed the patient-level stars in Pacientes list + detail. `packages.js#hasPackage` now unused.
+  - **Therapist picker in the inline "Nuevo paciente" form** (`SesionDrawer.jsx`, owner-only).
+    Was silently assigning the new patient to the session's default therapist (first = Camila);
+    now an explicit dropdown (pre-filled with the session's therapist, "Selecciona…" +
+    validation). Therapists still auto-assign to self.
+  - **Marketing "Nuevos pacientes este mes" KPI.** New top headline card = new patients this
+    calendar month (first real session this month); click to expand the month's llamadas each
+    tagged **Convirtió / No convirtió** (via `conversion.js`; added `convirtio` to the Marketing
+    sessions select so manual overrides are respected). Fixed to current month.
+  - **Presencial 3-consultorio cap.** Only 3 physical offices → block a new PRESENCIAL session
+    if 3 non-cancelled presencial sessions (ALL therapists) already overlap its window. Helper
+    `roomsFull`/`presencialOverlapCount`/`CONSULTORIOS` in `conflicts.js`; enforced live in
+    `SesionDrawer` (rose warning + disabled submit) and as the `Sesiones.jsx#handleSubmit`
+    backstop. En línea/llamada don't count; edited session excluded. NOT enforced in public
+    `/reservar` yet (deferred, flagged in backlog).
+  - **Verified:** `npm run build` green; helpers node-unit-checked (rooms 8/8). No DB migrations
+    this batch (`fuente`/`notas` columns dormant).
 - [x] **Six-feature brainstorm batch — BUILT + PUSHED** (2026-08-31, Opus). Built
   simplest→complex in one session, single push; Nicolas live-checks on deploy. All
   ideas captured in **`IDEAS-BACKLOG.md`**. DB migrations applied to prod via the Supabase

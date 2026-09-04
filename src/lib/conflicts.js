@@ -37,3 +37,32 @@ export function findConflict(sessions = [], candidate, excludeId = null) {
     }) || null
   )
 }
+
+// The practice has 3 physical offices, so at most 3 PRESENCIAL sessions can
+// happen at once (across ALL therapists). En línea sessions need no room.
+export const CONSULTORIOS = 3
+
+/**
+ * How many non-cancelled PRESENCIAL sessions (all therapists) overlap the
+ * candidate's time window. Only meaningful for a presencial candidate; returns
+ * 0 otherwise. `excludeId` skips the session being edited.
+ */
+export function presencialOverlapCount(sessions = [], candidate, excludeId = null) {
+  if (candidate?.modalidad !== 'presencial' || !candidate?.fecha || !candidate?.hora_inicio) return 0
+  const [cs, ce] = sessionInterval(candidate)
+  let count = 0
+  for (const s of sessions) {
+    if (s.id === excludeId) continue
+    if (s.modalidad !== 'presencial') continue
+    if (s.fecha !== candidate.fecha) continue
+    if (s.estado === 'cancelada' || s.estado === 'no_show') continue
+    const [ss, se] = sessionInterval(s)
+    if (cs < se && ss < ce) count++
+  }
+  return count
+}
+
+/** True when a new presencial session has no free office in its window. */
+export function roomsFull(sessions = [], candidate, excludeId = null) {
+  return presencialOverlapCount(sessions, candidate, excludeId) >= CONSULTORIOS
+}

@@ -33,6 +33,118 @@ the EFIMERAMENTE_STATE.md session entry.
 
 ---
 
+## ✅ SHIPPED 2026-09-04 — second batch (5 changes)
+
+Built simplest→complex, one push. Details in the EFIMERAMENTE_STATE.md entry.
+1. ✅ Remove Fuente field (option A) — gone from app; DB column left dormant.
+2. ✅ ⭐ star → anchor-session-only (session-level in Lista; patient stars removed).
+3. ✅ Therapist picker in the inline "Nuevo paciente" form (owner-only).
+4. ✅ Marketing "Nuevos pacientes este mes" KPI + expandable llamadas w/ conversion.
+5. ✅ Presencial 3-consultorio cap (block 4th overlapping presencial).
+Still open: T1, T2 (Twilio) + `/reservar` room-cap (not enforced server-side yet).
+
+---
+
+## Pending change — ⭐ star: patient-level → anchor-session-level (2026-09-02)
+
+**Change the meaning of the package ⭐.** Right now it's a *patient-level* badge
+(shows next to a patient's name anywhere they appear if they've EVER bought a
+pack — driven by `hasPackage(patientSessions)` / `package_anchor` on any of their
+sessions). Nicolas now wants it to be a *session-level* marker: the ⭐ should
+appear **only on the FIRST session of a package** (the anchor row) to flag
+"this is session 1 of a 4-pack."
+
+To build:
+- **Sesiones → Lista** (`views.jsx`): drive the star off `s.package_anchor` for
+  that specific row (not `hasPackage(...)`). Only the anchor session shows ⭐.
+  The current `PackageStar` uses `sessionsByPatient` + `hasPackage` — replace
+  with a simple `s.package_anchor` check per row.
+- **Remove the patient-level stars** added in #4: Pacientes list rows
+  (`PatientRow` `hasPackage` prop + `packagePatientIds` set) and the PatientDetail
+  header (`patientHasPackage(sessions)`), since the star is no longer "this
+  patient buys packages."
+- Keep the `hasPackage`/`packages.js` helper around only if still used elsewhere;
+  otherwise it can go. The auto-prepaid logic (`remainingPackSlots`) is unaffected.
+
+## Pending change — therapist picker in the inline "Nuevo paciente" form (2026-09-02)
+
+When creating a patient from **Nueva sesión → "Crear paciente nuevo"** (the inline
+mini-form in `SesionDrawer.jsx`), the new patient is silently assigned to the
+session's currently-selected therapist, which defaults to the first in the list
+(**Camila Maya**). Nicolas wants an explicit **therapist dropdown** in that
+mini-form to choose who the patient belongs to.
+
+To build:
+- Add a therapist **Select** to the inline "Nuevo paciente" form in
+  `SesionDrawer.jsx` (owner sees all therapists; ideally a "Selecciona…"
+  placeholder so it's a deliberate choice, not a silent Camila default).
+- Wire it into `handleCreatePatient` — currently
+  `assignTo = fullAccess ? form.terapeuta_id : terapeutaId`; for the owner, use
+  the new dropdown value instead of `form.terapeuta_id`.
+- Keep therapist users auto-assigned to themselves (RLS only lets them create
+  their own patients) — so the dropdown is owner-only.
+- Same default-Camila issue may exist in the full Pacientes create drawer
+  (`CreatePatientDrawer`) — that one already HAS a Terapeuta select, so check it
+  defaults sensibly (placeholder vs first therapist) while we're at it.
+
+## Pending change — remove the "Fuente" field entirely (2026-09-02, option A)
+
+Nicolas: attribution is automatic now, so the manual **Fuente** field on patients
+is clutter. **Decision: remove it entirely (option A).** Accepted tradeoff,
+flagged and confirmed: referred patients will no longer be excluded from
+ad-campaign attribution (`marketing.js` used `fuente==='referido'` to skip them),
+so campaign conversions/CPA will count referrals too — less accurate marketing
+numbers, which Nicolas is OK with.
+
+To build:
+- **Pacientes.jsx**: remove the Fuente `Select` + `form.fuente` state +
+  `patch.fuente` in the edit form; remove from the create drawer if present;
+  drop the `FUENTE_PACIENTE` import.
+- **constants.js**: remove `FUENTE_PACIENTE` (+ its comment).
+- **queries.js**: drop `fuente` from `PATIENT_SELECT`, `PATIENT_COLUMNS`, and the
+  Marketing patients select.
+- **marketing.js:69**: remove the now-dead `if (p.fuente === 'referido') continue`
+  (attribution will include everyone). This is the accepted behavior change.
+- **DB**: optionally drop `patients.fuente` for tidiness (like we did with
+  `notas`); or leave the column dormant.
+
+## Pending change — Marketing: "Nuevos pacientes este mes" as the top KPI (2026-09-04)
+
+Make the **first thing** in the Marketing module a headline KPI:
+**"NUEVOS PACIENTES ESTE MES: X"**. Clicking it **expands the full list of this
+month's llamadas**, each showing whether it **Convirtió / No convirtió** — so
+Nicolas can see at a glance which intro calls turned into patients and which
+didn't.
+
+To build:
+- **Marketing.jsx**: add the KPI at the top (X = new patients this calendar
+  month — reuse the module's existing "new patient" definition: first real
+  session this month), click-to-expand like the Finanzas Deudores / Seguimiento
+  riesgo pattern (KpiCard `onClick`/`active`).
+- Expanded list = this month's `tipo==='llamada'` sessions with conversion
+  status via `llamadaConverted` (`src/lib/conversion.js`) — name, date,
+  Convirtió/No convirtió. Ties into #3.
+
+## Pending change — cap presencial sessions at 3 per time window (3 consultorios) (2026-09-04)
+
+The practice only has **3 physical offices (consultorios)**. Block scheduling a
+new **presencial** session if there are **already 3 presencial sessions**
+(across ALL therapists) overlapping that time window — otherwise a 4th in-person
+booking has nowhere to happen. En línea sessions don't count (no room needed).
+
+To build:
+- Add a capacity check (e.g. in `conflicts.js`): for a candidate PRESENCIAL
+  session, count non-cancelled `modalidad==='presencial'` sessions (all
+  therapists) whose time range overlaps; if ≥ 3, block. Exclude the session
+  being edited; ignore cancelled/no_show; llamadas are en_linea so they don't
+  count.
+- Enforce in the in-app scheduler (`SesionDrawer.jsx` guard + `Sesiones.jsx`
+  `handleSubmit` backstop) with a clear message ("No hay consultorio disponible:
+  ya hay 3 sesiones presenciales en ese horario").
+- CONSIDER: the public `/reservar` presencial flow (`public-booking.mjs`) should
+  probably honor the same 3-room cap when generating/validating slots — flag for
+  decision (more complex; server-side slot math).
+
 ## Post-app / Twilio (do AFTER the app feature batch)
 
 ### T1. 🔔 Auto-reply on the WhatsApp sender number ("this number doesn't receive messages")

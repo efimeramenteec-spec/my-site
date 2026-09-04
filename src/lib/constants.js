@@ -88,15 +88,10 @@ export const RESPUESTA_CITA = {
   reprogramar: { label: 'Reprogramar', badge: 'orange' },
 }
 
-// patients.fuente — acquisition source (Marketing module v2). Only 'referido'
-// has mechanical meaning: it EXCLUDES the patient from campaign attribution
-// (see MARKETING-CONSULTORIO-2026.md); the rest are informative labels.
-export const FUENTE_PACIENTE = {
-  ads:      'Campaña (ads)',
-  referido: 'Referido',
-  organico: 'Orgánico',
-  otro:     'Otro',
-}
+// patients.fuente removed from the app 2026-09-04 — attribution is fully
+// automatic (date-based) now, so the manual source field was obsolete. The DB
+// column is left dormant. Consequence: referrals are no longer excluded from
+// campaign attribution (accepted by Nicolas).
 
 // patients.frecuencia — expected therapy cadence (Seguimiento module).
 // NULL/unset patients are excluded from the adherence metric.

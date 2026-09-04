@@ -6,8 +6,8 @@
 // Attribution rule (Nicolas, 2026-07-13): only ONE Meta campaign runs at a
 // time, so every new patient — first real session — is attributed to the
 // campaign whose date window covers the day that first session was BOOKED
-// (sessions.created_at). Referral escape hatch: patients with
-// fuente === 'referido' are excluded from campaign attribution entirely.
+// (sessions.created_at). (The manual 'referido' escape hatch was removed
+// 2026-09-04 with the Fuente field — attribution now includes everyone.)
 
 export const isRealSession = (s) =>
   s.tipo !== 'llamada' && s.estado !== 'cancelada' && s.estado !== 'no_show'
@@ -66,7 +66,8 @@ export function acquisitions({ campaigns, patients, sessions }, today) {
   }
   const out = []
   for (const p of patients) {
-    if (p.fuente === 'referido') continue
+    // Referral exclusion removed 2026-09-04 with the Fuente field — attribution
+    // now includes everyone booked in a campaign window (accepted tradeoff).
     const real = (byPatient.get(p.id) || []).filter(isRealSession)
     if (!real.length) continue
     real.sort((a, b) =>
