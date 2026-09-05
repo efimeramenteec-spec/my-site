@@ -12,9 +12,9 @@ import { Select } from '../components/Select/Select.jsx'
 import { getMarketingData, updateCampaign, importCampaignWeeks } from '../lib/queries.js'
 import { parseMetaCsv } from '../lib/metaCsv.js'
 import { computeMarketing, computeFlags, campaignOn } from '../lib/marketing.js'
-import { llamadaConverted, groupSessionsByPatient } from '../lib/conversion.js'
+import { groupSessionsByPatient } from '../lib/conversion.js'
 import { formatCurrency, formatDateShort, fullName, patientLabel, dateKey } from '../lib/format.js'
-import { IconWallet, IconUsers, IconPulse, IconChat, IconPhone, IconMegaphone } from '../layout/icons.jsx'
+import { IconWallet, IconUsers, IconPulse, IconChat, IconPhone, IconMegaphone, IconChevronRight } from '../layout/icons.jsx'
 
 // Marketing v2 (owner-only). Funnel: Meta Ads → conversación de WhatsApp →
 // llamada gratuita → paciente. Data arrives weekly via /marketize (see
@@ -426,35 +426,44 @@ export default function Marketing() {
     [data, campaignId, today],
   )
 
-  // "Nuevos pacientes este mes" headline + the month's llamadas with their
-  // conversion status. Fixed to the current calendar month (ignores the period
-  // selector) — it's the top-of-page snapshot.
-  const mes = useMemo(() => {
-    if (!data) return null
-    const { from, to } = monthRange(now)
-    const byPatient = groupSessionsByPatient(data.sessions)
-    const patientById = Object.fromEntries(data.patients.map((p) => [p.id, p]))
-    const isReal = (s) => s.tipo !== 'llamada' && s.estado !== 'cancelada' && s.estado !== 'no_show'
-    // New patients this month = first-ever real session falls in this month.
-    let nuevos = 0
-    for (const p of data.patients) {
-      const real = (byPatient[p.id] || []).filter(isReal).sort((a, b) => a.fecha.localeCompare(b.fecha))
-      if (real.length && real[0].fecha >= from && real[0].fecha <= to) nuevos++
-    }
-    const llamadas = data.sessions
-      .filter((s) => s.tipo === 'llamada' && s.fecha >= from && s.fecha <= to)
-      .map((s) => ({
-        id: s.id,
-        fecha: s.fecha,
-        patient: patientById[s.patient_id],
-        converted: llamadaConverted(s, byPatient[s.patient_id] || []),
-      }))
-      .sort((a, b) => b.fecha.localeCompare(a.fecha))
-    return { nuevos, llamadas }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, today])
+  // Month navigator for the "Nuevos pacientes" card (independent of the campaign
+  // period selector below). Defaults to the current month.
+  const [monthCursor, setMonthCursor] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1))
+  const [showNuevos, setShowNuevos] = useState(false)
 
-  const [showLlamadas, setShowLlamadas] = useState(false)
+  // New patients acquired in the selected month. Attribution (Nicolas,
+  // 2026-09-05): a patient is credited to the month they CONVERTED — i.e. the
+  // month of their (first) llamada if they had one, else the month of their
+  // first real session (they walked in without a call). Only patients who
+  // actually became patients (≥1 real session) count.
+  const nuevos = useMemo(() => {
+    if (!data) return null
+    const from = dateKey(new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1))
+    const to = dateKey(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 0))
+    const byPatient = groupSessionsByPatient(data.sessions)
+    const notCancelled = (s) => s.estado !== 'cancelada' && s.estado !== 'no_show'
+    const byFecha = (a, b) => a.fecha.localeCompare(b.fecha)
+    const rows = []
+    for (const p of data.patients) {
+      const ss = byPatient[p.id] || []
+      const real = ss.filter((s) => s.tipo !== 'llamada' && notCancelled(s)).sort(byFecha)
+      if (!real.length) continue // never became a patient
+      const llamadas = ss.filter((s) => s.tipo === 'llamada' && notCancelled(s)).sort(byFecha)
+      const acqDate = llamadas.length ? llamadas[0].fecha : real[0].fecha
+      if (acqDate >= from && acqDate <= to) {
+        rows.push({ patient: p, llamadaFecha: llamadas.length ? llamadas[0].fecha : null, acqDate })
+      }
+    }
+    rows.sort((a, b) => a.acqDate.localeCompare(b.acqDate))
+    return rows
+  }, [data, monthCursor])
+
+  const monthLabel = (() => {
+    const s = new Intl.DateTimeFormat('es-EC', { month: 'long', year: 'numeric' }).format(monthCursor)
+    return s.charAt(0).toUpperCase() + s.slice(1)
+  })()
+  const isCurrentMonth = monthCursor.getFullYear() === now.getFullYear() && monthCursor.getMonth() === now.getMonth()
+  const shiftMonth = (d) => setMonthCursor((c) => new Date(c.getFullYear(), c.getMonth() + d, 1))
 
   const handlePatchCampaign = async (id, patch) => {
     const res = await updateCampaign(id, patch)
@@ -527,45 +536,60 @@ export default function Marketing() {
         <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
       </div>
 
-      {/* Headline: new patients this month → tap to see the month's llamadas
-          and which converted. Fixed to the current calendar month. */}
-      {mes && (
-        <Card
-          className="cursor-pointer transition-shadow hover:shadow-card"
-          onClick={() => setShowLlamadas((v) => !v)}
-          role="button"
-        >
+      {/* Headline: new patients acquired in the selected month (credited to the
+          month they converted = their call month, else their first session).
+          Tap to expand the list; navigate months with the arrows. */}
+      {nuevos && (
+        <Card>
           <div className="flex items-center justify-between gap-3">
-            <div>
+            <button type="button" onClick={() => setShowNuevos((v) => !v)} className="min-w-0 text-left">
               <p className="font-caption text-xs font-bold uppercase tracking-wide text-content-muted">
-                Nuevos pacientes este mes
+                Nuevos pacientes
               </p>
-              <p className="mt-1 font-heading text-4xl font-bold text-content-primary">{mes.nuevos}</p>
-            </div>
-            <div className="text-right">
-              <p className="font-caption text-xs text-content-muted">
-                {mes.llamadas.length} llamada{mes.llamadas.length === 1 ? '' : 's'} este mes
-              </p>
+              <p className="mt-1 font-heading text-4xl font-bold text-content-primary">{nuevos.length}</p>
               <p className="mt-0.5 font-caption text-xs font-bold text-brand-lavender">
-                {showLlamadas ? 'Ocultar llamadas ▲' : 'Ver llamadas ▼'}
+                {showNuevos ? 'Ocultar lista ▲' : 'Ver lista ▼'}
               </p>
+            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => shiftMonth(-1)}
+                className="rounded-full p-1.5 text-content-muted transition-colors hover:bg-surface-warm hover:text-content-primary"
+                aria-label="Mes anterior"
+              >
+                <span className="inline-block rotate-180"><IconChevronRight size={18} /></span>
+              </button>
+              <span className="min-w-[130px] text-center font-heading text-sm font-bold text-content-primary">{monthLabel}</span>
+              <button
+                type="button"
+                onClick={() => shiftMonth(1)}
+                disabled={isCurrentMonth}
+                className="rounded-full p-1.5 text-content-muted transition-colors enabled:hover:bg-surface-warm enabled:hover:text-content-primary disabled:opacity-30"
+                aria-label="Mes siguiente"
+              >
+                <IconChevronRight size={18} />
+              </button>
             </div>
           </div>
-          {showLlamadas && (
+          {showNuevos && (
             <div className="mt-4 border-t border-stroke/50 pt-3">
-              {mes.llamadas.length === 0 ? (
-                <p className="font-caption text-sm text-content-muted">No hubo llamadas este mes.</p>
+              {nuevos.length === 0 ? (
+                <p className="font-caption text-sm text-content-muted">No hubo pacientes nuevos en {monthLabel}.</p>
               ) : (
                 <ul className="divide-y divide-stroke/40">
-                  {mes.llamadas.map((l) => (
-                    <li key={l.id} className="flex items-center justify-between gap-3 py-2">
-                      <div className="min-w-0">
-                        <p className="truncate font-body text-sm font-bold text-content-primary">{patientLabel(l.patient)}</p>
-                        <p className="font-caption text-xs text-content-muted">{formatDateShort(l.fecha)}</p>
-                      </div>
-                      <span className={`flex-shrink-0 rounded-pill px-2.5 py-1 font-caption text-[11px] font-bold ${l.converted ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>
-                        {l.converted ? 'Convirtió' : 'No convirtió'}
-                      </span>
+                  {nuevos.map((r) => (
+                    <li key={r.patient.id} className="flex items-center justify-between gap-3 py-2">
+                      <p className="min-w-0 truncate font-body text-sm font-bold text-content-primary">{patientLabel(r.patient)}</p>
+                      {r.llamadaFecha ? (
+                        <span className="flex-shrink-0 rounded-pill bg-emerald-100 px-2.5 py-1 font-caption text-[11px] font-bold text-emerald-700">
+                          Llamada: {formatDateShort(r.llamadaFecha)}
+                        </span>
+                      ) : (
+                        <span className="flex-shrink-0 rounded-pill bg-stone-100 px-2.5 py-1 font-caption text-[11px] font-bold text-content-muted">
+                          Entró sin llamada
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>

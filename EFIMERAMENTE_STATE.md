@@ -63,10 +63,16 @@
     Was silently assigning the new patient to the session's default therapist (first = Camila);
     now an explicit dropdown (pre-filled with the session's therapist, "Selecciona…" +
     validation). Therapists still auto-assign to self.
-  - **Marketing "Nuevos pacientes este mes" KPI.** New top headline card = new patients this
-    calendar month (first real session this month); click to expand the month's llamadas each
-    tagged **Convirtió / No convirtió** (via `conversion.js`; added `convirtio` to the Marketing
-    sessions select so manual overrides are respected). Fixed to current month.
+  - **Marketing "Nuevos pacientes" KPI** (reworked same day per Nicolas, 2026-09-05). Top
+    headline card = new patients acquired in a **selectable month** (◀ ▶ month navigator,
+    defaults to current). **Attribution = the month they CONVERTED**: the month of their first
+    non-cancelled **llamada** if they had one, else their first real session's month (walk-in).
+    So a Nov call → Dec first session is credited to **Nov**. Click expands the list of those
+    patients; each shows **"Llamada: <fecha>"** or **"Entró sin llamada"** (number and list now
+    match — replaced the first cut that showed the month's llamadas, which mismatched the count).
+    Logic inline in `Marketing.jsx` (uses `groupSessionsByPatient`). Sept: 14→8 under the new
+    rule (6 had earlier-month calls). (`convirtio` was added to the Marketing sessions select in
+    the first cut; now unused there but left in.)
   - **Presencial 3-consultorio cap.** Only 3 physical offices → block a new PRESENCIAL session
     if 3 non-cancelled presencial sessions (ALL therapists) already overlap its window. Helper
     `roomsFull`/`presencialOverlapCount`/`CONSULTORIOS` in `conflicts.js`; enforced live in
