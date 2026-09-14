@@ -114,6 +114,7 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [moving, setMoving] = useState(false)
 
   useEffect(() => {
     setForm(formFromPatient(patient))
@@ -181,6 +182,25 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
     setDeleting(true)
     const res = await onDelete(patient.id)
     setDeleting(false)
+    if (!res.ok) setError(res.error)
+  }
+
+  // Move a person between the Pacientes and Leads lists (flips es_lead). Fixes a
+  // mistaken conversion in either direction. Available to whoever can edit this
+  // patient (therapist for their own, owner for anyone) — same as the form.
+  const handleToggleLead = async () => {
+    const toLead = !patient.es_lead
+    const hasReal = sessions.some((s) => s.tipo !== 'llamada' && s.estado !== 'cancelada')
+    const msg = toLead
+      ? hasReal
+        ? `${patientLabel(patient)} tiene sesiones reales registradas. ¿Moverlo a Leads de todos modos? Saldrá de la lista de pacientes y del Seguimiento.`
+        : `¿Mover a ${patientLabel(patient)} a la lista de Leads?`
+      : `¿Mover a ${patientLabel(patient)} a la lista de Pacientes?`
+    if (!window.confirm(msg)) return
+    setMoving(true)
+    setError(null)
+    const res = await onSave(patient.id, { es_lead: toLead })
+    setMoving(false)
     if (!res.ok) setError(res.error)
   }
 
@@ -342,6 +362,18 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
           >
             {saved ? '✓ Guardado' : saving ? 'Guardando…' : 'Guardar cambios'}
           </Button>
+          <button
+            type="button"
+            onClick={handleToggleLead}
+            disabled={moving}
+            className="w-full rounded-xl border border-stroke px-4 py-2 font-heading text-xs font-bold text-content-secondary transition-colors hover:bg-white/60 disabled:opacity-50"
+          >
+            {moving
+              ? 'Moviendo…'
+              : patient.es_lead
+                ? '↑ Mover a Pacientes'
+                : '↓ Mover a Leads'}
+          </button>
         </section>
 
         {/* Expediente removed 2026-08-31 (C1): no clinical/personal free-text
