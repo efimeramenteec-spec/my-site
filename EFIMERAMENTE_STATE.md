@@ -106,6 +106,12 @@
       manually OR when a future real session is detected (`src/lib/conversion.js`) — NOT the
       "born confirmada" idea in the design-flaws backlog. The es_lead promotion piggybacks on
       that same conversion concept.
+  - **Follow-up (same day, commit `3a0f284`): move a person between Pacientes ↔ Leads.** A
+    "Mover a Leads" / "Mover a Pacientes" button in the patient detail panel flips `es_lead` in
+    BOTH directions (fixes a mistaken/accidental conversion either way — there was no reverse
+    path before). Available to whoever can edit the patient (therapist for own, owner for all;
+    RLS-safe — it doesn't touch terapeuta_id). Confirms first, and warns before demoting a
+    person who actually has real sessions.
   - **Therapist comms:** drafted a Spanish message for Nicolas to send therapists explaining the
     three therapist-facing improvements (full patient editing, the Leads tab + "¿Es primera
     sesión?" flow, nicer booking-link preview). Not stored in the repo.
