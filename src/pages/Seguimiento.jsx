@@ -89,9 +89,10 @@ export default function Seguimiento() {
 
     // Only ACTIVO patients are tracked (Nicolas, 2026-07-04): inactivo patients
     // aren't currently coming, so adherence and "en riesgo" ignore them.
-    // Historical charts below still count everyone — the past doesn't change
-    // when a patient leaves.
-    const tracked = data.patients.filter((p) => p.estado_general === 'activo')
+    // Leads (booked a free llamada, not yet converted) are excluded too — they
+    // aren't in therapy. Historical charts below still count everyone via
+    // attended sessions (leads have none), so the past is unaffected.
+    const tracked = data.patients.filter((p) => p.estado_general === 'activo' && !p.es_lead)
 
     // ── Adherencia ──
     const conFrecuencia = tracked.filter((p) => p.frecuencia)

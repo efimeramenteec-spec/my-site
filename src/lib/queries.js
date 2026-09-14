@@ -130,7 +130,7 @@ export async function getSessionsData() {
         fetchAll(() => supabase.from('sessions').select(SESSION_SELECT)
           .order('fecha', { ascending: true }).order('hora_inicio', { ascending: true })
           .order('id', { ascending: true })),
-        supabase.from('patients').select('id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,terapeuta_id,estado_general,tarifa,metodo_pago')
+        supabase.from('patients').select('id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,terapeuta_id,estado_general,es_lead,tarifa,metodo_pago')
           .order('nombre', { ascending: true }),
         supabase.from('therapists').select('id,nombre,apellido,color,calendar_email,activo,provision_rate')
           .order('nombre', { ascending: true }),
@@ -161,6 +161,13 @@ export async function createSession(payload) {
       const res = await supabase.from('sessions').insert(data).select(SESSION_SELECT).single()
       if (res.error) throw res.error
       const session = res.data
+      // A real (non-llamada) session means the person is now a patient, not just
+      // a lead. Promote them (best-effort; the .eq('es_lead',true) guard makes
+      // it a no-op for people who already are patients).
+      if (session.tipo !== 'llamada' && session.patient_id) {
+        supabase.from('patients').update({ es_lead: false })
+          .eq('id', session.patient_id).eq('es_lead', true).then(() => {})
+      }
       // Calendar sync stays best-effort (never blocks the save), but a failure
       // used to be completely silent — a transient Google API hiccup left the
       // session with no event and no google_event_id, and nobody knew (this is
@@ -219,6 +226,11 @@ export async function updateSession(id, patch) {
         throw res.error
       }
       const session = res.data
+      // Marking a llamada "Convirtió" promotes the lead to a patient.
+      if (data.convirtio === true && session.patient_id) {
+        supabase.from('patients').update({ es_lead: false })
+          .eq('id', session.patient_id).eq('es_lead', true).then(() => {})
+      }
       const calEmail = session.therapist?.calendar_email
       const eventId = session.google_event_id
       if (calEmail && eventId) {
@@ -274,7 +286,7 @@ export async function deleteSession(id) {
 
 const PATIENT_SELECT =
   'id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,email,cedula,contifico_id,fecha_nacimiento,terapeuta_id,' +
-  'motivo_consulta,estado_general,tarifa,metodo_pago,frecuencia,created_at,updated_at'
+  'motivo_consulta,estado_general,es_lead,tarifa,metodo_pago,frecuencia,created_at,updated_at'
 
 // patients.notas (the "Expediente" free-text) intentionally dropped from the
 // app 2026-08-31 (C1) — no clinical/personal notes stored while security isn't
@@ -282,7 +294,7 @@ const PATIENT_SELECT =
 const PATIENT_COLUMNS = [
   'nombre', 'apellido', 'nombre_2', 'apellido_2', 'tipo_paciente',
   'telefono', 'email', 'cedula', 'contifico_id', 'fecha_nacimiento',
-  'terapeuta_id', 'motivo_consulta', 'estado_general',
+  'terapeuta_id', 'motivo_consulta', 'estado_general', 'es_lead',
   'tarifa', 'metodo_pago', 'frecuencia',
 ]
 const pickPatientColumns = (obj) =>

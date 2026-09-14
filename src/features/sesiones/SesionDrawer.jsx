@@ -66,6 +66,17 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
   // has open slots (create; user can override the pre-checked default).
   const [packageAnchor, setPackageAnchor] = useState(false)
   const [prepaid, setPrepaid] = useState(false)
+  // "¿Es primera sesión?" — when on, the patient picker lists unconverted LEADS
+  // (people who booked a free llamada) instead of patients, so a converting lead
+  // can be scheduled without re-registering them. Creating a real session for a
+  // lead promotes them to a patient automatically (queries.js#createSession).
+  const [firstSession, setFirstSession] = useState(false)
+
+  // Patients vs leads for the picker. In edit mode we pass everyone so an
+  // existing selection (even a lead's llamada) always resolves.
+  const patientsOnly = useMemo(() => patients.filter((p) => !p.es_lead), [patients])
+  const leadsOnly = useMemo(() => patients.filter((p) => p.es_lead), [patients])
+  const pickerPatients = mode === 'edit' ? patients : (firstSession ? leadsOnly : patientsOnly)
 
   const packRemaining = useMemo(
     () => remainingPackSlots(sessions.filter((s) => s.patient_id === form.patient_id)),
@@ -89,6 +100,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
       setForm(blankForm(defaultDate, therapists))
       setPackageAnchor(false)
     }
+    setFirstSession(false)
     setErrors({})
     setSubmitError('')
     setNewPatient(null)
@@ -148,6 +160,9 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     })
     setNpSaving(false)
     if (res?.ok && res.data) {
+      // An inline-created person is a patient (not a lead), so switch the picker
+      // back to patients mode or the new selection wouldn't show in the list.
+      setFirstSession(false)
       onPatient(res.data.id)
       setNewPatient(null)
       setNpErrors({})
@@ -301,11 +316,30 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-6">
+          {mode !== 'edit' && (
+            <label className="flex items-center justify-between gap-3 rounded-card border border-stroke/50 bg-surface-warm px-4 py-3">
+              <span className="font-heading text-sm font-bold text-content-secondary">
+                ¿Es primera sesión?
+                <span className="mt-0.5 block font-caption text-xs font-normal text-content-muted">
+                  Elige al lead que agendó una llamada gratuita.
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                checked={firstSession}
+                onChange={(e) => { setFirstSession(e.target.checked); setForm((f) => ({ ...f, patient_id: '' })) }}
+                className="h-5 w-5 flex-shrink-0 accent-brand-lavender"
+              />
+            </label>
+          )}
+
           <PatientSelect
-            patients={patients}
+            patients={pickerPatients}
             value={form.patient_id}
             onChange={onPatient}
             error={errors.patient_id}
+            label={firstSession && mode !== 'edit' ? 'Lead' : 'Paciente'}
+            placeholder={firstSession && mode !== 'edit' ? 'Seleccionar lead…' : 'Seleccionar paciente…'}
             onCreateNew={onCreatePatient ? () => { setNewPatient({ ...blankPatient(), terapeuta_id: fullAccess ? form.terapeuta_id : terapeutaId }); setNpErrors({}); setNpError('') } : undefined}
           />
 

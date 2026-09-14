@@ -21,6 +21,30 @@
   to = "/.netlify/functions/:splat"
   status = 200
 
+# Public booking pages get their OWN html shell (agendar.html) so the WhatsApp
+# link preview shows a patient-facing title instead of "Panel de Control".
+# These MUST precede the /* SPA fallback (Netlify uses first-match). Both flows
+# share the same React app + shell; React Router renders the right one by path.
+[[redirects]]
+  from = "/agendar"
+  to = "/agendar.html"
+  status = 200
+
+[[redirects]]
+  from = "/agendar/*"
+  to = "/agendar.html"
+  status = 200
+
+[[redirects]]
+  from = "/reservar"
+  to = "/agendar.html"
+  status = 200
+
+[[redirects]]
+  from = "/reservar/*"
+  to = "/agendar.html"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

@@ -35,6 +35,15 @@ export default defineConfig(({ mode }) => {
     build: {
       chunkSizeWarningLimit: 900,
       rollupOptions: {
+        // Two HTML shells: index.html (internal panel) and agendar.html (the
+        // patient-facing booking pages, served for /agendar + /reservar via
+        // netlify.toml rewrites). They share /src/main.jsx, so the JS bundle is
+        // emitted once — only the <head> meta differs (public link preview must
+        // not leak the "Panel de Control" title).
+        input: {
+          main: resolve(process.cwd(), 'index.html'),
+          agendar: resolve(process.cwd(), 'agendar.html'),
+        },
         output: {
           manualChunks: {
             react: ['react', 'react-dom', 'react-router-dom'],

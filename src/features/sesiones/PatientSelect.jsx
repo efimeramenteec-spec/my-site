@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { fullName, patientLabel, patientSearchText, initials } from '../../lib/format.js'
 
 /** Searchable patient combobox styled to match the DS glass inputs. */
-export function PatientSelect({ patients = [], value, onChange, error, onCreateNew }) {
+export function PatientSelect({ patients = [], value, onChange, error, onCreateNew, label = 'Paciente', placeholder = 'Seleccionar paciente…' }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const ref = useRef(null)
@@ -23,7 +23,7 @@ export function PatientSelect({ patients = [], value, onChange, error, onCreateN
 
   return (
     <div className="flex flex-col gap-1.5" ref={ref}>
-      <label className="font-heading text-sm font-bold text-content-secondary">Paciente</label>
+      <label className="font-heading text-sm font-bold text-content-secondary">{label}</label>
       <div className="relative">
         <button
           type="button"
@@ -43,7 +43,7 @@ export function PatientSelect({ patients = [], value, onChange, error, onCreateN
               {patientLabel(selected)}
             </span>
           ) : (
-            <span className="text-content-muted">Seleccionar paciente…</span>
+            <span className="text-content-muted">{placeholder}</span>
           )}
           <svg width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden="true">
             <path d="M1 1L6 7L11 1" stroke="#b48ae4" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />

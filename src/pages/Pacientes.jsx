@@ -28,8 +28,6 @@ import {
   IconVideo,
   IconSearch,
   IconX,
-  IconPhone,
-  IconMail,
 } from '../layout/icons.jsx'
 
 // ─── Small helpers ──────────────────────────────────────────────
@@ -127,38 +125,38 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
 
   const handleSave = async () => {
     const isIndividual = form.tipo_paciente === 'individual'
-    // Owner can fix identity/contact typos, but these must never be blanked.
-    if (fullAccess) {
-      if (!form.nombre.trim() || !form.apellido.trim() || !form.telefono.trim()) {
-        setError('Nombre, apellido y teléfono no pueden quedar vacíos.')
-        return
-      }
-      if (!isIndividual && (!form.nombre_2.trim() || !form.apellido_2.trim())) {
-        setError('La segunda persona necesita nombre y apellido.')
-        return
-      }
+    // Identity/contact typos are fixable by owner AND therapist now, but these
+    // core fields must never be blanked.
+    if (!form.nombre.trim() || !form.apellido.trim() || !form.telefono.trim()) {
+      setError('Nombre, apellido y teléfono no pueden quedar vacíos.')
+      return
+    }
+    if (!isIndividual && (!form.nombre_2.trim() || !form.apellido_2.trim())) {
+      setError('La segunda persona necesita nombre y apellido.')
+      return
     }
     setSaving(true)
     setError(null)
-    // Therapists only edit estado + frecuencia; identity, contact, reassignment,
-    // billing and marketing attribution stay owner-only (the RLS WITH CHECK
-    // would reject an identity/terapeuta_id change from them anyway).
+    // Therapists can edit every DATA field of their own patients (identity,
+    // contact, cédula, billing, type, estado, frecuencia). Only reassigning to
+    // another therapist stays owner-only — the RLS WITH CHECK would reject a
+    // terapeuta_id change from a therapist anyway.
     const patch = {
+      tipo_paciente: form.tipo_paciente,
+      nombre: form.nombre.trim(),
+      apellido: form.apellido.trim(),
+      nombre_2: isIndividual ? null : form.nombre_2.trim(),
+      apellido_2: isIndividual ? null : form.apellido_2.trim(),
+      telefono: form.telefono.trim(),
+      email: form.email.trim() || null,
+      cedula: form.cedula.trim() || null,
+      tarifa: parseFloat(form.tarifa) || TARIFA_DEFAULT,
+      metodo_pago: form.metodo_pago,
       estado_general: form.estado_general,
       frecuencia: form.frecuencia || null,
     }
     if (fullAccess) {
-      patch.tipo_paciente = form.tipo_paciente
-      patch.nombre = form.nombre.trim()
-      patch.apellido = form.apellido.trim()
-      patch.nombre_2 = isIndividual ? null : form.nombre_2.trim()
-      patch.apellido_2 = isIndividual ? null : form.apellido_2.trim()
-      patch.telefono = form.telefono.trim()
-      patch.email = form.email.trim() || null
-      patch.cedula = form.cedula.trim() || null
       patch.terapeuta_id = form.terapeuta_id || null
-      patch.tarifa = parseFloat(form.tarifa) || TARIFA_DEFAULT
-      patch.metodo_pago = form.metodo_pago
     }
     const res = await onSave(patient.id, patch)
     setSaving(false)
@@ -231,34 +229,10 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
 
       {/* Scrollable body */}
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
-        {/* Contact — read-only for therapists; the owner edits these fields
-            (name, phone, email) in Configuración below. */}
-        {!fullAccess && (
-        <section className="space-y-3">
-          <SectionTitle>Contacto</SectionTitle>
-          {patient.telefono && (
-            <div className="flex items-center gap-2.5">
-              <IconPhone size={15} className="flex-shrink-0 text-content-muted" />
-              <span className="font-body text-sm text-content-primary">{patient.telefono}</span>
-            </div>
-          )}
-          {patient.email && (
-            <div className="flex items-center gap-2.5">
-              <IconMail size={15} className="flex-shrink-0 text-content-muted" />
-              <span className="font-body text-sm text-content-primary">{patient.email}</span>
-            </div>
-          )}
-          {!patient.telefono && !patient.email && (
-            <p className="font-caption text-sm text-content-muted">Sin datos de contacto.</p>
-          )}
-        </section>
-        )}
-
-        {/* Editable settings */}
+        {/* Editable settings — owner AND therapist may edit every data field of
+            their own patients; only the Terapeuta reassignment stays owner-only. */}
         <section className="space-y-3">
           <SectionTitle>Configuración</SectionTitle>
-          {fullAccess && (
-            <>
               <Select
                 label="Tipo de paciente"
                 value={form.tipo_paciente}
@@ -310,18 +284,22 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
                 onChange={(e) => set('cedula', e.target.value)}
                 hint="Requerido para facturar en Contífico"
               />
-              <Select
-                label="Terapeuta"
-                value={form.terapeuta_id}
-                onChange={(e) => set('terapeuta_id', e.target.value)}
-                options={therapists.map((t) => ({ value: t.id, label: fullName(t) }))}
-                placeholder="Sin asignar…"
-              />
-              {form.terapeuta_id !== (patient.terapeuta_id || '') && (
-                <p className="font-caption text-xs text-amber-600">
-                  Reasignar solo cambia el terapeuta del paciente. Las sesiones ya
-                  agendadas siguen con el terapeuta anterior.
-                </p>
+              {fullAccess && (
+                <>
+                  <Select
+                    label="Terapeuta"
+                    value={form.terapeuta_id}
+                    onChange={(e) => set('terapeuta_id', e.target.value)}
+                    options={therapists.map((t) => ({ value: t.id, label: fullName(t) }))}
+                    placeholder="Sin asignar…"
+                  />
+                  {form.terapeuta_id !== (patient.terapeuta_id || '') && (
+                    <p className="font-caption text-xs text-amber-600">
+                      Reasignar solo cambia el terapeuta del paciente. Las sesiones ya
+                      agendadas siguen con el terapeuta anterior.
+                    </p>
+                  )}
+                </>
               )}
               <Input
                 label="Tarifa por sesión (USD)"
@@ -338,8 +316,6 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
                 options={toOptions(METODO_PAGO)}
                 placeholder={null}
               />
-            </>
-          )}
           <Select
             label="Estado"
             value={form.estado_general}
@@ -508,7 +484,7 @@ function CreatePatientDrawer({ therapists, fullAccess = true, terapeutaId = null
     else if (!form.email.includes('@')) e.email = 'Email inválido'
     if (!form.cedula.trim()) e.cedula = 'Requerido para facturar'
     if (fullAccess && !form.terapeuta_id) e.terapeuta_id = 'Selecciona un terapeuta'
-    if (fullAccess && (!form.tarifa || isNaN(parseFloat(form.tarifa)))) e.tarifa = 'Ingresa un valor'
+    if (!form.tarifa || isNaN(parseFloat(form.tarifa))) e.tarifa = 'Ingresa un valor'
     return e
   }
 
@@ -520,8 +496,9 @@ function CreatePatientDrawer({ therapists, fullAccess = true, terapeutaId = null
     }
     setSaving(true)
     setApiError(null)
-    // Therapists create patients assigned to THEMSELVES with default billing
-    // (mirrors the inline create in SesionDrawer; RLS enforces the same).
+    // Therapists create patients assigned to THEMSELVES (reassignment stays
+    // owner-only), but now set billing like the owner does — RLS still scopes
+    // the row to them via terapeuta_id.
     const isIndividual = form.tipo_paciente === 'individual'
     const res = await onCreate({
       tipo_paciente: form.tipo_paciente,
@@ -536,7 +513,8 @@ function CreatePatientDrawer({ therapists, fullAccess = true, terapeutaId = null
       terapeuta_id: fullAccess ? form.terapeuta_id : terapeutaId,
       estado_general: 'activo',
       frecuencia: form.frecuencia || null,
-      ...(fullAccess ? { tarifa: parseFloat(form.tarifa), metodo_pago: form.metodo_pago } : {}),
+      tarifa: parseFloat(form.tarifa) || TARIFA_DEFAULT,
+      metodo_pago: form.metodo_pago,
     })
     setSaving(false)
     if (!res.ok) {
@@ -669,28 +647,27 @@ function CreatePatientDrawer({ therapists, fullAccess = true, terapeutaId = null
             hint="Cada cuánto se espera que venga — alimenta la adherencia en Seguimiento."
           />
 
-          {fullAccess ? (
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                label="Tarifa (USD)"
-                type="number"
-                min="0"
-                step="1"
-                value={form.tarifa}
-                onChange={(e) => set('tarifa', e.target.value)}
-                error={errors.tarifa}
-              />
-              <Select
-                label="Método de pago"
-                value={form.metodo_pago}
-                onChange={(e) => set('metodo_pago', e.target.value)}
-                options={toOptions(METODO_PAGO)}
-                placeholder={null}
-              />
-            </div>
-          ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Tarifa (USD)"
+              type="number"
+              min="0"
+              step="1"
+              value={form.tarifa}
+              onChange={(e) => set('tarifa', e.target.value)}
+              error={errors.tarifa}
+            />
+            <Select
+              label="Método de pago"
+              value={form.metodo_pago}
+              onChange={(e) => set('metodo_pago', e.target.value)}
+              options={toOptions(METODO_PAGO)}
+              placeholder={null}
+            />
+          </div>
+          {!fullAccess && (
             <p className="font-caption text-xs text-content-muted">
-              Se asigna a ti. La tarifa y el método de pago se establecen luego.
+              El paciente se asigna a ti.
             </p>
           )}
 
@@ -746,6 +723,7 @@ export default function Pacientes() {
   // (reassign, billing, marketing attribution, delete).
   const { fullAccess, terapeutaId } = useAuth()
   const [data, setData] = useState(null)
+  const [view, setView] = useState('pacientes') // 'pacientes' | 'leads'
   const [search, setSearch] = useState('')
   const [filterEstado, setFilterEstado] = useState('all')
   const [filterTerapeuta, setFilterTerapeuta] = useState('all')
@@ -767,10 +745,22 @@ export default function Pacientes() {
     return Object.fromEntries(data.therapists.map((t) => [t.id, t]))
   }, [data])
 
+  // A LEAD is someone who booked a free llamada but hasn't converted yet
+  // (es_lead=true). They're kept out of the Pacientes list and shown in their
+  // own tab. Conversion (first real session or "Convirtió") flips es_lead=false.
+  const pacientesList = useMemo(
+    () => (data ? data.patients.filter((p) => !p.es_lead) : []),
+    [data],
+  )
+  const leadsList = useMemo(
+    () => (data ? data.patients.filter((p) => p.es_lead) : []),
+    [data],
+  )
+
   const filtered = useMemo(() => {
-    if (!data) return []
+    const source = view === 'leads' ? leadsList : pacientesList
     const q = search.toLowerCase()
-    return data.patients.filter((p) => {
+    return source.filter((p) => {
       if (filterEstado !== 'all' && p.estado_general !== filterEstado) return false
       if (filterTerapeuta !== 'all' && p.terapeuta_id !== filterTerapeuta) return false
       if (q) {
@@ -782,7 +772,7 @@ export default function Pacientes() {
       }
       return true
     })
-  }, [data, search, filterEstado, filterTerapeuta, therapistMap])
+  }, [view, pacientesList, leadsList, search, filterEstado, filterTerapeuta, therapistMap])
 
   const selectedPatient = selectedId && data
     ? data.patients.find((p) => p.id === selectedId) || null
@@ -823,6 +813,7 @@ export default function Pacientes() {
         patients: [...d.patients, res.data].sort((a, b) => a.nombre.localeCompare(b.nombre)),
       }))
       setShowCreate(false)
+      setView('pacientes') // a manually created person is a patient, not a lead
       setSelectedId(res.data.id)
     }
     return res
@@ -850,15 +841,40 @@ export default function Pacientes() {
         <div className={['flex flex-col gap-4 min-w-0', hasPanel ? 'hidden lg:flex flex-1' : 'flex flex-1'].join(' ')}>
           <div className="flex items-center justify-between gap-3">
             <h1 className="font-serif text-2xl font-bold text-content-primary">
-              Pacientes
+              {view === 'leads' ? 'Leads' : 'Pacientes'}
               <span className="ml-2 font-caption text-base font-normal text-content-muted">
-                {data.patients.length}
+                {view === 'leads' ? leadsList.length : pacientesList.length}
               </span>
             </h1>
             <Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>
               <IconPlus size={15} />
               Nuevo Paciente
             </Button>
+          </div>
+
+          {/* Pacientes vs Leads. Leads = people who booked a free llamada and
+              haven't converted yet; they don't clutter the real patient list. */}
+          <div className="flex gap-1 self-start rounded-pill bg-white/50 p-1">
+            {[
+              { key: 'pacientes', label: 'Pacientes', n: pacientesList.length },
+              { key: 'leads', label: 'Leads', n: leadsList.length },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => { setView(tab.key); setSelectedId(null) }}
+                className={[
+                  'rounded-pill px-4 py-1.5 font-heading text-sm font-bold transition-colors',
+                  view === tab.key
+                    ? 'bg-brand-lavender text-white shadow-soft'
+                    : 'text-content-secondary hover:bg-white/60',
+                ].join(' ')}
+              >
+                {tab.label}
+                <span className={['ml-1.5 font-caption text-xs', view === tab.key ? 'text-white/80' : 'text-content-muted'].join(' ')}>
+                  {tab.n}
+                </span>
+              </button>
+            ))}
           </div>
 
           <div className="relative">
@@ -917,9 +933,11 @@ export default function Pacientes() {
                 <p className="font-body text-content-secondary">
                   {search || filterEstado !== 'all' || filterTerapeuta !== 'all'
                     ? 'Sin resultados para estos filtros.'
-                    : 'Aún no hay pacientes registrados.'}
+                    : view === 'leads'
+                      ? 'No hay leads pendientes. Aparecen aquí al agendar una llamada gratuita.'
+                      : 'Aún no hay pacientes registrados.'}
                 </p>
-                {!search && filterEstado === 'all' && filterTerapeuta === 'all' && (
+                {view !== 'leads' && !search && filterEstado === 'all' && filterTerapeuta === 'all' && (
                   <Button variant="secondary" size="sm" onClick={() => setShowCreate(true)} className="mt-2">
                     <IconPlus size={14} />
                     Crear primer paciente

@@ -257,7 +257,13 @@ export default async (req) => {
     )
     let patientId = existing?.id
     if (!patientId) {
-      const newPatient = { nombre, apellido, telefono: phone, terapeuta_id: t.id }
+      // A free llamada booking creates a LEAD (not a patient yet); a /reservar
+      // real-session booking creates an actual patient. Leads are promoted to
+      // patients on their first real session or when marked "Convirtió".
+      const newPatient = {
+        nombre, apellido, telefono: phone, terapeuta_id: t.id,
+        es_lead: kindKey === 'llamada',
+      }
       if (email) newPatient.email = email
       if (motivo) newPatient.motivo_consulta = motivo
       const res = await supabase.from('patients').insert(newPatient).select('id').single()
@@ -291,6 +297,13 @@ export default async (req) => {
     if (sErr) {
       console.error('[public-booking] session insert:', sErr.message)
       return json({ error: 'booking_failed' }, 500)
+    }
+
+    // A /reservar real session promotes an existing lead to a patient (no-op if
+    // they already are one). Best-effort — never blocks the booking response.
+    if (kindKey === 'sesion') {
+      await supabase.from('patients').update({ es_lead: false })
+        .eq('id', patientId).eq('es_lead', true)
     }
 
     // Push-notify the therapist about her new booking (best-effort — never throws).
