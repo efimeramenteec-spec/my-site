@@ -107,6 +107,26 @@ Key detail: session `estado` is `programada` (Pendiente) | `confirmada` | `cance
 - **All modules are built** — no placeholders remain (2026-07-04).
 - Session create/edit UI lives in `src/features/sesiones/` (`SesionDrawer.jsx`, `views.jsx`, `PatientSelect.jsx`).
 
+### 2026-09-14 changes (UX polish batch — see EFIMERAMENTE_STATE.md)
+- **LEADS vs patients:** `patients.es_lead` (bool, default false). A person who books a free
+  **llamada** via `/agendar` is a LEAD (es_lead=true), NOT a patient. They're auto-promoted
+  (es_lead→false) on their **first real (non-llamada) session** OR when a llamada is toggled
+  **"Convirtió"** (both in `queries.js`; `public-booking.mjs` sets the flag on new llamada
+  bookings). Pacientes page has a **"Pacientes / Leads" tab** (leads hidden from the patient
+  list); Seguimiento excludes leads; **Marketing still sees everyone** (its "nuevos" already
+  needs a real session). `SesionDrawer` has a **"¿Es primera sesión?"** toggle → picker lists
+  the therapist's leads so a converting lead is scheduled without re-registering. es_lead is in
+  `PATIENT_SELECT`/`PATIENT_COLUMNS`. Migration `supabase/patient-es-lead.sql`.
+- **Therapists can now edit EVERY field of their own patients** (was estado+frecuencia only) —
+  UI gate only; RLS `patients_therapist_update` already allowed it. **Reassign + delete stay
+  owner-only.** Create-patient drawer matched (therapists set tarifa/método too).
+- **Public booking link preview:** `/agendar` + `/reservar` serve a separate **`agendar.html`**
+  shell (title "Conoce a tu terapeuta", no "Panel de Control" leak). It's a **2nd Vite entry**
+  (`vite.config.js` rollupOptions.input = main + agendar, shares `/src/main.jsx`) + **netlify.toml
+  rewrites BEFORE the `/*` SPA fallback**. Don't remove those rewrites or the preview reverts.
+  `dist/agendar.html` is gitignored (build output). The entry chunk is now `main-*.js` (was
+  `index-*.js`) — mind this when grepping the served bundle to verify a deploy.
+
 ### 2026-09-04 changes (second batch — see EFIMERAMENTE_STATE.md)
 - **3 consultorios cap:** at most **3 concurrent `presencial` sessions** (across ALL therapists);
   a 4th overlapping presencial is blocked. Logic in `conflicts.js` (`roomsFull` /

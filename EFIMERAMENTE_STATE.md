@@ -46,6 +46,69 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **UX polish batch — therapist patient edits + booking link preview + LEADS system**
+  (2026-09-14, Opus 4.8, commit `99d2087`, pushed to `main`, deploy VERIFIED LIVE). Three
+  changes, one push. Nicolas confirmed we're in UX-polish mode now (architecture done).
+  - **Therapists can edit EVERY field of their own patients** (`Pacientes.jsx`). Before they
+    could only edit estado + frecuencia; now the full Configuración form is open to them
+    (tipo, names, teléfono, email, cédula, tarifa, método de pago). **Reassign (Terapeuta
+    dropdown) + delete stay owner-only** (Nicolas's call — reassigning would hand the patient
+    away, and the RLS WITH CHECK rejects it anyway). The read-only "Contacto" block for
+    therapists was removed (they edit contact directly now). Create-patient drawer matched:
+    therapists now set tarifa/método on create too (auto-assigned to self; Terapeuta picker
+    still owner-only). **No DB change** — RLS `patients_therapist_update` already allowed
+    updating any column of their own patient (verified live in pg_policies). It was purely a
+    UI gate.
+  - **Public booking link preview fixed** — pasting `/agendar` (or a per-therapist link) in
+    WhatsApp used to show the internal title "Efimeramente — Panel de Control" (confusing +
+    leaks that the booking page and admin app are the same backend). Now `/agendar` and
+    `/reservar` serve a dedicated **`agendar.html`** shell whose OG/title = **"Conoce a tu
+    terapeuta"** (warm description + logo preview image; no PWA/manifest/panel hints). It's a
+    **2nd Vite build entry** (`vite.config.js` rollupOptions.input: main + agendar; shares
+    `/src/main.jsx` so the JS bundle is emitted ONCE — only the `<head>` differs) + **4
+    netlify.toml rewrites** placed BEFORE the `/*` SPA fallback (`/agendar`, `/agendar/*`,
+    `/reservar`, `/reservar/*` → `/agendar.html`, status 200). React Router still renders the
+    right flow by path. `dist/agendar.html` added to `.gitignore` (build output). Verified live:
+    `/agendar` title = "Conoce a tu terapeuta", `/` still "Panel de Control". NOTE: WhatsApp
+    caches previews per-URL — an already-shared link needs `?v=2` or the FB Sharing Debugger to
+    re-scrape. Domain still reads `efimeramente-panel.netlify.app` (Nicolas: fine, "panel" isn't
+    indicative); a custom domain (e.g. `citas.efimeramente.ec`) would fully sever it — deferred.
+  - **LEADS vs PATIENTS** — someone who books a free llamada via `/agendar` used to be created
+    as a full patient, bloating the list even when the call never converted. Now they're a
+    **LEAD** until they convert. Implementation = a person-level flag **`patients.es_lead`**
+    (boolean default false; migration `patient_es_lead`, mirrored `supabase/patient-es-lead.sql`,
+    applied to prod). Sessions are untouched (es_lead is just a flag), so all calendar/reminder/
+    phone-matching plumbing keeps working. Added to `PATIENT_SELECT`/`PATIENT_COLUMNS` +
+    the `getSessionsData` patient select.
+    - **Becomes a lead:** `public-booking.mjs` sets `es_lead=true` when a NEW person books a
+      `kind=llamada`. `/reservar` (kind=sesion) creates a real patient (es_lead=false).
+    - **Auto-promoted to patient (es_lead→false):** on their **first real (non-llamada)
+      session** (`queries.js#createSession`; also `/reservar` promotes an existing lead), OR
+      when a llamada is toggled **"Convirtió"** (`queries.js#updateSession`, `convirtio=true`).
+      All promotion updates are guarded `.eq('es_lead',true)` (no-op for real patients) and
+      RLS-safe (they don't touch terapeuta_id).
+    - **UI:** `Pacientes.jsx` got a **"Pacientes / Leads" segmented tab** (Pacientes = es_lead
+      false, Leads = es_lead true, with counts). `SesionDrawer.jsx` got a **"¿Es primera
+      sesión?"** checkbox above the patient picker (create mode only): ON → the picker lists the
+      therapist's unconverted **leads** instead of patients (label/placeholder switch to "Lead"),
+      so a converting lead is scheduled without re-registering; inline "Crear paciente nuevo"
+      flips the toggle off (a walk-in is a patient, not a lead). `PatientSelect.jsx` gained
+      `label`/`placeholder` props.
+    - **Excluded from Seguimiento** (`tracked` now filters `!p.es_lead` — leads aren't in
+      therapy). **Marketing intentionally still sees everyone** — its "nuevos pacientes" already
+      requires ≥1 real session (`if (!real.length) continue`), so leads never counted anyway and
+      the funnel is now MORE accurate.
+    - **Backfill:** 25 existing call-only / never-converted / no-real-session patients flagged
+      es_lead=true (people with zero sessions stayed patients — they were created directly, not
+      from a call). Prod now ~228 patients / ~24 leads (one lead deleted in-app between the count
+      and the backfill; harmless drift).
+    - **CORRECTION to old note:** a llamada is born **"no convirtió"** and flips to "convirtió"
+      manually OR when a future real session is detected (`src/lib/conversion.js`) — NOT the
+      "born confirmada" idea in the design-flaws backlog. The es_lead promotion piggybacks on
+      that same conversion concept.
+  - **Therapist comms:** drafted a Spanish message for Nicolas to send therapists explaining the
+    three therapist-facing improvements (full patient editing, the Leads tab + "¿Es primera
+    sesión?" flow, nicer booking-link preview). Not stored in the repo.
 - [x] **Second batch — 5 changes** (2026-09-04, Opus). Built simplest→complex, one push.
   Ideas in `IDEAS-BACKLOG.md`. (Between batches: onboarded therapist **Sophia Vergara**
   — therapist row [turquoise `#14B8A6`, $24], calendar sync, auth user + profile created
