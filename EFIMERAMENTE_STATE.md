@@ -126,8 +126,21 @@
       breaks. **Mark-paid flow unchanged** (multi-select sessions + método + confirm → reconcile).
     - **DB:** migration `whatsapp_messages_extraction` (mirror `supabase/whatsapp-messages-extraction.sql`)
       added `extracted` jsonb + `extraction_status` text (additive, nullable; RLS unchanged).
-    - **⏳ NEEDS:** Netlify env **`APIMART_API_KEY`** (Nicolás pastes it, same as the Dualhook key)
-      + redeploy. Without it the page + manual mark-paid still work; only the auto-read is off.
+    - **✅ LIVE (2026-09-16):** Netlify env **`APIMART_API_KEY`** set + redeployed (deploy `6aaab623…`,
+      `extract-proof` + `wa-proof-media` functions live, secret scan clean). Auto-read is ON.
+    - **✅ GO / CLEAN-SLATE done (2026-09-16):** Nicolás registered all outstanding payments manually,
+      then Claude wiped the 6-month backlog — **142 inbound messages archived** (`reconciled_at` stamped),
+      **0 pending proofs**. System is now LIVE end-to-end in **human-confirm** mode: new proofs from that
+      moment appear, auto-read on view, Nicolás taps **Marcar pagado**. (Wipe = archive only; never
+      touched a session/`pagado`. Debtors/Deudores untouched — 9 proof-senders still legitimately owe.)
+    - **⏳ NEXT (target 2026-09-17, after Nicolás validates the human-confirm flow) — AUTO-MARK + PUSH:**
+      auto-register a payment when ALL green (is_payment_proof + high confidence + amount matches an
+      unpaid session exactly + recipient Mariana + no flags), **always paying the OLDEST unpaid session**;
+      anything short stays for a manual tap. Plus a **Web Push** on payment (*"Juan Pérez acaba de pagar
+      su sesión del 11/09/26"*) reusing the existing push infra (`netlify/lib/push.mjs`, VAPID,
+      `push_subscriptions`, `notify-estado.mjs` pattern). Likely a trial/undo phase first. Note: the
+      Comprobantes page is fetch-on-open (capture is real-time via the webhook; UI updates on refresh) —
+      optional Supabase Realtime is a nice-to-have. Spec in memory `payment-proof-automation-goal`.
     - **Design decisions in memory:** `comprobantes-extraction-schema` + `payment-proof-automation-goal`.
   - Full blow-by-blow (how we got here, all IDs, every dead end) is in Claude memory:
     `whatsapp-coexistence-consolidation.md`.
