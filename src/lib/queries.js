@@ -293,6 +293,10 @@ function normalizeProof(row) {
     caption: media?.caption || null,
     reconciledAt: row.reconciled_at || null,
     reconciledSessionIds: row.reconciled_session_ids || [],
+    // OCR: the structured transfer record + its status (null/'pending' = not
+    // read yet, 'ok', 'needs_review', 'failed'). Filled by the extract-proof fn.
+    extracted: row.extracted || null,
+    extractionStatus: row.extraction_status || null,
     patient: row.patient || null,
     // For unmatched rows (patient_id null) — a manual-attention path, never a
     // silent drop: show who sent it so the owner can identify/assign them.
@@ -317,6 +321,7 @@ export async function getPaymentProofsData({ daysBack = PROOF_WINDOW_DAYS } = {}
         .from('whatsapp_messages')
         .select(
           'id, patient_id, cuerpo, received_at, reconciled_at, reconciled_session_ids, raw_payload,' +
+            ' extracted, extraction_status,' +
             ' patient:patients(id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,metodo_pago)',
         )
         .eq('direccion', 'inbound')
@@ -405,6 +410,25 @@ export async function confirmProofPayment(messageId, sessionIds, metodo) {
 // unmatched rows) without ever marking anything paid.
 export async function dismissProof(messageId) {
   return reconcileProof(messageId, [])
+}
+
+// Trigger (or fetch the cached) OCR of a proof via the owner-gated extract-proof
+// function, which holds the APIMart key. Returns { ok, status, extracted }.
+// Read-only w.r.t. payments. `force` re-runs a previously failed read.
+export async function extractProof(messageId, { force = false } = {}) {
+  if (!isSupabaseConfigured) return { ok: false, status: 'failed', reason: 'demo' }
+  try {
+    const { data } = await supabase.auth.getSession()
+    const token = data?.session?.access_token
+    if (!token) return { ok: false, status: 'failed', reason: 'no_session' }
+    const res = await fetch(
+      `/.netlify/functions/extract-proof?id=${encodeURIComponent(messageId)}${force ? '&force=1' : ''}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+    return await res.json()
+  } catch (err) {
+    return { ok: false, status: 'failed', reason: err?.message || 'network' }
+  }
 }
 
 // Hard delete for mistaken/test bookings. The Google Calendar event is

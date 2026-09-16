@@ -102,6 +102,33 @@
     a partial index on pending proofs. Table RLS unchanged (owner-only, `is_owner()` FOR ALL covers
     the owner's UPDATE). Verified against live data: 62 proofs sent in the last 7 days, 10 proof-sender
     patients currently carry unpaid sessions.
+  - **✅ OCR extraction rebuild (2026-09-16, Opus 4.8, Nicolás's call).** The page no longer embeds
+    the raw screenshot (too heavy). Each inbound proof is READ by a vision model into structured
+    fields; the card shows DATA (amount, transfer date, método auto-detected from the destination
+    account) with details under "ver detalles" and the image only on-demand via "ver original".
+    - **Model:** Claude **Opus 4.8 via APIMart** (`https://api.apimart.ai/v1/chat/completions`,
+      OpenAI-compatible, key `APIMART_API_KEY`). Chosen over Anthropic-direct so Nicolás reuses his
+      existing APIMart key (no second billing signup); APIMart routes Opus 4.8 through AWS Bedrock.
+      ⚠️ **Must send `stream: false`** (APIMart defaults to SSE). Verified live: a synthetic receipt
+      returned clean JSON (amount/bank/status/transfer_id). ~$0.01–0.03/proof; low volume.
+    - **Function:** `netlify/functions/extract-proof.mjs` (owner-gated, mirrors `wa-proof-media`
+      auth). Downloads media via shared `netlify/lib/waMedia.mjs` (Dualhook two-hop, refactored out
+      of `wa-proof-media`), sends to APIMart, parses (tolerates ```json fences), stores on the row.
+      Caches by `extraction_status` so it never re-OCRs (no double credit burn); PDFs → `needs_review`
+      (manual). Extraction runs **lazily on scroll** (IntersectionObserver) so the first-open batch
+      doesn't fire dozens of reads. `queries.js#extractProof` is the client trigger.
+    - **Fields extracted:** is_payment_proof, transfer_date, transfer_time (nullable — many banks
+      omit), amount, origin_bank, sender_name, destination (→ método), recipient_name (validated vs
+      Mariana), transfer_id, status, bank_description, confidence. Prominent **flags**: low confidence,
+      amount≠selected sessions, recipient not Mariana. **Graceful fallback:** if OCR fails (e.g.
+      APIMart balance empty) the proof still shows with a "no pude leer — reintentar / ver original"
+      state and the manual mark-paid controls, plus a page banner — an empty balance degrades, never
+      breaks. **Mark-paid flow unchanged** (multi-select sessions + método + confirm → reconcile).
+    - **DB:** migration `whatsapp_messages_extraction` (mirror `supabase/whatsapp-messages-extraction.sql`)
+      added `extracted` jsonb + `extraction_status` text (additive, nullable; RLS unchanged).
+    - **⏳ NEEDS:** Netlify env **`APIMART_API_KEY`** (Nicolás pastes it, same as the Dualhook key)
+      + redeploy. Without it the page + manual mark-paid still work; only the auto-read is off.
+    - **Design decisions in memory:** `comprobantes-extraction-schema` + `payment-proof-automation-goal`.
   - Full blow-by-blow (how we got here, all IDs, every dead end) is in Claude memory:
     `whatsapp-coexistence-consolidation.md`.
 - [x] **UX polish batch — therapist patient edits + booking link preview + LEADS system**

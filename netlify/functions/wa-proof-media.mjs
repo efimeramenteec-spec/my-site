@@ -23,8 +23,7 @@
 //   SUPABASE_SERVICE_KEY  (required) — service-role read (bypasses RLS; we gate on owner ourselves).
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
-
-const DUALHOOK_BASE = 'https://api.dualhook.com/v25.0'
+import { fetchDualhookMedia, mediaIdOf } from '../lib/waMedia.mjs'
 
 const ALLOWED_ORIGINS = [
   'https://efimeramente-panel.netlify.app',
@@ -39,14 +38,6 @@ function corsHeaders(origin) {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
   }
-}
-
-// Pull the Cloud API media id out of a logged inbound message. Only image and
-// document carry the bank-transfer proofs we surface.
-function mediaIdOf(msg) {
-  if (msg?.type === 'image') return msg.image?.id || null
-  if (msg?.type === 'document') return msg.document?.id || null
-  return null
 }
 
 export default async (req) => {
@@ -86,27 +77,8 @@ export default async (req) => {
   if (!mediaId) return json({ error: 'no_media' }, 404)
 
   try {
-    // Hop 1: media id → temporary download URL.
-    const metaRes = await fetch(`${DUALHOOK_BASE}/${encodeURIComponent(mediaId)}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    })
-    if (!metaRes.ok) {
-      console.error(`[wa-proof-media] Dualhook meta ${metaRes.status} for media ${mediaId}`)
-      return json({ error: 'media_unavailable' }, 502)
-    }
-    const meta = await metaRes.json()
-    const url = meta?.url
-    if (!url) return json({ error: 'media_unavailable' }, 502)
-
-    // Hop 2: fetch the actual bytes (same Bearer key).
-    const binRes = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } })
-    if (!binRes.ok) {
-      console.error(`[wa-proof-media] Dualhook binary ${binRes.status} for media ${mediaId}`)
-      return json({ error: 'media_unavailable' }, 502)
-    }
-    const contentType = meta.mime_type || binRes.headers.get('content-type') || 'application/octet-stream'
-    const buf = await binRes.arrayBuffer()
-    return new Response(buf, {
+    const { buffer, contentType } = await fetchDualhookMedia(mediaId)
+    return new Response(buffer, {
       status: 200,
       headers: {
         ...cors,
