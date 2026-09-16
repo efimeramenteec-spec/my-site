@@ -7,6 +7,8 @@ import { TIPO_FORM, TIPO_PACIENTE, MODALIDAD, DURACION_MIN, TARIFA_DEFAULT, toOp
 import { findConflict, roomsFull, CONSULTORIOS } from '../../lib/conflicts.js'
 import { checkFreebusy } from '../../lib/queries.js'
 import { remainingPackSlots } from '../../lib/packages.js'
+import { isAttended } from '../../lib/adherence.js'
+import { AllianceCheckin } from './AllianceCheckin.jsx'
 
 const nativeInput =
   'w-full rounded-xl bg-white border border-stroke px-4 py-3 font-body text-content-primary ' +
@@ -439,6 +441,12 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
               Se agenda como <span className="font-bold text-content-secondary">pendiente de confirmación</span> y sin pagar. La confirmación y el pago se gestionan en la vista de Lista.
             </p>
           )}
+
+          {/* Mirrored alliance check-in — only on a real attended individual session */}
+          {mode === 'edit' && initial && initial.patient?.tipo_paciente === 'individual' &&
+            isAttended(initial, dateKey(new Date())) && (
+              <AllianceCheckin session={initial} />
+            )}
 
           {submitError && <p className="rounded-xl bg-red-50 px-4 py-3 font-caption text-sm text-red-600">{submitError}</p>}
         </div>
