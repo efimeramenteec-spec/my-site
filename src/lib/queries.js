@@ -2,7 +2,7 @@
 // transparently falls back to demo data on misconfig or network error,
 // returning a `source: 'live' | 'demo'` flag the UI can surface.
 import { supabase, isSupabaseConfigured } from './supabase.js'
-import { patientLabel } from './format.js'
+import { patientLabel, dateKey } from './format.js'
 import {
   getDemoStore,
   demoCreateSession, demoUpdateSession, demoDeleteSession,
@@ -255,6 +255,156 @@ export async function updateSession(id, patch) {
 
 export function cancelSession(id) {
   return updateSession(id, { estado: 'cancelada' })
+}
+
+// ─── WhatsApp payment proofs (reading layer / Comprobantes page) ────────────
+// Patients send bank-transfer screenshots to the central number; the Cloud API
+// webhook logs each as an inbound `whatsapp_messages` row (media id in
+// raw_payload), matched to a patient by phone. Here we surface the recent
+// image/document proofs beside the matched patient + their unpaid sessions so
+// the owner can one-tap confirm a payment. Trust-based (NOT bank-verified):
+// nothing is ever auto-marked — the owner sees each proof and confirms.
+//
+// whatsapp_messages RLS is owner-only, so these reads/writes only ever return
+// or touch rows for the owner. The proof IMAGE itself is fetched separately via
+// the owner-gated `wa-proof-media` function (holds the Dualhook secret).
+const PROOF_TYPES = ['image', 'document']
+const PROOF_WINDOW_DAYS = 7
+
+function normalizeProof(row) {
+  const msg = row.raw_payload?.message || {}
+  const contact = row.raw_payload?.contact || null
+  const type = msg.type
+  const media = type === 'document' ? msg.document : msg.image
+  // The Cloud API message carries the ORIGINAL send time (unix seconds). Prefer
+  // it over received_at: the 6-month history sync ingested everything at connect
+  // time, so received_at is ~now for old messages — send-time is the true date.
+  const sentAt = msg.timestamp
+    ? new Date(Number(msg.timestamp) * 1000).toISOString()
+    : row.received_at
+  return {
+    id: row.id,
+    sentAt,
+    receivedAt: row.received_at,
+    cuerpo: row.cuerpo,
+    mediaType: type, // 'image' | 'document'
+    mimeType: media?.mime_type || null,
+    filename: type === 'document' ? (media?.filename || null) : null,
+    caption: media?.caption || null,
+    reconciledAt: row.reconciled_at || null,
+    reconciledSessionIds: row.reconciled_session_ids || [],
+    patient: row.patient || null,
+    // For unmatched rows (patient_id null) — a manual-attention path, never a
+    // silent drop: show who sent it so the owner can identify/assign them.
+    fromPhone: msg.from || null,
+    waName: contact?.profile?.name || null,
+    unpaidSessions: [], // filled below for matched proofs
+  }
+}
+
+// Recent inbound payment proofs + each matched patient's unpaid (por cobrar)
+// sessions. Same debt predicate as Finanzas "Deudores": confirmada, past-dated,
+// not yet paid, non-llamada.
+export async function getPaymentProofsData({ daysBack = PROOF_WINDOW_DAYS } = {}) {
+  if (isSupabaseConfigured) {
+    try {
+      const today = dateKey(new Date())
+      const sinceMs = Date.now() - daysBack * 24 * 60 * 60 * 1000
+      // received_at >= send-time always, so filtering the fetch on received_at is
+      // a SAFE superset of "sent in the last N days"; we narrow by send-time below.
+      const sinceISO = new Date(sinceMs).toISOString()
+      const { data: rows, error } = await supabase
+        .from('whatsapp_messages')
+        .select(
+          'id, patient_id, cuerpo, received_at, reconciled_at, reconciled_session_ids, raw_payload,' +
+            ' patient:patients(id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,metodo_pago)',
+        )
+        .eq('direccion', 'inbound')
+        .gte('received_at', sinceISO)
+        .order('received_at', { ascending: false })
+      if (error) throw error
+
+      const proofs = (rows || [])
+        .filter((r) => PROOF_TYPES.includes(r.raw_payload?.message?.type))
+        .map(normalizeProof)
+        // Keep only proofs actually SENT within the window (drops the history-sync
+        // backlog that all share a recent received_at), newest first.
+        .filter((p) => new Date(p.sentAt).getTime() >= sinceMs)
+        .sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt))
+
+      // Fetch unpaid confirmed past sessions for the matched patients only.
+      const patientIds = [...new Set(proofs.filter((p) => p.patient).map((p) => p.patient.id))]
+      const byPatient = {}
+      if (patientIds.length) {
+        const { data: sess, error: sErr } = await supabase
+          .from('sessions')
+          .select('id,patient_id,fecha,hora_inicio,tipo,modalidad,estado,monto,pagado,metodo_pago')
+          .in('patient_id', patientIds)
+          .eq('pagado', false)
+          .eq('estado', 'confirmada')
+          .neq('tipo', 'llamada')
+          .lt('fecha', today)
+          .order('fecha', { ascending: true })
+        if (sErr) throw sErr
+        for (const s of sess || []) (byPatient[s.patient_id] ||= []).push(s)
+      }
+      for (const p of proofs) {
+        if (p.patient) p.unpaidSessions = byPatient[p.patient.id] || []
+      }
+      return { source: 'live', proofs, today }
+    } catch (err) {
+      console.warn('[efimeramente] payment proofs unavailable:', err?.message || err)
+      return { source: 'error', proofs: [], today: dateKey(new Date()), error: err?.message }
+    }
+  }
+  // Demo mode has no WhatsApp ingest — nothing to reconcile.
+  return { source: 'demo', proofs: [], today: dateKey(new Date()) }
+}
+
+// Stamp a proof as reconciled so the same comprobante can never be applied
+// twice. `sessionIds` records which session(s) it covered (audit; supports the
+// advance-payment case where one payment pays several sessions).
+async function reconcileProof(messageId, sessionIds) {
+  if (!isSupabaseConfigured) return { ok: true }
+  try {
+    const { data: sess } = await supabase.auth.getSession()
+    const uid = sess?.session?.user?.id || null
+    const { error } = await supabase
+      .from('whatsapp_messages')
+      .update({
+        reconciled_at: new Date().toISOString(),
+        reconciled_by: uid,
+        reconciled_session_ids: sessionIds,
+      })
+      .eq('id', messageId)
+    if (error) throw error
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err?.message || 'No se pudo marcar el comprobante.' }
+  }
+}
+
+// Owner confirms a proof: mark the chosen session(s) paid (via the existing
+// updateSession rules — server-stamps paid_at, refuses cancelled rows), then
+// stamp the proof reconciled so it leaves the pending list and can't be reused.
+export async function confirmProofPayment(messageId, sessionIds, metodo) {
+  if (!Array.isArray(sessionIds) || sessionIds.length === 0) {
+    return { ok: false, error: 'Selecciona al menos una sesión.' }
+  }
+  for (const id of sessionIds) {
+    const res = await updateSession(id, { pagado: true, metodo_pago: metodo })
+    if (!res.ok) return res // stop on first failure; nothing reconciled yet
+  }
+  const rec = await reconcileProof(messageId, sessionIds)
+  if (!rec.ok) return rec
+  return { ok: true }
+}
+
+// Clear a proof without touching sessions — e.g. it isn't a payment, or was
+// already handled. Keeps it out of the pending list (manual-attention path for
+// unmatched rows) without ever marking anything paid.
+export async function dismissProof(messageId) {
+  return reconcileProof(messageId, [])
 }
 
 // Hard delete for mistaken/test bookings. The Google Calendar event is

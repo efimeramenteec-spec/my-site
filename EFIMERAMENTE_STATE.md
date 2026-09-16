@@ -46,6 +46,64 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **WhatsApp Coexistence — inbound Cloud API webhook (payment-proof reading), Phase 1**
+  (2026-09-15, Opus 4.8, commit `90080e1`, deployed + VERIFIED LIVE). Goal: collapse the practice's
+  **two** WhatsApp numbers into **one** and auto-read patient bank-transfer screenshots. The central
+  *chatting* number now runs the WhatsApp Business app **and** the Cloud API together via **Meta
+  Coexistence**, connected through **Dualhook** (a Meta-approved BSP, ~$12/mo, 14-day trial active;
+  card on file, auto-bills 2026-09-30). Inbound messages flow **Meta → Dualhook webhook override →
+  our function** (Dualhook never sees message content). Live connection: WABA `1857507018469524`
+  ("Efímeramente Psicología"), **Phone Number ID `915558374975708`**.
+  - **Shipped:** `netlify/functions/whatsapp-cloud-webhook.mjs`. GET = Meta verification handshake
+    (env **`WA_CLOUD_VERIFY_TOKEN`**, set in Netlify). POST = logs each inbound message to
+    **`whatsapp_messages`** (`direccion='inbound'`, `cuerpo`=summary, `twilio_sid`=WA message id
+    [unique → idempotent upsert so Meta retries don't duplicate], `raw_payload` jsonb keeps the
+    **media id** for later download), matching sender→patient with the **same last-9-digit logic as
+    `twilio-webhook.mjs`** (reuses `getSupabaseAdmin`/`normalizePhone` from `netlify/lib/whatsapp.mjs`).
+    **Additive + read-only: never sends, never touches sessions/`pagado`.** Verified live: handshake
+    (correct token echoes challenge, wrong → 403); a synthetic image POST matched patient Rocío;
+    then the real connection's 6-month history sync landed real proofs matched to real patients.
+  - **Security:** `whatsapp_messages` RLS confirmed **owner-only** (`whatsapp_owner` = `is_owner()`),
+    so anon + therapist logins get 0 rows. Optional signature check via **`WA_CLOUD_APP_SECRET`** is
+    **OFF** on purpose — unclear whether Meta signs with our app secret or Dualhook's in an override
+    setup, and a wrong secret would silently break the live flow; residual risk low (owner-only +
+    human-confirm). Code already supports it once the correct secret is confirmed.
+  - **Why Dualhook, not DIY:** Meta gates coexistence embedded signup behind Tech-Provider status +
+    App Review (hit the "no puede registrar clientes" wall). We *did* become a tech provider
+    (irreversible) but were still walled; Dualhook is already approved. **Twilio does NOT support
+    coexistence** (migration only — would remove the number from the app).
+  - **✅ Reading layer SHIPPED (2026-09-15, Opus 4.8) — the Comprobantes page (owner-only).** New
+    owner route `/comprobantes` + nav item (IconChat). `getPaymentProofsData()` in `queries.js` reads
+    the recent inbound image/document rows straight from `whatsapp_messages` (owner-only RLS — no
+    function needed for listing), windowed to **proofs SENT in the last 7 days** using the message's
+    own `raw_payload.message.timestamp` (NOT `received_at` — the 6-month history sync ingested
+    everything at connect time, so received_at is ~now for old rows; received_at ≥ send-time makes it
+    a safe superset prefilter). Each matched proof shows the patient + their **unpaid sessions**
+    (exact Finanzas Deudores predicate: `!pagado && estado='confirmada' && !llamada && fecha<hoy`);
+    the owner **checks which session(s) the payment covers** (multi-select handles the advance-pay
+    case: 1 proof → N sessions), picks método, one-tap **Marcar pagado** → `confirmProofPayment()`
+    calls the existing `updateSession({pagado,metodo_pago})` rules (server-stamps `paid_at`, refuses
+    cancelled), then stamps the proof **reconciled** so the **same comprobante can never be applied
+    twice** (Nicolás's dedupe requirement). Nothing auto-marks — trust-based, human-confirm each one.
+  - **Media download:** owner-gated function `netlify/functions/wa-proof-media.mjs` (verifies the
+    Supabase token → role `owner`, mirrors the RLS) holds the Dualhook secret and does the two-hop
+    fetch (`GET https://api.dualhook.com/v25.0/{media-id}` Bearer `WA_DUALHOOK_API_KEY` → `{url}` →
+    GET bytes) and streams the image back. Browser fetches it with the access token → object URL;
+    **lazy-loaded via IntersectionObserver** so the first-open backlog doesn't fire dozens of
+    downloads at once. Images served `Cache-Control: private, no-store`. **⚠️ Requires Netlify env
+    `WA_DUALHOOK_API_KEY` (the `dh_live_…` key) — set it or proof images show "no se pudo cargar";
+    the page + mark-paid still work without it (those use the browser Supabase client).**
+  - **Unmatched rows** (`patient_id` null — phone didn't match a patient): a distinct "Requieren
+    atención — sin paciente" section shows the sender's phone + WhatsApp profile name so the owner can
+    identify them (and save the número in the patient's ficha so future proofs auto-match), then
+    **Descartar** (`dismissProof` → reconciled with no sessions) — never a silent drop.
+  - **DB:** migration `whatsapp_messages_reconcile` (mirrored `supabase/whatsapp-messages-reconcile.sql`)
+    added `reconciled_at` / `reconciled_by` / `reconciled_session_ids` (all nullable, additive) +
+    a partial index on pending proofs. Table RLS unchanged (owner-only, `is_owner()` FOR ALL covers
+    the owner's UPDATE). Verified against live data: 62 proofs sent in the last 7 days, 10 proof-sender
+    patients currently carry unpaid sessions.
+  - Full blow-by-blow (how we got here, all IDs, every dead end) is in Claude memory:
+    `whatsapp-coexistence-consolidation.md`.
 - [x] **UX polish batch — therapist patient edits + booking link preview + LEADS system**
   (2026-09-14, Opus 4.8, commit `99d2087`, pushed to `main`, deploy VERIFIED LIVE). Three
   changes, one push. Nicolas confirmed we're in UX-polish mode now (architecture done).

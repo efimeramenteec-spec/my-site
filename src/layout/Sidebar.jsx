@@ -10,6 +10,7 @@ import {
   IconClock,
   IconSparkle,
   IconMegaphone,
+  IconChat,
 } from './icons.jsx'
 
 export const NAV = [
@@ -21,6 +22,8 @@ export const NAV = [
   // Seguimiento is for therapists too — RLS scopes it to their own patients.
   { to: '/seguimiento', label: 'Seguimiento', icon: IconPulse },
   { to: '/marketing', label: 'Marketing', icon: IconMegaphone, ownerOnly: true },
+  // WhatsApp payment-proof reading layer (owner-only).
+  { to: '/comprobantes', label: 'Comprobantes', icon: IconChat, ownerOnly: true },
   { to: '/disponibilidad', label: 'Disponibilidad', icon: IconClock },
 ]
 
