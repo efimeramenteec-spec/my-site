@@ -180,7 +180,11 @@ export default function PublicBooking({ kind = 'llamada' }) {
         setConfirmation(data)
         setStep('done')
       } else if (res.status === 409) {
-        setNotice('Ese horario acaba de ocuparse. Elige otro, por favor.')
+        setNotice(
+          data.error === 'rooms_full'
+            ? 'Ese horario ya no tiene consultorio presencial disponible. Elige otro horario, o agéndala En línea.'
+            : 'Ese horario acaba de ocuparse. Elige otro, por favor.',
+        )
         setStep('slot')
         fetchSlots(therapist, date)
       } else if (res.status === 429) {

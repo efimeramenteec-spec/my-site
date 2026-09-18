@@ -46,6 +46,33 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **Presencial 3-room cap — closed the `/reservar` hole + made it DB-authoritative**
+  (2026-09-17, Opus 4.8). **Incident:** 4 presencial sessions landed on the same 17:00 window
+  today (only 3 consultorios). Diagnosed live: the 4th (Cecília Saltos, Francisco, 17:00–18:00)
+  came in through the **public `/reservar`** self-booking page, which never checked the room cap
+  (the cap lived ONLY in the in-app drawer + `Sesiones#handleSubmit` — a known deferred gap).
+  Nicolás's edit-time suspicion wasn't the cause this time; it was a fresh public booking.
+  (Aside confirmed with Nicolás: the two "Cecília" patient rows sharing +593983561095 are NOT a
+  duplicate — mother sees Francisco, minor daughter sees Sophia; legit shared-number family, left
+  as-is.) **Fix, two layers:**
+  - **Layer A — public `/reservar`:** `public-booking.mjs` now counts non-cancelled presencial
+    sessions overlapping the requested window across ALL therapists and returns **`rooms_full` 409**
+    when 3 are taken (`CONSULTORIOS=3`, mirrors `conflicts.js`). `PublicBooking.jsx` shows a
+    dedicated notice ("…ya no tiene consultorio presencial disponible… o agéndala En línea") and
+    sends the user back to pick another slot. NOTE: modalidad is chosen on the LAST form step
+    (after slots), so slots can't pre-filter — the book-time 409 is the guard.
+  - **Layer B — DB trigger (the hard wall):** `enforce_presencial_room_cap`
+    (migration `presencial_room_cap_trigger`, mirror `supabase/presencial-room-cap-trigger.sql`)
+    is a `BEFORE INSERT OR UPDATE` trigger on `sessions` that rejects a 4th overlapping
+    non-cancelled presencial from ANY path (app, public, SQL, import, future code). Half-open
+    overlap (back-to-back OK); en línea/llamada/cancelled/no_show exempt; takes a per-day
+    `pg_advisory_xact_lock` so simultaneous bookings can't each see a free room. Raises
+    `ROOMS_FULL …`; `queries.js#friendlySessionError` maps it to the drawer copy for in-app edits.
+    **Verified in prod** (rolled-back test): 4th presencial @17:00 REJECTED; en línea @17:00 and
+    presencial in a free window both ALLOWED. **This means the incident already cannot recur even
+    before the front-end deploy** — the trigger blocks the insert regardless of client.
+  - Build green. To bulk-load legacy overlapping presencial, temporarily DISABLE the trigger
+    (noted in the .sql header).
 - [x] **WhatsApp Coexistence — inbound Cloud API webhook (payment-proof reading), Phase 1**
   (2026-09-15, Opus 4.8, commit `90080e1`, deployed + VERIFIED LIVE). Goal: collapse the practice's
   **two** WhatsApp numbers into **one** and auto-read patient bank-transfer screenshots. The central
@@ -244,8 +271,8 @@
     if 3 non-cancelled presencial sessions (ALL therapists) already overlap its window. Helper
     `roomsFull`/`presencialOverlapCount`/`CONSULTORIOS` in `conflicts.js`; enforced live in
     `SesionDrawer` (rose warning + disabled submit) and as the `Sesiones.jsx#handleSubmit`
-    backstop. En línea/llamada don't count; edited session excluded. NOT enforced in public
-    `/reservar` yet (deferred, flagged in backlog).
+    backstop. En línea/llamada don't count; edited session excluded. (UPDATE 2026-09-17: now
+    ALSO enforced in public `/reservar` AND by a DB trigger — see the 2026-09-17 entry at top.)
   - **Verified:** `npm run build` green; helpers node-unit-checked (rooms 8/8). No DB migrations
     this batch (`fuente`/`notas` columns dormant).
 - [x] **Six-feature brainstorm batch — BUILT + PUSHED** (2026-08-31, Opus). Built

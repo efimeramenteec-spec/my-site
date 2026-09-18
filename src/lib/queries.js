@@ -152,6 +152,16 @@ export async function getSessionsData() {
   }
 }
 
+// The DB trigger enforce_presencial_room_cap raises a raw "ROOMS_FULL: …"
+// message; surface the same friendly copy the drawer already uses.
+function friendlySessionError(err, fallback) {
+  const msg = err?.message || ''
+  if (msg.includes('ROOMS_FULL')) {
+    return 'No hay consultorio disponible: ya hay 3 sesiones presenciales en ese horario.'
+  }
+  return msg || fallback
+}
+
 export async function createSession(payload) {
   // Hard rule (Nicolas, 2026-07-03): every session is born Pendiente, no
   // exceptions — estado only ever changes via the toggle after creation.
@@ -189,7 +199,7 @@ export async function createSession(payload) {
       }
       return { ok: true, data: session, calendarWarning }
     } catch (err) {
-      return { ok: false, error: err?.message || 'No se pudo guardar la sesi\u00f3n.' }
+      return { ok: false, error: friendlySessionError(err, 'No se pudo guardar la sesi\u00f3n.') }
     }
   }
   return { ok: true, data: demoCreateSession(data) }
@@ -247,7 +257,7 @@ export async function updateSession(id, patch) {
       }
       return { ok: true, data: session }
     } catch (err) {
-      return { ok: false, error: err?.message || 'No se pudo actualizar la sesi\u00f3n.' }
+      return { ok: false, error: friendlySessionError(err, 'No se pudo actualizar la sesi\u00f3n.') }
     }
   }
   return { ok: true, data: demoUpdateSession(id, data) }

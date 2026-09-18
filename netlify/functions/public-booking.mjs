@@ -41,6 +41,10 @@ const KINDS = {
 }
 const MIN_NOTICE_H = 12        // no bookings sooner than this
 const HORIZON_DAYS = 14        // no bookings further out than this
+// Only 3 physical consultorios: at most 3 PRESENCIAL sessions may overlap at
+// once across ALL therapists. Keep in sync with conflicts.js CONSULTORIOS and
+// the DB trigger enforce_presencial_room_cap (supabase/presencial-room-cap-trigger.sql).
+const CONSULTORIOS = 3
 const TZ = 'America/Guayaquil'
 const TZ_OFFSET = '-05:00'     // Ecuador, no DST
 const MAX_PER_PHONE_PER_DAY = 2
@@ -244,6 +248,31 @@ export default async (req) => {
       return json({ error: 'unavailable' }, 500)
     }
     if (!slots.includes(startTime)) return json({ error: 'slot_taken' }, 409)
+
+    // Room cap: a presencial booking needs one of the 3 consultorios free for
+    // its whole window (across ALL therapists — computeSlots only knows THIS
+    // therapist's calendar). The DB trigger is the hard backstop; this gives the
+    // patient a clean 409 instead of a raw DB error. En línea needs no room.
+    const bkStart = toMin(startTime)
+    const bkEnd = bkStart + kind.durMin
+    if (modalidad === 'presencial') {
+      const { data: dayRows, error: rErr } = await supabase
+        .from('sessions')
+        .select('hora_inicio, hora_fin, estado')
+        .eq('fecha', date)
+        .eq('modalidad', 'presencial')
+      if (rErr) {
+        console.error('[public-booking] room check query:', rErr.message)
+        return json({ error: 'booking_failed' }, 500)
+      }
+      const roomsTaken = (dayRows || []).filter((s) => {
+        if (s.estado === 'cancelada' || s.estado === 'no_show') return false
+        const ss = toMin(String(s.hora_inicio).slice(0, 5))
+        const se = toMin(String(s.hora_fin).slice(0, 5))
+        return bkStart < se && ss < bkEnd
+      }).length
+      if (roomsTaken >= CONSULTORIOS) return json({ error: 'rooms_full' }, 409)
+    }
 
     // Upsert patient by phone: reuse an existing record (never overwrite it) —
     // same matching as the Twilio webhook (normalized E.164 or last 9 digits).

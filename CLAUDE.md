@@ -131,7 +131,12 @@ Key detail: session `estado` is `programada` (Pendiente) | `confirmada` | `cance
 - **3 consultorios cap:** at most **3 concurrent `presencial` sessions** (across ALL therapists);
   a 4th overlapping presencial is blocked. Logic in `conflicts.js` (`roomsFull` /
   `presencialOverlapCount` / `CONSULTORIOS`), enforced in `SesionDrawer` + `Sesiones#handleSubmit`.
-  En línea/llamada don't count. NOT yet enforced in public `/reservar`.
+  En línea/llamada don't count. Now enforced EVERYWHERE: the client checks
+  (drawer + Sesiones) are backed by public `/reservar` (`public-booking.mjs`
+  `rooms_full` 409) AND an authoritative DB trigger `enforce_presencial_room_cap`
+  (`supabase/presencial-room-cap-trigger.sql`) that rejects a 4th overlapping
+  presencial from ANY write path (raises `ROOMS_FULL …`; `queries.js`
+  `friendlySessionError` maps it to the drawer copy).
 - **⭐ star** now marks the **first session of a 4-pack** (per-row `s.package_anchor` in Sesiones
   Lista), NOT "this patient buys packages" (patient-level stars removed).
 - **`patients.fuente` removed** from the app (attribution is fully automatic now). Column left
