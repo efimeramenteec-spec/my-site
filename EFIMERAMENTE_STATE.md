@@ -46,6 +46,28 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **DualHook send-scope investigation — CONFIRMED we can send WhatsApp with the existing key**
+  (2026-09-22, Opus 4.8). Question: can we SEND (not just read) through Dualhook with
+  `WA_DUALHOOK_API_KEY`? **Answer: YES.** Dualhook is a Cloud API proxy — send endpoint is
+  **`POST https://api.dualhook.com/v25.0/915558374975708/messages`**, `Authorization: Bearer
+  <WA_DUALHOOK_API_KEY>` (same host/key/auth as the media-read two-hop in `waMedia.mjs`; phone-number-id
+  `915558374975708`, WABA `1857507018469524`). Body is Graph/Cloud-API-shaped
+  (`{messaging_product:'whatsapp', to, type:'text', text:{body}}`).
+  - **How tested:** the key is a Netlify **write-only secret** (can't be copied out, not in local `.env`),
+    so it was probed from **inside a throwaway token-guarded Netlify function** `netlify/functions/dh-probe.mjs`
+    (added commit `f4baf03`, **deleted** commit `a01a6ae` — confirmed gone from prod; do NOT recreate it
+    openly, it can send WhatsApp). Two modes: `mode=scope` (POST `to:"0"`, reaches no one) and
+    `mode=send` (POST to Nicolás's own `593968029896`).
+  - **Results:** scope probe → **`400` Meta `131009`** ("phone number is malformed") = auth ACCEPTED, only
+    the bad recipient rejected ⇒ **key is NOT read-only, it carries send scope** (a `401/403` would have
+    meant read-only). Real send → **`200` with `wamid.HBgMNTkz…`**, delivered to Nicolás's phone. Plain
+    text send worked because the 24h window was open (he'd messaged the number first).
+  - **What's still missing to go fully live:** (1) a **Meta-approved message template on WABA
+    `1857507018469524`** — Dualhook docs say templates are on our plan with no extra tier, but our current
+    approved template is **Twilio-side (a different WABA)** and was NOT tested here. Text sends only work
+    inside an open 24h window, so reminders/proactive sends need a template. (2) then rewrite
+    `deliverReminder` (`netlify/lib/whatsapp.mjs`) to POST Dualhook and **retire Twilio**. No new plan, no
+    new token, no config change needed for sending itself.
 - [x] **Billing foundation — `payers` table + patient billing/diagnóstico columns**
   (2026-09-22, Opus 4.8). Schema groundwork for issuing facturas to a billing entity that
   isn't always the patient (minors, relatives paying). Migration `payers_and_patient_billing`
@@ -289,8 +311,13 @@
 - **The key also unlocks:** `GET /persona/` to fill the **6 missing cédulas + 7 missing
   `contifico_id`** in one call; pulling **past invoices** to backfill the **10 diagnosis codes**;
   confirming which API field maps to **"Observaciones"** (`descripcion` / `adicional1` / `adicional2`).
-- **NEXT PRIORITY is NOT invoicing — it is the DualHook send-scope investigation.** Sending gates
-  the Meta→WhatsApp funnel, the payment-reminder automation, and retiring Twilio.
+- **DualHook send-scope investigation — DONE 2026-09-22 (see Completed Features).** Confirmed the
+  existing `WA_DUALHOOK_API_KEY` CAN send (scope probe `400`, real send `200`). **Remaining to retire
+  Twilio / unlock proactive WhatsApp:** (1) create + get Meta approval for a **message template on WABA
+  `1857507018469524`** (needed for anything outside the 24h window; our Twilio template is a different
+  WABA), then (2) rewrite `deliverReminder` in `netlify/lib/whatsapp.mjs` to POST Dualhook
+  (`POST https://api.dualhook.com/v25.0/915558374975708/messages`, Bearer key) and drop the Twilio path.
+  Text-in-window sending already works today with the current key.
 
 ### Design-flaws polish pass (started 2026-08-03) — see `DESIGN-FLAWS-TODO.md`
 Running list of small flaws/nice-to-haves now that all modules are built. Doc is the source
