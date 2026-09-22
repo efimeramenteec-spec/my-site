@@ -73,9 +73,11 @@ export default async (req) => {
     return json({ action, status: res.status, body })
   }
 
-  if (action === 'create') {
+  if (action === 'create' || action === 'pago') {
+    // action=pago → only the second template (cita already exists); action=create → both.
+    const list = action === 'pago' ? TEMPLATES.filter((t) => t.name === 'recordatorio_pago') : TEMPLATES
     const results = []
-    for (const tpl of TEMPLATES) {
+    for (const tpl of list) {
       try {
         const res = await fetch(BASE, {
           method: 'POST',
@@ -84,7 +86,12 @@ export default async (req) => {
         })
         let body
         try { body = JSON.parse(await res.text()) } catch { body = 'unparseable' }
-        results.push({ name: tpl.name, status: res.status, body })
+        results.push({
+          name: tpl.name,
+          status: res.status,
+          retryAfter: res.headers.get('retry-after'),
+          body,
+        })
       } catch (e) {
         results.push({ name: tpl.name, error: e.message })
       }
@@ -92,5 +99,5 @@ export default async (req) => {
     return json({ action, results })
   }
 
-  return json({ error: `unknown action "${action}" — use create or list` }, 400)
+  return json({ error: `unknown action "${action}" — use create, pago or list` }, 400)
 }
