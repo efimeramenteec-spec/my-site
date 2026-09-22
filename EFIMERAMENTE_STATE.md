@@ -335,11 +335,33 @@ of truth; open items as of 2026-08-03:
       telefonos_por_revisar.csv`** (Juan Flores & M. de Lourdes Altamirano = missing digits; Micaela Castro =
       collides with Germania Domínguez's number; Santiago Maldonado = ambiguous trailing `-2`; Daniel y Daniela
       `8` & Michelle Tinajero `9` = garbage). NOT an error: the Conforme/Vásquez trio share `+593999643019`
-      (insurance family). Still-open cleanup: split the composite rows ("Daniel y Daniela", "Thomas (Gabriela
-      P. y Matheo Q.)") into individual patients. NOTE: app-side, phones aren't normalized on write — spaces
+      (insurance family). Still-open cleanup: split the composite row "Daniel y Daniela" into individual
+      patients. ("Thomas (Gabriela P. y Matheo Q.)" and "Micaela Castro (Germania Dominguez)" were RESOLVED
+      2026-09-22 via the payers model — surnames cleaned to Thomas Quevedo / Micaela Castro, payer linked.)
+      NOTE: app-side, phones aren't normalized on write — spaces
       bypass the UNIQUE constraint, so dups can recur until an input-normalization fix lands.
 - [ ] **`contifico_id` is a marker (= core cédula), not the real Contífico persona id.** Fine for the
       cédula-based Persona lookup in Protocol 2; upgrade to the real id only if a flow needs it.
+
+### Payer / billing model follow-ups (surfaced 2026-09-22, after the `payers` foundation)
+- [ ] **Wire `/facturar` to the payer.** When `patient.payer_id` is set, the factura must be issued
+      to the `payers` row (its cédula/razón_social/contifico_id), NOT the patient. The command still
+      keys off `patient.cedula` — update Protocol 2's Persona lookup to prefer the payer when present.
+- [ ] **Owner UI to manage billing fields.** `payer_id` and `facturacion_obligatoria` are deliberately
+      NOT in `PATIENT_COLUMNS` (not writable via the Pacientes form) — they're DB/owner-tooling only for
+      now. Build an owner-only control to assign a patient's payer and toggle `facturacion_obligatoria`.
+- [ ] **Flag interaction — NOT a bug:** the 4 insurance patients (Sharian Narváez, Raguel Conforme,
+      Emilie Conforme, Laura Vásquez) are now BOTH `facturacion_manual=true` (excluded from the automated
+      `/facturar` eligibility query) AND `facturacion_obligatoria=true` (the manual FACTURADA toggle is
+      enabled for them). Coherent: they require a factura but it's done manually (insurance format), not
+      via the Contífico automation. Keep both flags; don't "reconcile" them.
+- [ ] **Confirm Washington Andrade's WhatsApp** — his payer `telefono` was assumed = Valentina Andrade's
+      `+593992738962` (per Nicolás 2026-09-22). Verify it's actually the number comprobantes arrive from.
+- [ ] **Data oddity:** Laura Vásquez (payer + patient) and Emilie Conforme share cédula `1718240995001`.
+      Fine for now; revisit if it breaks a per-cédula Persona lookup when invoicing the trio.
+- [ ] Diagnóstico fields (`diagnostico_codigo`/`diagnostico_texto`, CIE-10 labelled) live ONLY in the
+      Pacientes → Configuración edit form. The inline create-patient drawer doesn't set them — add there
+      if therapists want to record a diagnosis at registration (minor).
 
 ### Immediate — next session
 - [x] ~~**Next module: SEGUIMIENTO**~~ — DONE 2026-07-04 (see Completed Features; scope was
