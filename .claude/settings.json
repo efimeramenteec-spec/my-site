@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(npm list *)",
+      "Bash(npx vite *)",
+      "Bash(npx netlify *)",
+      "Bash(node *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push origin main)",
+      "Bash(git pull *)",
+      "Bash(git show *)",
+      "Bash(curl -s https://efimeramente-panel.netlify.app/*)",
+      "Bash(curl -s https://efimeramente.ec/*)",
+      "WebFetch(domain:developers.netlify.com)",
+      "WebFetch(domain:docs.netlify.com)",
+      "WebFetch(domain:supabase.com)",
+      "WebFetch(domain:developers.facebook.com)",
+      "WebFetch(domain:dualhook.com)",
+      "mcp__claude_ai_Supabase__*",
+      "mcp__claude_ai_Netlify__*"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(rm -r *)",
+      "Bash(sudo *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git reset --hard*)",
+      "Bash(git rebase*)",
+      "Bash(git clean*)",
+      "Bash(git checkout -- *)",
+      "Bash(git filter-branch*)",
+      "Bash(mv ~/*)",
+      "Bash(chmod -R *)",
+      "Bash(> .env*)",
+      "Bash(cat .env*)",
+      "Read(.env)",
+      "Read(**/.env)",
+      "Read(**/*.p12)",
+      "Bash(echo $SUPABASE_SERVICE_KEY)",
+      "Bash(echo $WA_DUALHOOK_API_KEY)",
+      "Edit(//Users/nicolasdelatorre/.claude/**)",
+      "Edit(//Users/nicolasdelatorre/Library/**)"
+    ],
+    "ask": [
+      "Bash(git push *)",
+      "mcp__claude_ai_Supabase__apply_migration"
+    ]
+  }
+}
