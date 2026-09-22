@@ -277,6 +277,21 @@
 
 ## Pending / Backlog
 
+### ⭐ DECIDED 2026-09-22 — Contífico REST API purchased; /facturar to be rewritten
+- **Contífico API key purchased ($15.23/mo), awaiting delivery.** Once it arrives, `/facturar`
+  gets **REWRITTEN against the REST API** (`api.contifico.com/sistema/api/v1/`) and the entire
+  **Chrome-automation protocol is deleted**. Alternatives researched and rejected: **Dátil Plus**
+  ~$11.70/mo (migration cost exceeds the $42/yr saving); **direct SRI web services** (free, but
+  XAdES-BES signing + ficha técnica maintenance is a permanent liability).
+- **Therefore: do NOT invest further in the browser-automation `/facturar`.** Payer-aware invoicing
+  (issue to `payer_id` when set) is **part of the API rewrite**, not a separate task on the current
+  protocol. (This supersedes the "Wire `/facturar` to the payer" item under Payer/billing follow-ups.)
+- **The key also unlocks:** `GET /persona/` to fill the **6 missing cédulas + 7 missing
+  `contifico_id`** in one call; pulling **past invoices** to backfill the **10 diagnosis codes**;
+  confirming which API field maps to **"Observaciones"** (`descripcion` / `adicional1` / `adicional2`).
+- **NEXT PRIORITY is NOT invoicing — it is the DualHook send-scope investigation.** Sending gates
+  the Meta→WhatsApp funnel, the payment-reminder automation, and retiring Twilio.
+
 ### Design-flaws polish pass (started 2026-08-03) — see `DESIGN-FLAWS-TODO.md`
 Running list of small flaws/nice-to-haves now that all modules are built. Doc is the source
 of truth; open items as of 2026-08-03:
