@@ -14,7 +14,7 @@
 
 ## Key Files
 - `src/lib/queries.js` — core data layer: `buildCalendarEvent`, `callCalendar`, `createSession`, `updateSession`, `checkFreebusy`
-- `netlify/functions/calendar.js` — serverless Google Calendar API bridge (actions: create, update, delete, freebusy)
+- `netlify/functions/calendar.mjs` — serverless Google Calendar API bridge (actions: create, update, cancel, delete, freebusy)
 - `src/lib/conflicts.js` — session conflict detection (Supabase only)
 - `src/features/sesiones/SesionDrawer.jsx` — new/edit session drawer; `checkFreebusy` wired in (debounced 350ms, amber warning)
 
@@ -249,10 +249,6 @@
 ### Design-flaws polish pass (started 2026-08-03) — see `DESIGN-FLAWS-TODO.md`
 Running list of small flaws/nice-to-haves now that all modules are built. Doc is the source
 of truth; open items as of 2026-08-03:
-- [ ] **#1 Llamadas born `confirmada`** (spec'd, NOT built) — carve a `tipo==='llamada'`
-      exception into the "Born Pendiente" invariant: `queries.js#createSession` +
-      `public-booking.mjs`. Reasoning: a 10-min cold call isn't confirmed by the patient; it's
-      `confirmada` from scheduling through any outcome.
 - [x] ~~#2 Therapist session report (PDF)~~ — DONE 2026-08-03 (+ Pareja $30 provision). See
       Completed Features.
 
