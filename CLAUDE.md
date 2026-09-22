@@ -45,8 +45,12 @@ and, for behavior, checking the running app. Always build before committing.
   deploys/env vars/logs directly instead of asking Nicolas to check the dashboard.
 - **Supabase access:** the Claude **Supabase connector** (MCP, enabled 2026-07-02) can run SQL directly —
   reads, row writes, and DDL via `apply_migration` — against project `vnityzpuhnkumsyfnskz`. Check for the
-  `mcp__*Supabase*` tools at session start. **Tell Nicolas before running any DDL.** Keep each migration
-  mirrored as a `.sql` file in `supabase/`.
+  `mcp__*Supabase*` tools at session start. Keep each migration mirrored as a `.sql` file in `supabase/`.
+- **DDL approval (hard rule):** additive migrations (`CREATE TABLE`, `ADD COLUMN`, `CREATE INDEX`,
+  new RLS policies) run **without asking** — just announce them. **DESTRUCTIVE DDL requires explicit
+  approval from Nicolás in chat before running, every time, with no exception:** `DROP TABLE`,
+  `DROP COLUMN`, `TRUNCATE`, `ALTER COLUMN TYPE`, `DELETE` without a `WHERE` clause, and any migration
+  that drops or rewrites existing data. State exactly what will be lost and wait for a yes.
 - Fallback when the connector is absent: DDL by hand in the Supabase SQL editor; row writes with the
   `SUPABASE_SERVICE_KEY` in `~/my-site/.env` (service_role). Never print it.
 
