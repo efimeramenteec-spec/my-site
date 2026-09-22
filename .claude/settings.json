@@ -28,7 +28,12 @@
       "WebFetch(domain:developers.facebook.com)",
       "WebFetch(domain:dualhook.com)",
       "mcp__claude_ai_Supabase__*",
-      "mcp__claude_ai_Netlify__*"
+      "mcp__claude_ai_Netlify__*",
+      "mcp__Supabase__*",
+      "mcp__supabase__*",
+      "mcp__Netlify__*",
+      "mcp__netlify__*",
+      "mcp__claude-in-chrome__*"
     ],
     "deny": [
       "Bash(rm -rf *)",
@@ -54,8 +59,7 @@
       "Edit(//Users/nicolasdelatorre/Library/**)"
     ],
     "ask": [
-      "Bash(git push *)",
-      "mcp__claude_ai_Supabase__apply_migration"
+      "Bash(git push *)"
     ]
   }
 }

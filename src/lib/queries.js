@@ -11,7 +11,7 @@ import {
 // Joined select used everywhere we need patient + therapist names/colors.
 const SESSION_SELECT =
   'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,facturada,metodo_pago,notas,convirtio,package_anchor,google_event_id,reminder_sent_at,' +
-  'patient:patients(id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono),therapist:therapists(id,nombre,apellido,color,calendar_email)'
+  'patient:patients(id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,facturacion_obligatoria),therapist:therapists(id,nombre,apellido,color,calendar_email)'
 
 // Only real columns may be written to the sessions table.
 const SESSION_COLUMNS = [
@@ -470,7 +470,8 @@ export async function deleteSession(id) {
 
 const PATIENT_SELECT =
   'id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,email,cedula,contifico_id,fecha_nacimiento,terapeuta_id,' +
-  'motivo_consulta,estado_general,es_lead,tarifa,metodo_pago,frecuencia,created_at,updated_at'
+  'motivo_consulta,estado_general,es_lead,tarifa,metodo_pago,frecuencia,payer_id,facturacion_obligatoria,' +
+  'diagnostico_codigo,diagnostico_texto,created_at,updated_at'
 
 // patients.notas (the "Expediente" free-text) intentionally dropped from the
 // app 2026-08-31 (C1) — no clinical/personal notes stored while security isn't
@@ -480,6 +481,10 @@ const PATIENT_COLUMNS = [
   'telefono', 'email', 'cedula', 'contifico_id', 'fecha_nacimiento',
   'terapeuta_id', 'motivo_consulta', 'estado_general', 'es_lead',
   'tarifa', 'metodo_pago', 'frecuencia',
+  // diagnóstico is editable in the Pacientes form. payer_id and
+  // facturacion_obligatoria are billing-scoped: set via DB/owner tooling,
+  // read-only through the standard patient write path for now.
+  'diagnostico_codigo', 'diagnostico_texto',
 ]
 const pickPatientColumns = (obj) =>
   Object.fromEntries(PATIENT_COLUMNS.filter((k) => k in obj).map((k) => [k, obj[k]]))

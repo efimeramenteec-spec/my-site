@@ -106,6 +106,8 @@ const formFromPatient = (patient) => ({
   metodo_pago: patient.metodo_pago || 'transferencia',
   estado_general: patient.estado_general || 'activo',
   frecuencia: patient.frecuencia || '',
+  diagnostico_codigo: patient.diagnostico_codigo || '',
+  diagnostico_texto: patient.diagnostico_texto || '',
 })
 
 function PatientDetail({ patient, therapist, therapists = [], sessions, fullAccess = true, onClose, onSave, onDelete }) {
@@ -155,6 +157,8 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
       metodo_pago: form.metodo_pago,
       estado_general: form.estado_general,
       frecuencia: form.frecuencia || null,
+      diagnostico_codigo: form.diagnostico_codigo.trim() || null,
+      diagnostico_texto: form.diagnostico_texto.trim() || null,
     }
     if (fullAccess) {
       patch.terapeuta_id = form.terapeuta_id || null
@@ -351,6 +355,18 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
             options={toOptions(FRECUENCIA_PACIENTE)}
             placeholder="Sin definir…"
             hint="Cada cuánto se espera que venga — alimenta la adherencia en Seguimiento."
+          />
+          <Input
+            label="Código diagnóstico (CIE-10)"
+            value={form.diagnostico_codigo}
+            onChange={(e) => set('diagnostico_codigo', e.target.value)}
+            hint="Código CIE-10 de la categoría clínica (ej. F41.1). Opcional."
+          />
+          <Input
+            label="Diagnóstico"
+            value={form.diagnostico_texto}
+            onChange={(e) => set('diagnostico_texto', e.target.value)}
+            hint="Descripción de la categoría clínica. Opcional."
           />
           {error && <p className="font-caption text-xs text-red-500">{error}</p>}
           <Button

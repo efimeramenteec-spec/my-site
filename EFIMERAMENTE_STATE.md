@@ -46,6 +46,37 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **Billing foundation — `payers` table + patient billing/diagnóstico columns**
+  (2026-09-22, Opus 4.8). Schema groundwork for issuing facturas to a billing entity that
+  isn't always the patient (minors, relatives paying). Migration `payers_and_patient_billing`
+  (mirror `supabase/payers-and-patient-billing.sql`).
+  - **NEW TABLE `payers`** — the entity an invoice is issued to: `nombre, apellido, cedula,
+    contifico_id, email, telefono, razon_social` (+ id/timestamps). `telefono` matters because
+    **comprobantes arrive from the payer's WhatsApp number.** RLS = **owner-only**
+    (`payers_owner` = `is_owner()`); therapists don't manage payers.
+  - **`patients.payer_id` → payers.id, NULLABLE.** NULL = patient pays for themselves (~95%).
+    4 payers seeded + linked, with the faked "(Name)" free-text surnames cleaned once linked:
+    **Laura Vásquez** (ced 1718240995001, contifico 1718240995) covers herself + **Raguel
+    Conforme** + **Emilie Conforme** (the +593999643019 insurance trio); **Germania Domínguez**
+    covers **Micaela Castro** (row cleaned "Micaela Castro"/"(Germania Dominguez)" → "Micaela"/
+    "Castro"); **Gabriela Páliz** covers **Thomas Quevedo** (surname set from the parents'
+    parenthetical); **Washington Andrade** covers **Valentina Andrade** (payer phone = Valentina's
+    +593992738962, per Nicolás). Raguel's "Conforme Vasquez" left as a real compound surname.
+  - **`patients.facturacion_obligatoria`** boolean default false — this patient REQUIRES an SRI
+    factura. Set true for exactly 10: Emiliano Caradonna, Laura Vásquez, Raguel Conforme, Emilie
+    Conforme, Sharian Narváez, Cinthya Pérez, Valentina Andrade, Andrés Gotta, Micaela Castro,
+    Thomas Quevedo (collisions resolved by first name vs Diego Narvaez / the 4 other Pérez / the
+    5 other Andrés / Micaela Mojarrango / Valentina Yanchaluiza). **⚠️ DO NOT confuse with
+    `facturacion_manual`** ("never auto-invoice") — different flag, opposite meaning, both coexist.
+  - **`patients.diagnostico_codigo` + `diagnostico_texto`** — both nullable, never required. UI
+    label explicitly names **CIE-10** so therapists know a clinical category is expected.
+  - **App wiring:** `PATIENT_SELECT` gains payer_id/facturacion_obligatoria/diagnostico_*;
+    `PATIENT_COLUMNS` gains diagnostico_codigo/texto only (payer_id + facturacion_obligatoria are
+    billing-scoped — set via DB/owner tooling, NOT writable through the patient form for now);
+    `SESSION_SELECT` embed gains `facturacion_obligatoria` so the Lista row can gate. **FACTURADA
+    toggle** (`views.jsx`) is now enabled ONLY when `patient.facturacion_obligatoria` (still off
+    for cancelled/llamada); disabled elsewhere with copy "No facturable". Pacientes → Configuración
+    form got the two CIE diagnóstico inputs. Build green.
 - [x] **Presencial 3-room cap — closed the `/reservar` hole + made it DB-authoritative**
   (2026-09-17, Opus 4.8). **Incident:** 4 presencial sessions landed on the same 17:00 window
   today (only 3 consultorios). Diagnosed live: the 4th (Cecília Saltos, Francisco, 17:00–18:00)

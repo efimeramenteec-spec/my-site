@@ -274,6 +274,10 @@ export function ListView({ sessions, sessionsByPatient = {}, onEdit, onSetEstado
         // cobro/factura metrics (which also exclude llamadas by design).
         const llamada = s.tipo === 'llamada'
         const noBilling = cancelled || llamada
+        // Facturación is only offered for patients flagged
+        // facturacion_obligatoria (billing entities that require an SRI
+        // factura). Everyone else: the FACTURADA toggle stays disabled.
+        const facturable = !noBilling && !!s.patient?.facturacion_obligatoria
         return (
         <div key={s.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-2 py-3 transition-colors hover:bg-white/50">
           <div className="w-28 flex-shrink-0">
@@ -324,10 +328,10 @@ export function ListView({ sessions, sessionsByPatient = {}, onEdit, onSetEstado
           {/* Facturación — manual for now. Sky blue on purpose: visually
               distinct from the lavender pago toggle right next to it. */}
           <div className="flex items-center gap-2.5">
-            <Toggle checked={!noBilling && !!s.facturada} disabled={noBilling} onClass="bg-sky-500" onChange={(v) => onToggleFacturada(s, v)} />
+            <Toggle checked={facturable && !!s.facturada} disabled={!facturable} onClass="bg-sky-500" onChange={(v) => onToggleFacturada(s, v)} />
             <div className="leading-tight">
               <p className="font-caption text-[11px] font-bold uppercase tracking-wide text-sky-600">Factura</p>
-              <p className="font-caption text-[11px] text-content-muted">{noBilling ? 'No se factura' : s.facturada ? 'Facturada' : 'Sin facturar'}</p>
+              <p className="font-caption text-[11px] text-content-muted">{noBilling ? 'No se factura' : !facturable ? 'No facturable' : s.facturada ? 'Facturada' : 'Sin facturar'}</p>
             </div>
           </div>
 
