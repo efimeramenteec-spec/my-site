@@ -46,6 +46,35 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **WhatsApp reminder templates created + submitted to Meta on WABA `1857507018469524`**
+  (2026-09-22, Opus 4.8). The template gate from the DualHook send-scope investigation is now
+  cleared. Two **UTILITY / language `es`** templates submitted through the Dualhook Cloud-API proxy
+  (`POST https://api.dualhook.com/v25.0/1857507018469524/message_templates`, Bearer
+  `WA_DUALHOOK_API_KEY`, Graph-v25.0-shaped body — Dualhook exposes Graph-compatible template
+  endpoints for the `dh_live_` key). **Submission date: 2026-09-22.**
+  - **`recordatorio_cita`** (id `937666942271866`) — vars `{{1}}`=nombre, `{{2}}`=fecha (mañana),
+    `{{3}}`=hora. Body: *"Hola {{1}}, te recordamos tu sesión en Efimeramente mañana {{2}} a las
+    {{3}}. Responde CONFIRMO para confirmarla o CANCELAR si no puedes asistir."* Two QUICK_REPLY
+    buttons: **Confirmo** / **Cancelar**. **Status: ✅ APPROVED** (approved within minutes of
+    submission). Mirrors the Twilio reminder behaviour so `send-reminders` can be repointed at
+    Dualhook without changing the patient experience.
+  - **`recordatorio_pago`** (id `1871176587622662`) — vars `{{1}}`=nombre, `{{2}}`=monto,
+    `{{3}}`=nº sesiones. Body: *"Hola {{1}}, tienes un saldo pendiente de ${{2}} por {{3}}
+    sesión(es) en Efimeramente. Puedes realizar la transferencia y enviarnos el comprobante por
+    este mismo chat."* No buttons. **Status: ⏳ PENDING** (awaiting Meta review as of 2026-09-22).
+  - **How submitted:** the `WA_DUALHOOK_API_KEY` is a Netlify write-only secret, so — same precedent
+    as the deleted `dh-probe` — a token-guarded throwaway function `netlify/functions/dh-tpl.mjs`
+    (added `5c0a8bd`/`4e7af48`, **deleted same session** in the commit recording this entry) POSTed
+    the templates and listed status.
+    **Gotcha:** Dualhook's proxy 429s with a bare `{"error":{"message":"Rate limit exceeded"}}` (no
+    Meta `code`/`fbtrace_id` ⇒ it's a Dualhook failure-circuit, not Meta) if you retry create too
+    fast. First `recordatorio_cita` created fine; rapid `recordatorio_pago` retries tripped the
+    circuit for hours — one clean call after backing off succeeded. Back off, don't hammer.
+  - **What this unblocks:** `recordatorio_cita` being APPROVED clears step (1) of retiring Twilio.
+    **Next build task (unchanged):** rewrite `deliverReminder` (`netlify/lib/whatsapp.mjs`) to POST
+    Dualhook (`POST …/915558374975708/messages`, Bearer key, `type:'template'`,
+    `template:{name:'recordatorio_cita', language:{code:'es'}, components:[…3 body params…]}`) and
+    drop the Twilio path. Did NOT touch `send-reminders.mjs` or any Twilio code this session.
 - [x] **DualHook send-scope investigation — CONFIRMED we can send WhatsApp with the existing key**
   (2026-09-22, Opus 4.8). Question: can we SEND (not just read) through Dualhook with
   `WA_DUALHOOK_API_KEY`? **Answer: YES.** Dualhook is a Cloud API proxy — send endpoint is
@@ -311,13 +340,14 @@
 - **The key also unlocks:** `GET /persona/` to fill the **6 missing cédulas + 7 missing
   `contifico_id`** in one call; pulling **past invoices** to backfill the **10 diagnosis codes**;
   confirming which API field maps to **"Observaciones"** (`descripcion` / `adicional1` / `adicional2`).
-- **DualHook send-scope investigation — DONE 2026-09-22 (see Completed Features).** Confirmed the
-  existing `WA_DUALHOOK_API_KEY` CAN send (scope probe `400`, real send `200`). **Remaining to retire
-  Twilio / unlock proactive WhatsApp:** (1) create + get Meta approval for a **message template on WABA
-  `1857507018469524`** (needed for anything outside the 24h window; our Twilio template is a different
-  WABA), then (2) rewrite `deliverReminder` in `netlify/lib/whatsapp.mjs` to POST Dualhook
-  (`POST https://api.dualhook.com/v25.0/915558374975708/messages`, Bearer key) and drop the Twilio path.
-  Text-in-window sending already works today with the current key.
+- **DualHook send-scope + templates — BOTH DONE 2026-09-22 (see Completed Features).** Send scope
+  confirmed (scope probe `400`, real send `200`); **template gate now cleared** — `recordatorio_cita`
+  **APPROVED**, `recordatorio_pago` **PENDING** on WABA `1857507018469524`. **Remaining to retire
+  Twilio:** just step (2) — rewrite `deliverReminder` in `netlify/lib/whatsapp.mjs` to POST Dualhook
+  (`POST https://api.dualhook.com/v25.0/915558374975708/messages`, Bearer key, `type:'template'`
+  with `recordatorio_cita` / `language.code:'es'` / 3 body params = nombre, fecha, hora) and drop the
+  Twilio path. That build task was intentionally NOT started this session. Text-in-window sending
+  (no template) already works today with the current key.
 
 ### Design-flaws polish pass (started 2026-08-03) — see `DESIGN-FLAWS-TODO.md`
 Running list of small flaws/nice-to-haves now that all modules are built. Doc is the source
