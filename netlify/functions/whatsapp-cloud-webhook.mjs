@@ -209,7 +209,7 @@ export default async (req) => {
     else console.log(`[wa-cloud] logged ${statusRows.length} delivery status(es)`)
     // TEMP debug: surface the upsert error to the caller when ?debug=1 (removed after diagnosis).
     if (url.searchParams.get('debug') === '1') {
-      return json({ debug: true, statusRows: statusRows.length, error: error ? { message: error.message, code: error.code, details: error.details, hint: error.hint } : null })
+      return text(JSON.stringify({ debug: true, statusRows: statusRows.length, error: error ? { message: error.message, code: error.code, details: error.details, hint: error.hint } : null }), 200)
     }
   }
 
