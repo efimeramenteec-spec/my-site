@@ -43,7 +43,7 @@ const SUPABASE_PROJECT = 'vnityzpuhnkumsyfnskz'
 // the first dry-run so the payload is exact. IVA 0% (psychology is exempt).
 // producto_id is Contífico's internal product id for "SESION INDIVIDUAL".
 const SESION_PRODUCT = {
-  id: null,            // ← set from recon (Contífico producto id)
+  id: 'O8bYEmDllFv68b7j', // Contífico producto id for SESION INDIVIDUAL (recon 2026-09-24)
   nombre: 'SESION INDIVIDUAL',
 }
 
@@ -146,25 +146,32 @@ function patientDisplayName(p) {
 }
 
 // Billing identity = payer when payer_id is set, else the patient.
+// `key` = the persona identifier sent to Contífico: prefer contifico_id (the
+// clean 10-digit cédula-marker the personas are keyed by) over the raw cedula
+// (which can carry a trailing "001"). Matches how real invoices are keyed.
 function billingIdentity(p) {
   const payer = p.payer
   if (payer && payer.id) {
+    const cedula = payer.cedula && payer.cedula !== 'na' ? payer.cedula : null
     return {
       source: 'payer',
       nombre: [payer.nombre, payer.apellido].filter(Boolean).join(' ').trim(),
       razon_social: payer.razon_social || null,
-      cedula: payer.cedula || null,
+      cedula,
       contifico_id: payer.contifico_id || null,
+      key: payer.contifico_id || cedula || null,
       email: payer.email || null,
       telefono: payer.telefono || null,
     }
   }
+  const cedula = p.cedula && p.cedula !== 'na' ? p.cedula : null
   return {
     source: 'patient',
     nombre: [p.nombre, p.apellido].filter(Boolean).join(' ').trim(),
     razon_social: null,
-    cedula: p.cedula && p.cedula !== 'na' ? p.cedula : null,
+    cedula,
     contifico_id: p.contifico_id || null,
+    key: p.contifico_id || cedula || null,
     email: null,
     telefono: null,
   }
@@ -183,7 +190,7 @@ function buildDescripcion(p, session) {
 function blockingReasons(p, bill) {
   const reasons = []
   // Billing identity needs a cédula/RUC (persona is keyed by cédula in Contífico).
-  const ced = bill.cedula || bill.contifico_id
+  const ced = bill.key
   if (!ced) {
     reasons.push(bill.source === 'payer'
       ? `payer "${bill.nombre}" has no cédula/contifico_id`
@@ -201,9 +208,10 @@ function blockingReasons(p, bill) {
 function buildDocumentPayload(p, session) {
   const bill = billingIdentity(p)
   const precio = money(session.monto)
-  const cedula = bill.cedula || bill.contifico_id || ''
-  // Persona type: 13-digit → RUC (R), else natural (N).
-  const tipoPersona = String(cedula).length === 13 ? 'R' : 'N'
+  const key = String(bill.key || '')
+  // Persona type: 13-digit → RUC (R), else natural (N). Our personas are keyed by
+  // the 10-digit contifico_id, so this is 'N' in practice.
+  const isRuc = key.length === 13
   const descripcion = buildDescripcion(p, session)
 
   const detalle = {
@@ -218,33 +226,35 @@ function buildDocumentPayload(p, session) {
   }
 
   return {
+    // `documento` (sequential) and `autorizacion` are intentionally OMITTED:
+    // for electronic docs Contífico auto-assigns the sequential from the POS's
+    // establecimiento/punto de emisión, and the SRI clave is filled by PUT /sri/.
     pos: POS_TOKEN,
     fecha_emision: fechaDMY(session.fecha),
     tipo_documento: 'FAC',
-    documento: '',              // Contífico assigns the sequential on emit
-    estado: 'P',                // Pendiente (pre-SRI)
-    electronico: true,
-    autorizacion: '',
+    estado: 'P',                // Pendiente / por cobrar — mirrors all 291 existing invoices
     caja_id: null,
     cliente: {
-      tipo: tipoPersona,
-      cedula: String(cedula),
-      razon_social: bill.razon_social || bill.nombre,
+      tipo: isRuc ? 'R' : 'N',
+      ruc: isRuc ? key : '',
+      cedula: key,
+      razon_social: (bill.razon_social || bill.nombre || '').toUpperCase(),
       telefonos: bill.telefono || '',
       direccion: 'Quito',
       email: bill.email || '',
+      es_extranjero: false,
     },
     descripcion,
     referencia: descripcion,    // recon: Observaciones mirrored verbatim to referencia
     subtotal_0: precio,
     subtotal_12: 0,
     iva: 0,
+    ice: 0,
+    servicio: 0,
     total: precio,
     detalles: [detalle],
-    cobros: [
-      // "Otros con Utilización del Sistema Financiero" = bank transfer SRI code.
-      { forma_cobro: 'OTR', monto: precio },
-    ],
+    // No `cobros`: the practice emits facturas as "por cobrar" (estado P) and
+    // tracks payment separately — matches every existing invoice (cobros:[]).
   }
 }
 
@@ -260,7 +270,7 @@ function assemble(sessions) {
       monto: money(s.monto),
       patient: patientDisplayName(p),
       billing_to: bill.nombre + (bill.source === 'payer' ? ' (payer)' : ''),
-      billing_cedula: bill.cedula || bill.contifico_id || null,
+      billing_cedula: bill.key || null,
       ready: reasons.length === 0,
       blocking: reasons,
       descripcion: buildDescripcion(p, s),
