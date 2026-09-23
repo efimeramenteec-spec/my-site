@@ -25,3 +25,8 @@ create index if not exists idx_wa_delivery_status_created on whatsapp_delivery_s
 alter table whatsapp_delivery_status enable row level security;
 create policy wa_delivery_status_owner_read on whatsapp_delivery_status
   for select using (is_owner());
+
+-- Created via raw SQL, so it didn't inherit Supabase's default table GRANTs
+-- (service-role INSERT hit "42501 permission denied"). Grant explicitly.
+grant select, insert, update, delete on table public.whatsapp_delivery_status to service_role;
+grant select on table public.whatsapp_delivery_status to authenticated;

@@ -207,10 +207,6 @@ export default async (req) => {
       .upsert(statusRows, { onConflict: 'wamid,status', ignoreDuplicates: true })
     if (error) console.error('[wa-cloud] status insert failed:', error.message)
     else console.log(`[wa-cloud] logged ${statusRows.length} delivery status(es)`)
-    // TEMP debug: surface the upsert error to the caller when ?debug=1 (removed after diagnosis).
-    if (url.searchParams.get('debug') === '1') {
-      return text(JSON.stringify({ debug: true, statusRows: statusRows.length, error: error ? { message: error.message, code: error.code, details: error.details, hint: error.hint } : null }), 200)
-    }
   }
 
   // Meta requires a prompt 200 or it retries + eventually disables the webhook.
