@@ -25,10 +25,24 @@
 //   SUPABASE_SERVICE_KEY   (required) — service-role writes (bypasses RLS).
 
 import crypto from 'crypto'
-import { getSupabaseAdmin, normalizePhone } from '../lib/whatsapp.mjs'
+import { getSupabaseAdmin, normalizePhone, resolveReplyEstado, applyInboundReplyEstado } from '../lib/whatsapp.mjs'
+import { notifyTherapist } from '../lib/push.mjs'
 
 const text = (body, status = 200) => new Response(body, { status, headers: { 'Content-Type': 'text/plain' } })
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
+
+// Pull the reply string a patient sent, whether they TAPPED a quick-reply button
+// (template buttons arrive as type 'button' with button.payload/text; interactive
+// replies as interactive.button_reply) or TYPED the word (type 'text'). Fed to
+// resolveReplyEstado, so exact casing/accents don't matter.
+function replyString(msg) {
+  switch (msg?.type) {
+    case 'button': return msg.button?.payload || msg.button?.text || ''
+    case 'interactive': return msg.interactive?.button_reply?.id || msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || ''
+    case 'text': return msg.text?.body || ''
+    default: return ''
+  }
+}
 
 // Pull a human-readable body out of any Cloud API message type. For media we keep
 // a short marker + any caption; the real image lives behind msg.image.id, fetched
@@ -126,6 +140,20 @@ export default async (req) => {
         })
         const who = patient ? `patient ${patient.id}` : `UNMATCHED ${msg.from}`
         console.log(`[wa-cloud] inbound ${msg.type} from ${who} (${msg.id})`)
+
+        // Confirmo / Cancelar → flip the matching session's estado. This is the
+        // inbound HALF of the Dualhook reminder loop (the outbound half is
+        // send-reminders → deliverReminder). Reminders sent via Dualhook get their
+        // replies HERE, not at twilio-webhook. Works whether the patient tapped the
+        // quick-reply button or typed the word. Never blocks the 200 to Meta.
+        const estado = resolveReplyEstado(replyString(msg))
+        if (estado) {
+          try {
+            await applyInboundReplyEstado(supabase, msg.from, estado, { notifyTherapist })
+          } catch (e) {
+            console.warn('[wa-cloud] estado flip failed (non-blocking):', e.message)
+          }
+        }
       }
     }
   }
