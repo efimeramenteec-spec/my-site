@@ -117,11 +117,44 @@ export default async (req) => {
   }
 
   const rows = []
+  const statusRows = []
   for (const entry of payload?.entry || []) {
     for (const change of entry?.changes || []) {
       const value = change?.value
+
+      // ── Delivery-status events (sent/delivered/read/failed) ──────────────────
+      // Meta pushes these for every message WE send (e.g. the reminder template).
+      // A Dualhook 200 only means "accepted" — the real proof a patient got the
+      // reminder is a `delivered`/`read` here, and a `failed` carries the reason
+      // code (e.g. 131047 re-engagement / out-of-window). These arrive WITHOUT a
+      // `messages` array, so they used to be dropped. Record them to
+      // whatsapp_delivery_status for per-reminder ground truth.
+      if (Array.isArray(value?.statuses) && value.statuses.length) {
+        if (!patients) {
+          const { data, error } = await supabase.from('patients').select('id, telefono, nombre, apellido')
+          if (error) { console.error('[wa-cloud] patients fetch:', error.message); patients = [] }
+          else patients = data || []
+        }
+        for (const st of value.statuses) {
+          const err = Array.isArray(st.errors) ? st.errors[0] : null
+          statusRows.push({
+            wamid: st.id || null,
+            status: st.status || 'unknown',
+            recipient: st.recipient_id || null,
+            patient_id: matchPatient(st.recipient_id)?.id || null,
+            error_code: err?.code ?? null,
+            error_title: err?.title || null,
+            error_message: err?.message || err?.error_data?.details || null,
+            event_at: st.timestamp ? new Date(Number(st.timestamp) * 1000).toISOString() : null,
+            raw: st,
+          })
+          console.log(`[wa-cloud] status ${st.status} wamid=${st.id} to=${st.recipient_id}${err ? ` ERROR ${err.code} ${err.title}` : ''}`)
+        }
+        continue
+      }
+
       const messages = value?.messages
-      if (!Array.isArray(messages) || messages.length === 0) continue // skip status/delivery events
+      if (!Array.isArray(messages) || messages.length === 0) continue // no messages + no statuses
 
       if (!patients) {
         const { data, error } = await supabase.from('patients').select('id, telefono, nombre, apellido')
@@ -165,6 +198,15 @@ export default async (req) => {
       .upsert(rows, { onConflict: 'twilio_sid', ignoreDuplicates: true })
     if (error) console.error('[wa-cloud] insert failed:', error.message)
     else console.log(`[wa-cloud] logged ${rows.length} inbound message(s)`)
+  }
+
+  if (statusRows.length) {
+    // Idempotent per (wamid, status) so Meta's retries don't duplicate a stage.
+    const { error } = await supabase
+      .from('whatsapp_delivery_status')
+      .upsert(statusRows, { onConflict: 'wamid,status', ignoreDuplicates: true })
+    if (error) console.error('[wa-cloud] status insert failed:', error.message)
+    else console.log(`[wa-cloud] logged ${statusRows.length} delivery status(es)`)
   }
 
   // Meta requires a prompt 200 or it retries + eventually disables the webhook.
