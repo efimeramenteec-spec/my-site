@@ -94,7 +94,7 @@
     | Micaela Castro | via payer Germania Domínguez | payer **1716794209** (own: unknown) | **F41.1** Trastorno de Ansiedad Generalizada |
     | Thomas Quevedo | via payer Gabriela Páliz | payer **1716725765** (own: unknown) | **F41.8** Otro Trastorno de Ansiedad Social Especificado |
     | Valentina Andrade | via payer Washington Andrade | payer **1712067378** (own: `cedula="na"`) | none (no CIE in descripcion) |
-    | Sharian Narváez | ❌ NOT in Contífico | — (no invoices) | none |
+    | Marthin Spatz (menor) / Sharian Narváez (tutor) | ✅ billed to father "MARTHÍN SPATZ" | **1724765266** (now in Supabase) | **Trastorno de Adaptación** (invoices say "CIE-10 \| Trastorno de Adaptación"; no numeric F-code written) |
 
   - **Gaps this fills (to be written LATER, after Nicolás confirms):**
     - `patients.cedula` / `patients.contifico_id`: **Emiliano Caradonna → 0961793387**, **Andrés Gotta
@@ -104,12 +104,17 @@
       Escobar", also has RUC 1712067378001). Laura Vásquez payer already has 1718240995. The minors
       (Micaela, Thomas, Raguel, Emilie, Valentina) bill to these payers, so their invoices need the
       **payer** cédula, not the patient's.
-    - `diagnostico_codigo`/`diagnostico_texto` backfillable for **6**: Emiliano (F41), Laura (F41),
-      Raguel (F88), Emilie (F88), Micaela (F41.1), Thomas (F41.8). **No diagnosis available** in invoices
-      for Cinthya, Valentina, Andrés (billed without a CIE code), or Sharian (no invoices).
-  - **⚠️ DATA FLAG for Nicolás:** `patients.contifico_id = '1724765266'` on **Sharian Narváez** maps to a
-    Contífico persona named **"MARTHÍN SPATZ"**, NOT Sharian — a wrong/stale mapping. Sharian has no
-    invoices and no persona under her own name. Do not use that id for her; needs correction.
+    - `diagnostico_codigo`/`diagnostico_texto` backfillable for **7**: Emiliano (F41), Laura (F41),
+      Raguel (F88), Emilie (F88), Micaela (F41.1), Thomas (F41.8), Marthin Spatz (**Trastorno de
+      Adaptación** — texto only, no numeric code written in the invoice; that's F43.2 in CIE-10 but
+      confirm before storing a code). **No diagnosis available** in invoices for Cinthya, Valentina, or
+      Andrés (billed without a CIE code).
+  - **Sharian Narváez / Marthin Spatz — RESOLVED (not a data error).** Earlier `contifico_id
+    '1724765266'` looked wrong because it maps to a Contífico persona named "MARTHÍN SPATZ". It's
+    correct: the **father** (Marthin Spatz, ced 1724765266) is the billing person, and the **minor
+    patient is his son, also named Marthin Spatz**. Nicolás (2026-09-23) converted the row to a `menor`
+    patient — **tutor = Sharian Narváez, menor = Marthin Spatz** — and set `cedula`/`contifico_id` =
+    1724765266. Coherent; nothing to fix. This patient has **6 past invoices** under the father.
   - **What the `/facturar` rewrite now requires (net):** POST `/documento/` (Bearer-less
     `Authorization: <API_KEY>` + `pos` in body/param for creation), then `PUT /documento/<id>/sri/` to
     emit to SRI; put the Observaciones string in **`descripcion`**; resolve the billed-to party by
@@ -271,104 +276,12 @@
     before the front-end deploy** — the trigger blocks the insert regardless of client.
   - Build green. To bulk-load legacy overlapping presencial, temporarily DISABLE the trigger
     (noted in the .sql header).
-- [x] **WhatsApp Coexistence — inbound Cloud API webhook (payment-proof reading), Phase 1**
-  (2026-09-15, Opus 4.8, commit `90080e1`, deployed + VERIFIED LIVE). Goal: collapse the practice's
-  **two** WhatsApp numbers into **one** and auto-read patient bank-transfer screenshots. The central
-  *chatting* number now runs the WhatsApp Business app **and** the Cloud API together via **Meta
-  Coexistence**, connected through **Dualhook** (a Meta-approved BSP, ~$12/mo, 14-day trial active;
-  card on file, auto-bills 2026-09-30). Inbound messages flow **Meta → Dualhook webhook override →
-  our function** (Dualhook never sees message content). Live connection: WABA `1857507018469524`
-  ("Efímeramente Psicología"), **Phone Number ID `915558374975708`**.
-  - **Shipped:** `netlify/functions/whatsapp-cloud-webhook.mjs`. GET = Meta verification handshake
-    (env **`WA_CLOUD_VERIFY_TOKEN`**, set in Netlify). POST = logs each inbound message to
-    **`whatsapp_messages`** (`direccion='inbound'`, `cuerpo`=summary, `twilio_sid`=WA message id
-    [unique → idempotent upsert so Meta retries don't duplicate], `raw_payload` jsonb keeps the
-    **media id** for later download), matching sender→patient with the **same last-9-digit logic as
-    `twilio-webhook.mjs`** (reuses `getSupabaseAdmin`/`normalizePhone` from `netlify/lib/whatsapp.mjs`).
-    **Additive + read-only: never sends, never touches sessions/`pagado`.** Verified live: handshake
-    (correct token echoes challenge, wrong → 403); a synthetic image POST matched patient Rocío;
-    then the real connection's 6-month history sync landed real proofs matched to real patients.
-  - **Security:** `whatsapp_messages` RLS confirmed **owner-only** (`whatsapp_owner` = `is_owner()`),
-    so anon + therapist logins get 0 rows. Optional signature check via **`WA_CLOUD_APP_SECRET`** is
-    **OFF** on purpose — unclear whether Meta signs with our app secret or Dualhook's in an override
-    setup, and a wrong secret would silently break the live flow; residual risk low (owner-only +
-    human-confirm). Code already supports it once the correct secret is confirmed.
-  - **Why Dualhook, not DIY:** Meta gates coexistence embedded signup behind Tech-Provider status +
-    App Review (hit the "no puede registrar clientes" wall). We *did* become a tech provider
-    (irreversible) but were still walled; Dualhook is already approved. **Twilio does NOT support
-    coexistence** (migration only — would remove the number from the app).
-  - **✅ Reading layer SHIPPED (2026-09-15, Opus 4.8) — the Comprobantes page (owner-only).** New
-    owner route `/comprobantes` + nav item (IconChat). `getPaymentProofsData()` in `queries.js` reads
-    the recent inbound image/document rows straight from `whatsapp_messages` (owner-only RLS — no
-    function needed for listing), windowed to **proofs SENT in the last 7 days** using the message's
-    own `raw_payload.message.timestamp` (NOT `received_at` — the 6-month history sync ingested
-    everything at connect time, so received_at is ~now for old rows; received_at ≥ send-time makes it
-    a safe superset prefilter). Each matched proof shows the patient + their **unpaid sessions**
-    (exact Finanzas Deudores predicate: `!pagado && estado='confirmada' && !llamada && fecha<hoy`);
-    the owner **checks which session(s) the payment covers** (multi-select handles the advance-pay
-    case: 1 proof → N sessions), picks método, one-tap **Marcar pagado** → `confirmProofPayment()`
-    calls the existing `updateSession({pagado,metodo_pago})` rules (server-stamps `paid_at`, refuses
-    cancelled), then stamps the proof **reconciled** so the **same comprobante can never be applied
-    twice** (Nicolás's dedupe requirement). Nothing auto-marks — trust-based, human-confirm each one.
-  - **Media download:** owner-gated function `netlify/functions/wa-proof-media.mjs` (verifies the
-    Supabase token → role `owner`, mirrors the RLS) holds the Dualhook secret and does the two-hop
-    fetch (`GET https://api.dualhook.com/v25.0/{media-id}` Bearer `WA_DUALHOOK_API_KEY` → `{url}` →
-    GET bytes) and streams the image back. Browser fetches it with the access token → object URL;
-    **lazy-loaded via IntersectionObserver** so the first-open backlog doesn't fire dozens of
-    downloads at once. Images served `Cache-Control: private, no-store`. **⚠️ Requires Netlify env
-    `WA_DUALHOOK_API_KEY` (the `dh_live_…` key) — set it or proof images show "no se pudo cargar";
-    the page + mark-paid still work without it (those use the browser Supabase client).**
-  - **Unmatched rows** (`patient_id` null — phone didn't match a patient): a distinct "Requieren
-    atención — sin paciente" section shows the sender's phone + WhatsApp profile name so the owner can
-    identify them (and save the número in the patient's ficha so future proofs auto-match), then
-    **Descartar** (`dismissProof` → reconciled with no sessions) — never a silent drop.
-  - **DB:** migration `whatsapp_messages_reconcile` (mirrored `supabase/whatsapp-messages-reconcile.sql`)
-    added `reconciled_at` / `reconciled_by` / `reconciled_session_ids` (all nullable, additive) +
-    a partial index on pending proofs. Table RLS unchanged (owner-only, `is_owner()` FOR ALL covers
-    the owner's UPDATE). Verified against live data: 62 proofs sent in the last 7 days, 10 proof-sender
-    patients currently carry unpaid sessions.
-  - **✅ OCR extraction rebuild (2026-09-16, Opus 4.8, Nicolás's call).** The page no longer embeds
-    the raw screenshot (too heavy). Each inbound proof is READ by a vision model into structured
-    fields; the card shows DATA (amount, transfer date, método auto-detected from the destination
-    account) with details under "ver detalles" and the image only on-demand via "ver original".
-    - **Model:** Claude **Opus 4.8 via APIMart** (`https://api.apimart.ai/v1/chat/completions`,
-      OpenAI-compatible, key `APIMART_API_KEY`). Chosen over Anthropic-direct so Nicolás reuses his
-      existing APIMart key (no second billing signup); APIMart routes Opus 4.8 through AWS Bedrock.
-      ⚠️ **Must send `stream: false`** (APIMart defaults to SSE). Verified live: a synthetic receipt
-      returned clean JSON (amount/bank/status/transfer_id). ~$0.01–0.03/proof; low volume.
-    - **Function:** `netlify/functions/extract-proof.mjs` (owner-gated, mirrors `wa-proof-media`
-      auth). Downloads media via shared `netlify/lib/waMedia.mjs` (Dualhook two-hop, refactored out
-      of `wa-proof-media`), sends to APIMart, parses (tolerates ```json fences), stores on the row.
-      Caches by `extraction_status` so it never re-OCRs (no double credit burn); PDFs → `needs_review`
-      (manual). Extraction runs **lazily on scroll** (IntersectionObserver) so the first-open batch
-      doesn't fire dozens of reads. `queries.js#extractProof` is the client trigger.
-    - **Fields extracted:** is_payment_proof, transfer_date, transfer_time (nullable — many banks
-      omit), amount, origin_bank, sender_name, destination (→ método), recipient_name (validated vs
-      Mariana), transfer_id, status, bank_description, confidence. Prominent **flags**: low confidence,
-      amount≠selected sessions, recipient not Mariana. **Graceful fallback:** if OCR fails (e.g.
-      APIMart balance empty) the proof still shows with a "no pude leer — reintentar / ver original"
-      state and the manual mark-paid controls, plus a page banner — an empty balance degrades, never
-      breaks. **Mark-paid flow unchanged** (multi-select sessions + método + confirm → reconcile).
-    - **DB:** migration `whatsapp_messages_extraction` (mirror `supabase/whatsapp-messages-extraction.sql`)
-      added `extracted` jsonb + `extraction_status` text (additive, nullable; RLS unchanged).
-    - **✅ LIVE (2026-09-16):** Netlify env **`APIMART_API_KEY`** set + redeployed (deploy `6aaab623…`,
-      `extract-proof` + `wa-proof-media` functions live, secret scan clean). Auto-read is ON.
-    - **✅ GO / CLEAN-SLATE done (2026-09-16):** Nicolás registered all outstanding payments manually,
-      then Claude wiped the 6-month backlog — **142 inbound messages archived** (`reconciled_at` stamped),
-      **0 pending proofs**. System is now LIVE end-to-end in **human-confirm** mode: new proofs from that
-      moment appear, auto-read on view, Nicolás taps **Marcar pagado**. (Wipe = archive only; never
-      touched a session/`pagado`. Debtors/Deudores untouched — 9 proof-senders still legitimately owe.)
-    - **⏳ NEXT (target 2026-09-17, after Nicolás validates the human-confirm flow) — AUTO-MARK + PUSH:**
-      auto-register a payment when ALL green (is_payment_proof + high confidence + amount matches an
-      unpaid session exactly + recipient Mariana + no flags), **always paying the OLDEST unpaid session**;
-      anything short stays for a manual tap. Plus a **Web Push** on payment (*"Juan Pérez acaba de pagar
-      su sesión del 11/09/26"*) reusing the existing push infra (`netlify/lib/push.mjs`, VAPID,
-      `push_subscriptions`, `notify-estado.mjs` pattern). Likely a trial/undo phase first. Note: the
-      Comprobantes page is fetch-on-open (capture is real-time via the webhook; UI updates on refresh) —
-      optional Supabase Realtime is a nice-to-have. Spec in memory `payment-proof-automation-goal`.
-    - **Design decisions in memory:** `comprobantes-extraction-schema` + `payment-proof-automation-goal`.
-  - Full blow-by-blow (how we got here, all IDs, every dead end) is in Claude memory:
-    `whatsapp-coexistence-consolidation.md`.
+- [x] **WhatsApp Coexistence — inbound Cloud API webhook + Comprobantes payment-proof reading/OCR, Phase 1**
+  (2026-09-15/16) — moved to `CHANGELOG.md`. Dualhook BSP (WABA `1857507018469524`, PN `915558374975708`);
+  `whatsapp-cloud-webhook.mjs` (inbound → `whatsapp_messages`), `/comprobantes` owner page, `wa-proof-media.mjs`
+  (Dualhook two-hop image fetch), `extract-proof.mjs` (APIMart Opus 4.8 OCR, `stream:false`). Migrations
+  `whatsapp_messages_reconcile` + `whatsapp_messages_extraction`. Human-confirm mode LIVE; auto-mark+push
+  was the deferred NEXT. Read the archive + memory `whatsapp-coexistence-consolidation.md` for detail.
 - [x] **UX polish batch — therapist patient edits + booking preview + LEADS system** (2026-09-14) —
   moved to `CHANGELOG.md`. `patients.es_lead` flag, `agendar.html` 2nd Vite entry, therapist
   full-edit of own patients. Read the archive for detail.
@@ -394,8 +307,9 @@
   Working auth = `Authorization: <CONTIFICO_API_KEY>` (raw key, no Bearer), `pos` not needed for GETs.
   **Observaciones = `descripcion`** (mirrored to `referencia`). **API DOES emit to SRI** (POST
   `/documento/` → PUT `/documento/<id>/sri/`). Persona GUID not exposed ⇒ key clients by cédula/RUC.
-  Gaps to backfill (not yet written): Emiliano/Andrés own cédulas; the 3 payer cédulas; 6 diagnosis
-  codes. ⚠️ Sharian's stored `contifico_id` points to the wrong person ("MARTHÍN SPATZ"). Secrets
+  Gaps to backfill (not yet written): Emiliano/Andrés own cédulas; the 3 payer cédulas; 7 diagnosis
+  entries. (Sharian's row = the Marthin Spatz `menor` case; `contifico_id 1724765266` is CORRECT — the
+  father is the billing persona — and Nicolás already fixed the row 2026-09-23.) Secrets
   `CONTIFICO_API_KEY`/`CONTIFICO_POS_TOKEN` now in Netlify (functions scope, production context).
 - **DualHook send-scope + templates + CUTOVER — ALL DONE (cutover 2026-09-22, see Completed
   Features).** Send scope confirmed; `recordatorio_cita` **APPROVED**; **`deliverReminder` now POSTs
