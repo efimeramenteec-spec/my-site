@@ -46,6 +46,76 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **Contífico REST API — read-only reconnaissance for the `/facturar` rewrite** (2026-09-23, Opus 4.8).
+  Credentials arrived; probed the API **GET-only** (never POSTed a document) from a throwaway
+  token-guarded Netlify function `netlify/functions/cf-probe.mjs` (same pattern as the deleted dh-probe;
+  **added + DELETED this session**, commit removed — do NOT recreate). api.contifico.com is unreachable
+  from the local VM, so all calls ran server-side. **Both creds now live in Netlify** as **secret**
+  env vars, `functions` scope, **`production` context** (`CONTIFICO_API_KEY`, `CONTIFICO_POS_TOKEN`).
+  ⚠️ Netlify quirk: a secret env var **cannot** use context `all` (the updater silently no-ops); every
+  secret is stored per-context. And **env changes only reach functions on the NEXT deploy** (needed an
+  empty-commit redeploy before the function saw them).
+  - **WORKING AUTH SHAPE:** header **`Authorization: <CONTIFICO_API_KEY>`** — the raw sincronización key,
+    **no `Bearer` prefix**. Base `https://api.contifico.com/sistema/api/v1`. `Bearer` → 401
+    ("Empresa matching query does not exist"); no header → 401 ("Falta Credenciales"). The **`pos` token
+    is NOT needed for GETs** (`/persona/` returns 200 with or without `?pos=`); POS is only for
+    document creation. Confirmed against `GET /persona/` (200, 128 personas).
+  - **⭐ OBSERVACIONES FIELD = `descripcion`** (the single most important finding). The insurance-claim
+    text the UI calls "Observaciones" is carried in the document's top-level **`descripcion`** field, and
+    is **mirrored verbatim into `referencia`**. `adicional1`/`adicional2` are unused (empty) on these
+    invoices. Verified on Laura Vásquez's factura `001-001-000000282` (07/09/2026, $36):
+    `descripcion = "Sesión 4 de Septiembre - Paciente Laura Vásquez F41 otros trastornos de ansiedad"`
+    (= the known-good string; the format actually stored is
+    **`Sesión <fecha> - Paciente <Nombre> <CIE> <texto>`**, not the pipe-separated paraphrase). So the
+    `/facturar` rewrite writes the Observaciones string into **`descripcion`** on `POST /documento/`.
+  - **SRI EMISSION: YES — the API emits electronic invoices to the SRI (not record-only).** All 291
+    existing documents are `electronico:true`, `firmado:true`, 290/291 carry a 49-digit `autorizacion`
+    (SRI clave de acceso) plus `url_ride` (PDF) + `url_xml` (signed XML). Docs confirm the flow is
+    **two-step**: **`POST /documento/`** creates the record → **`PUT /documento/<id>/sri/`** submits it
+    to the SRI for authorization. A "Documento Electrónico" section exists in the docs nav but the
+    detailed schema wasn't in the intro page. ⇒ the rewrite must do POST then PUT-to-SRI (or the POST
+    auto-emits — confirm the exact behaviour when we build, still GET-safe until then).
+  - **PERSONA `id` GUID is NOT exposed** by `GET /persona/` (list or `?cedula=` filter) — `id` is always
+    `null`. The usable client key for invoicing is therefore the **cédula/RUC**, not the GUID. (This is
+    consistent with `patients.contifico_id` already being "a cédula-marker, not the real persona id".)
+    Note: the document (`GET /documento/`) `id` **is** populated (e.g. `y7aA5KX1gcP1YagZ`), and each doc
+    embeds its `persona` (billed-to party) but with `persona.id = null` too.
+  - **Cross-reference of the 10 `facturacion_obligatoria` patients vs Contífico (NO Supabase writes yet
+    — report only):**
+
+    | Patient | In Contífico | Contífico cédula (own or via payer) | Diagnosis from past invoices |
+    |---|---|---|---|
+    | Emiliano Caradonna | ✅ own persona | **0961793387** | **F41** otros trastornos de ansiedad |
+    | Laura Vásquez | ✅ own persona | 1718240995 (already stored) | **F41** otros trastornos de ansiedad |
+    | Cinthya Pérez | ✅ own persona | 2000046116 (already stored) | none (no CIE in descripcion) |
+    | Andrés Gotta | ✅ own persona | **1761043908** | none (no CIE in descripcion) |
+    | Raguel Conforme | via payer Laura Vásquez | payer 1718240995 (own: unknown) | **F88** Otros trastornos del desarrollo psicológico |
+    | Emilie Conforme | via payer Laura Vásquez | payer 1718240995 (own: unknown) | **F88** Otros trastornos del desarrollo psicológico |
+    | Micaela Castro | via payer Germania Domínguez | payer **1716794209** (own: unknown) | **F41.1** Trastorno de Ansiedad Generalizada |
+    | Thomas Quevedo | via payer Gabriela Páliz | payer **1716725765** (own: unknown) | **F41.8** Otro Trastorno de Ansiedad Social Especificado |
+    | Valentina Andrade | via payer Washington Andrade | payer **1712067378** (own: `cedula="na"`) | none (no CIE in descripcion) |
+    | Sharian Narváez | ❌ NOT in Contífico | — (no invoices) | none |
+
+  - **Gaps this fills (to be written LATER, after Nicolás confirms):**
+    - `patients.cedula` / `patients.contifico_id`: **Emiliano Caradonna → 0961793387**, **Andrés Gotta
+      → 1761043908** (both have their own Contífico persona; currently null in Supabase).
+    - `payers` cédula/contifico_id (all three currently null): **Germania Domínguez → 1716794209**,
+      **Gabriela Páliz → 1716725765**, **Washington Andrade → 1712067378** ("Jorge Washington Andrade
+      Escobar", also has RUC 1712067378001). Laura Vásquez payer already has 1718240995. The minors
+      (Micaela, Thomas, Raguel, Emilie, Valentina) bill to these payers, so their invoices need the
+      **payer** cédula, not the patient's.
+    - `diagnostico_codigo`/`diagnostico_texto` backfillable for **6**: Emiliano (F41), Laura (F41),
+      Raguel (F88), Emilie (F88), Micaela (F41.1), Thomas (F41.8). **No diagnosis available** in invoices
+      for Cinthya, Valentina, Andrés (billed without a CIE code), or Sharian (no invoices).
+  - **⚠️ DATA FLAG for Nicolás:** `patients.contifico_id = '1724765266'` on **Sharian Narváez** maps to a
+    Contífico persona named **"MARTHÍN SPATZ"**, NOT Sharian — a wrong/stale mapping. Sharian has no
+    invoices and no persona under her own name. Do not use that id for her; needs correction.
+  - **What the `/facturar` rewrite now requires (net):** POST `/documento/` (Bearer-less
+    `Authorization: <API_KEY>` + `pos` in body/param for creation), then `PUT /documento/<id>/sri/` to
+    emit to SRI; put the Observaciones string in **`descripcion`**; resolve the billed-to party by
+    **cédula/RUC** (patient's own, or the linked `payer` for minors) — no persona GUID needed; keep it
+    payer-aware. Persona lookup/creation and the exact document payload (line items, IVA, `pos`) are the
+    next things to nail down (still GET-safe recon) before writing any POST.
 - [x] **Reminder delivery-status tracking + out-of-window delivery CONFIRMED** (2026-09-23, Opus 4.8).
   Nicolás reported "no confirmations from patients in a day." Conclusion: **system works, NOT a bug.**
   Full loop re-verified on **3 phones** incl. a **cold, never-messaged number** → template
@@ -320,6 +390,13 @@
 - **The key also unlocks:** `GET /persona/` to fill the **6 missing cédulas + 7 missing
   `contifico_id`** in one call; pulling **past invoices** to backfill the **10 diagnosis codes**;
   confirming which API field maps to **"Observaciones"** (`descripcion` / `adicional1` / `adicional2`).
+- **✅ READ-ONLY RECON DONE (2026-09-23, Opus 4.8) — see Completed Features for the full report.**
+  Working auth = `Authorization: <CONTIFICO_API_KEY>` (raw key, no Bearer), `pos` not needed for GETs.
+  **Observaciones = `descripcion`** (mirrored to `referencia`). **API DOES emit to SRI** (POST
+  `/documento/` → PUT `/documento/<id>/sri/`). Persona GUID not exposed ⇒ key clients by cédula/RUC.
+  Gaps to backfill (not yet written): Emiliano/Andrés own cédulas; the 3 payer cédulas; 6 diagnosis
+  codes. ⚠️ Sharian's stored `contifico_id` points to the wrong person ("MARTHÍN SPATZ"). Secrets
+  `CONTIFICO_API_KEY`/`CONTIFICO_POS_TOKEN` now in Netlify (functions scope, production context).
 - **DualHook send-scope + templates + CUTOVER — ALL DONE (cutover 2026-09-22, see Completed
   Features).** Send scope confirmed; `recordatorio_cita` **APPROVED**; **`deliverReminder` now POSTs
   Dualhook and reminders send live via Dualhook.** Twilio is retired-but-dormant behind
