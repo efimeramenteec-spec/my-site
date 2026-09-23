@@ -382,7 +382,8 @@ export default async (req) => {
           session_id: i.session_id, fecha: i.fecha, patient: i.patient,
           billing_to: i.billing_to, monto: i.monto, descripcion: i.descripcion,
         })),
-        full: items,
+        // Redact the POS token in the echoed payloads — dry-run output is for review.
+        full: items.map((i) => ({ ...i, payload: { ...i.payload, pos: '***REDACTED***' } })),
       })
     }
 
