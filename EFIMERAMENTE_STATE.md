@@ -46,6 +46,19 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **Reminder delivery-status tracking + out-of-window delivery CONFIRMED** (2026-09-23, Opus 4.8).
+  Nicolás reported "no confirmations from patients in a day." Conclusion: **system works, NOT a bug.**
+  Full loop re-verified on **3 phones** incl. a **cold, never-messaged number** → template
+  `sent`→`delivered` in 1s, no error ⇒ templates deliver **outside the 24h window** (no coexistence/
+  sandbox bug). Real cause = patients **reply in text, don't tap** the button (577 inbound, 0 taps
+  ever; one typed "Ya te confirmo") + early confusion re Twilio-era reminders. No hardcoded number
+  (grep-verified; recipient is always `s.patient.telefono`). Send/reply path unchanged this session.
+  - **New:** `whatsapp_delivery_status` table + `whatsapp-cloud-webhook.mjs` records Meta's
+    `sent/delivered/read/failed` (+ err code, e.g. 131047) callbacks it used to discard. Mirror
+    `supabase/whatsapp-delivery-status.sql`. Confirmed Dualhook's override **does forward statuses**.
+    **GOTCHA:** a table made via raw `apply_migration` does NOT inherit Supabase default GRANTs →
+    service-role writer silently hit `42501 permission denied` (logged, 200, no rows). Fix = explicit
+    `grant … to service_role/authenticated`. QA dummies (Prueba/2/3) deleted + verified gone.
 - [x] **Appointment reminders CUT OVER from Twilio → Dualhook (Cloud API) — full loop verified**
   (2026-09-22, Opus 4.8). Retires Twilio for the 24h appointment reminder. **Both halves moved
   together** (outbound send + inbound Confirmo/Cancelar reply).
@@ -66,19 +79,11 @@
     Twilio code (`sendWhatsAppReminder` + `twilio-webhook.mjs`) is left fully intact but dormant. NOTE:
     the two halves must match — a Twilio rollback also means Confirmo/Cancelar replies route back to
     `twilio-webhook.mjs` (the Twilio number's inbound webhook), which still works.
-  - **Verified end-to-end (QA fixture "QA Prueba" +593968029896 = Nicolás's own number, since
-    deleted):** test send → `200 sent`, `reminder_sent_at` stamped, template delivered to the phone.
-    **Confirmed with REAL physical button taps on Nicolás's phone** (Meta → Dualhook → webhook →
-    Supabase): `Confirmo`→`confirmada`; reset; `Cancelar`→`cancelada` (+ pagado cleared). Real inbound
-    payload shape confirmed: `type:'button'`, `button:{text,payload}` (payload = button label) — exactly
-    what `replyString`/`resolveReplyEstado` handle; typed `type:'text'` also verified via synthetic POST.
-    QA patient + sessions + test `whatsapp_messages` rows all deleted and verified gone. Kill-switch (`REMINDERS_LIVE`)
-    was toggled OFF during the test window and **restored to `true`** on completion, so live reminders
-    resume — now via Dualhook.
-  - **Twilio can now be cancelled as a paid subscription** once you're comfortable the Dualhook path
-    has run a few real cycles (keep the env/creds if you want the one-var rollback available first).
-    A pre-existing test row **"Nicolas QA-TEST"** (same phone, created 2026-06-30) was left untouched —
-    not created this session; delete manually if unwanted.
+  - **Verified end-to-end** (real button taps → estado flips; real inbound shape `type:'button'`,
+    `button:{text,payload}`; typed `type:'text'` also handled). Further verified 2026-09-23 (see entry
+    above). Kill-switch `REMINDERS_LIVE` restored to `true`; live reminders run via Dualhook.
+  - **Twilio can be cancelled as a paid subscription** once comfortable (keep env/creds for the one-var
+    rollback first). Pre-existing **"Nicolas QA-TEST"** row (created 2026-06-30) left untouched.
 - [x] **WhatsApp reminder templates created + submitted to Meta on WABA `1857507018469524`**
   (2026-09-22, Opus 4.8). The template gate from the DualHook send-scope investigation is now
   cleared. Two **UTILITY / language `es`** templates submitted through the Dualhook Cloud-API proxy
