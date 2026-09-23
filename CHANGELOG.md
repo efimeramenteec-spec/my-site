@@ -677,3 +677,13 @@ Newest first.
   - Still needing a cédula before they can be invoiced: the ~96 in `~/Downloads/cedulas_por_revisar.csv`
     plus any new no-cédula patients (invoice those as Consumidor Final or collect the cédula).
 
+
+- [x] **Next module: SEGUIMIENTO** — DONE 2026-07-04 (see state-file Completed Features; scope was
+  redefined by Nicolas to patient adherence — the old retention/no-show sketch is obsolete).
+- [x] **Set frecuencia per patient** — bulk-set ALL 154 to `semanal` 2026-07-04 per Nicolas (one SQL
+  UPDATE). REMAINING for Nicolas: flip the few quincenal patients manually in Pacientes →
+  Configuración as he identifies them.
+- [x] **Facturada backfill** — DONE 2026-07-04 night: Nicolas chose cutoff June 15. One UPDATE marked
+  every PAID non-cancelled session with fecha < 2026-06-15 as facturada (June 15 itself left as-is —
+  conservative reading, flagged to him). Result: 333 facturadas, 88 pendientes (oldest 2026-06-15).
+  Unpaid old sessions deliberately NOT marked — factura follows payment.

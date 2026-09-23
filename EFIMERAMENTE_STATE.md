@@ -466,16 +466,12 @@ of truth; open items as of 2026-08-03:
       if therapists want to record a diagnosis at registration (minor).
 
 ### Immediate — next session
-- [x] ~~**Next module: SEGUIMIENTO**~~ — DONE 2026-07-04 (see Completed Features; scope was
-      redefined by Nicolas to patient adherence — the old retention/no-show sketch is obsolete).
-- [x] ~~Set frecuencia per patient~~ — bulk-set ALL 154 to `semanal` 2026-07-04 per Nicolas
-      (one SQL UPDATE). REMAINING for Nicolas: flip the few quincenal patients manually in
-      Pacientes → Configuración as he identifies them.
-- [x] ~~Facturada backfill~~ — DONE 2026-07-04 night: Nicolas chose cutoff June 15. One
-      UPDATE marked every PAID non-cancelled session with fecha < 2026-06-15 as facturada
-      (June 15 itself left as-is — his two sentences overlapped on the boundary; conservative
-      reading chosen and flagged to him). Result: 333 facturadas, 88 pendientes (oldest
-      2026-06-15). Unpaid old sessions deliberately NOT marked — factura follows payment.
+- [ ] **Cancel the Twilio paid subscription** — reminders now send via Dualhook (cutover 2026-09-22).
+      Rollback is `REMINDERS_PROVIDER=twilio` (one env var), so **keep the Twilio env vars + account
+      ~1 week** while Dualhook proves out on real cycles; then cancel + optionally delete `TWILIO_*` +
+      `sendWhatsAppReminder`/`twilio-webhook.mjs`.
+- [ ] **`recordatorio_pago` template still PENDING at Meta** (WABA `1857507018469524`) — unrelated to
+      the (live) appointment-reminder loop; check status before building any payment-reminder send.
 - [ ] **Dashboard "por cobrar" data hygiene:** the 72 unpaid past sessions include old seed
       rows the sheet sync couldn't match (76 unmatched) — some may actually be paid. Numbers
       self-correct as Nicolas marks history via the Deudores list.
@@ -493,7 +489,11 @@ of truth; open items as of 2026-08-03:
   and will be done with cheaper models. Building sessions (Fable) are for new modules only.
 - [ ] **Optional polish:** `src/features/sesiones/views.jsx` still uses `#b48ae4` as the therapist-color fallback (an old status color) — consider a neutral gray so a therapist-less session can't masquerade. Cosmetic only; every session currently has a therapist.
 - [x] ~~**GO LIVE**~~ — DONE 2026-07-01. Cowork set `REMINDERS_LIVE=true` (All scopes) + redeployed; health probe confirms `"REMINDERS_LIVE": true`. Reminder sending is now LIVE. Safety check at go-live: 0 real sessions in the next 23–25h window, so nothing sent immediately — reminders begin as future appointments enter the 24h window. (Note: `SUPABASE_URL` shows false in the probe by design — functions use a hardcoded fallback; `VITE_SUPABASE_URL` is the separate frontend build var. Do not "fix" this.)
-- [ ] **Fake test patients per therapist** (requested, NOT done): BLOCKED by the `patients.telefono` UNIQUE constraint — six patients can't share +593968029896 (all inserts failed `patients_telefono_key`). Options: **(a)** drop/relax that unique constraint via SQL, then create `PacienteFalso <Therapist>` per therapist — but the inbound webhook resolves phone→patient by first match, so with several sharing a number, test ONE therapist at a time; **(b)** skip it — the single **"Nicolas QA-TEST"** patient (+593968029896) already tests every therapist via per-SESSION `terapeuta_id` (calendar + reminders key off the session's therapist, not the patient's). QA session `08a16ef9…` (2026-07-08) reset to `programada` + reminder cleared, reusable via `?test_session_id`.
+- [ ] **Fake test patients per therapist** (requested, NOT done): BLOCKED by the `patients.telefono` UNIQUE constraint — six patients can't share +593968029896 (all inserts failed `patients_telefono_key`). Options: **(a)** drop/relax that unique constraint via SQL, then create `PacienteFalso <Therapist>` per therapist — but the inbound webhook resolves phone→patient by first match, so with several sharing a number, test ONE therapist at a time; **(b)** skip it — the single **"Nicolas QA-TEST"** patient (+593968029896) already tests every therapist via per-SESSION `terapeuta_id` (calendar + reminders key off the session's therapist, not the patient's). **No standing QA session right now** (cleaned up). To re-test the reminder loop: insert a session on
+  the **"Nicolas QA-TEST"** patient (`33c4ec56…`, +593968029896) with `estado='programada'`,
+  `modalidad='en_linea'` (dodges the room-cap trigger), `reminder_sent_at=now()`, then hit
+  `?test_session_id=<id>` on `twilio-webhook` — or just tap the buttons on any template already on the
+  phone (webhook matches by phone → soonest reminded `programada` session, no new send needed).
 - [x] ~~Update calendar function CORS~~ — done session #9 (commit becec56): added `https://efimeramente-panel.netlify.app` to `ALLOWED_ORIGINS` (new domain first). Verify after deploy: create/edit a session on the live site, confirm the Calendar event appears and the amber freebusy warning shows on overlap.
 - [ ] **Verify live fixes** — create a test session, confirm it appears in Lista as "Pend." immediately
 - [x] ~~Sync session estados from Google Sheet~~ — done session #9 (see Completed Features)
