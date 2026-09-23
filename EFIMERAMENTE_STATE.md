@@ -46,6 +46,37 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **Appointment reminders CUT OVER from Twilio → Dualhook (Cloud API) — full loop verified**
+  (2026-09-22, Opus 4.8). Retires Twilio for the 24h appointment reminder. **Both halves moved
+  together** (outbound send + inbound Confirmo/Cancelar reply).
+  - **Outbound:** `deliverReminder` (`netlify/lib/whatsapp.mjs`) now POSTs the approved template
+    `recordatorio_cita` to **`POST https://api.dualhook.com/v25.0/915558374975708/messages`**
+    (`type:'template'`, `language.code:'es'`, 3 body params `{{1}}`=nombre `{{2}}`=fecha (día + mes en
+    español) `{{3}}`=hora `HH:MM`), Bearer `WA_DUALHOOK_API_KEY`. Signature of `deliverReminder`
+    unchanged, so `send-reminders.mjs` (cron `0 * * * *`) and the `?test_session_id` path were **not
+    modified**. `.neq('tipo','llamada')` exclusion untouched — llamadas still get NO reminder.
+  - **Inbound:** Confirmo/Cancelar replies now arrive at **`whatsapp-cloud-webhook.mjs`** (Dualhook's
+    Meta webhook override), NOT `twilio-webhook.mjs`. New shared `applyInboundReplyEstado` flips the
+    patient's soonest reminded `programada` session, soft-cancels the Calendar event on cancel, and
+    pushes the therapist — mirroring the old Twilio behaviour. Handles a quick-reply **button tap**
+    (Cloud API `type:'button'` / `interactive`) AND a **typed** "Confirmo"/"Cancelar" (`type:'text'`),
+    accent/case-insensitive (`resolveReplyEstado`).
+  - **Provider switch / ROLLBACK:** `REMINDERS_PROVIDER` env (default `dualhook`). Set it to `twilio`
+    to instantly fall back to the intact Twilio path — **one env-var change, no deploy, no code change**.
+    Twilio code (`sendWhatsAppReminder` + `twilio-webhook.mjs`) is left fully intact but dormant. NOTE:
+    the two halves must match — a Twilio rollback also means Confirmo/Cancelar replies route back to
+    `twilio-webhook.mjs` (the Twilio number's inbound webhook), which still works.
+  - **Verified end-to-end (QA fixture "QA Prueba" +593968029896 = Nicolás's own number, since
+    deleted):** test send → `200 sent`, `reminder_sent_at` stamped, template delivered. Synthetic
+    Meta payloads against the LIVE webhook: button `Confirmo`→`confirmada`; reset; button
+    `Cancelar`→`cancelada` (+ pagado cleared); typed `Confirmo`→`confirmada`. QA patient + session +
+    synthetic `whatsapp_messages` rows all deleted and verified gone. Kill-switch (`REMINDERS_LIVE`)
+    was toggled OFF during the test window and **restored to `true`** on completion, so live reminders
+    resume — now via Dualhook.
+  - **Twilio can now be cancelled as a paid subscription** once you're comfortable the Dualhook path
+    has run a few real cycles (keep the env/creds if you want the one-var rollback available first).
+    A pre-existing test row **"Nicolas QA-TEST"** (same phone, created 2026-06-30) was left untouched —
+    not created this session; delete manually if unwanted.
 - [x] **WhatsApp reminder templates created + submitted to Meta on WABA `1857507018469524`**
   (2026-09-22, Opus 4.8). The template gate from the DualHook send-scope investigation is now
   cleared. Two **UTILITY / language `es`** templates submitted through the Dualhook Cloud-API proxy
@@ -340,14 +371,11 @@
 - **The key also unlocks:** `GET /persona/` to fill the **6 missing cédulas + 7 missing
   `contifico_id`** in one call; pulling **past invoices** to backfill the **10 diagnosis codes**;
   confirming which API field maps to **"Observaciones"** (`descripcion` / `adicional1` / `adicional2`).
-- **DualHook send-scope + templates — BOTH DONE 2026-09-22 (see Completed Features).** Send scope
-  confirmed (scope probe `400`, real send `200`); **template gate now cleared** — `recordatorio_cita`
-  **APPROVED**, `recordatorio_pago` **PENDING** on WABA `1857507018469524`. **Remaining to retire
-  Twilio:** just step (2) — rewrite `deliverReminder` in `netlify/lib/whatsapp.mjs` to POST Dualhook
-  (`POST https://api.dualhook.com/v25.0/915558374975708/messages`, Bearer key, `type:'template'`
-  with `recordatorio_cita` / `language.code:'es'` / 3 body params = nombre, fecha, hora) and drop the
-  Twilio path. That build task was intentionally NOT started this session. Text-in-window sending
-  (no template) already works today with the current key.
+- **DualHook send-scope + templates + CUTOVER — ALL DONE (cutover 2026-09-22, see Completed
+  Features).** Send scope confirmed; `recordatorio_cita` **APPROVED**; **`deliverReminder` now POSTs
+  Dualhook and reminders send live via Dualhook.** Twilio is retired-but-dormant behind
+  `REMINDERS_PROVIDER` (default `dualhook`). Only `recordatorio_pago` remains **PENDING** at Meta —
+  unrelated to the appointment-reminder loop, which is fully live.
 
 ### Design-flaws polish pass (started 2026-08-03) — see `DESIGN-FLAWS-TODO.md`
 Running list of small flaws/nice-to-haves now that all modules are built. Doc is the source
