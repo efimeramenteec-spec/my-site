@@ -19,3 +19,7 @@ dist/manifest.webmanifest
 # One-off data import (patient PII) + its script — never commit
 Sesiones_Consultorio.xlsx
 sync-estados.js
+
+# Claude Code local settings + dated backups — may contain secret values, never commit
+.claude/settings.local.json
+.claude/settings.local.json.bak-*
