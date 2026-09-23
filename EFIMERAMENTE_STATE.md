@@ -59,6 +59,14 @@
     **GOTCHA:** a table made via raw `apply_migration` does NOT inherit Supabase default GRANTs →
     service-role writer silently hit `42501 permission denied` (logged, 200, no rows). Fix = explicit
     `grant … to service_role/authenticated`. QA dummies (Prueba/2/3) deleted + verified gone.
+  - **BUILD GOTCHA (cost 3 failed deploys):** a `git add -A` accidentally committed the untracked
+    `.claude/settings.local.json.bak-20260922`, whose Twilio Content SID tripped Netlify's **secret
+    scanner** → every build failed at the "Building" stage (`exit code 2`), no publish (prod stayed on
+    last-good deploy). Diagnosed via the Netlify deploy log in Chrome (plan is **Pro**, 2172 credits —
+    NOT a limit). Fix: untracked the file + gitignored `.claude/settings.local.json` and `.bak-*`
+    (commit `85dde30`). **NEVER `git add -A` in this repo** — stray `.bak`/local-settings files carry
+    secrets. Content SID remains in public git history (commits `b33e98a`/`eaeec71`/`abd6f28`); low
+    severity (identifier, not a credential) and **mooted by cancelling Twilio** (Nicolás's call 09-23).
 - [x] **Appointment reminders CUT OVER from Twilio → Dualhook (Cloud API) — full loop verified**
   (2026-09-22, Opus 4.8). Retires Twilio for the 24h appointment reminder. **Both halves moved
   together** (outbound send + inbound Confirmo/Cancelar reply).
@@ -291,77 +299,11 @@
     - **Design decisions in memory:** `comprobantes-extraction-schema` + `payment-proof-automation-goal`.
   - Full blow-by-blow (how we got here, all IDs, every dead end) is in Claude memory:
     `whatsapp-coexistence-consolidation.md`.
-- [x] **UX polish batch — therapist patient edits + booking link preview + LEADS system**
-  (2026-09-14, Opus 4.8, commit `99d2087`, pushed to `main`, deploy VERIFIED LIVE). Three
-  changes, one push. Nicolas confirmed we're in UX-polish mode now (architecture done).
-  - **Therapists can edit EVERY field of their own patients** (`Pacientes.jsx`). Before they
-    could only edit estado + frecuencia; now the full Configuración form is open to them
-    (tipo, names, teléfono, email, cédula, tarifa, método de pago). **Reassign (Terapeuta
-    dropdown) + delete stay owner-only** (Nicolas's call — reassigning would hand the patient
-    away, and the RLS WITH CHECK rejects it anyway). The read-only "Contacto" block for
-    therapists was removed (they edit contact directly now). Create-patient drawer matched:
-    therapists now set tarifa/método on create too (auto-assigned to self; Terapeuta picker
-    still owner-only). **No DB change** — RLS `patients_therapist_update` already allowed
-    updating any column of their own patient (verified live in pg_policies). It was purely a
-    UI gate.
-  - **Public booking link preview fixed** — pasting `/agendar` (or a per-therapist link) in
-    WhatsApp used to show the internal title "Efimeramente — Panel de Control" (confusing +
-    leaks that the booking page and admin app are the same backend). Now `/agendar` and
-    `/reservar` serve a dedicated **`agendar.html`** shell whose OG/title = **"Conoce a tu
-    terapeuta"** (warm description + logo preview image; no PWA/manifest/panel hints). It's a
-    **2nd Vite build entry** (`vite.config.js` rollupOptions.input: main + agendar; shares
-    `/src/main.jsx` so the JS bundle is emitted ONCE — only the `<head>` differs) + **4
-    netlify.toml rewrites** placed BEFORE the `/*` SPA fallback (`/agendar`, `/agendar/*`,
-    `/reservar`, `/reservar/*` → `/agendar.html`, status 200). React Router still renders the
-    right flow by path. `dist/agendar.html` added to `.gitignore` (build output). Verified live:
-    `/agendar` title = "Conoce a tu terapeuta", `/` still "Panel de Control". NOTE: WhatsApp
-    caches previews per-URL — an already-shared link needs `?v=2` or the FB Sharing Debugger to
-    re-scrape. Domain still reads `efimeramente-panel.netlify.app` (Nicolas: fine, "panel" isn't
-    indicative); a custom domain (e.g. `citas.efimeramente.ec`) would fully sever it — deferred.
-  - **LEADS vs PATIENTS** — someone who books a free llamada via `/agendar` used to be created
-    as a full patient, bloating the list even when the call never converted. Now they're a
-    **LEAD** until they convert. Implementation = a person-level flag **`patients.es_lead`**
-    (boolean default false; migration `patient_es_lead`, mirrored `supabase/patient-es-lead.sql`,
-    applied to prod). Sessions are untouched (es_lead is just a flag), so all calendar/reminder/
-    phone-matching plumbing keeps working. Added to `PATIENT_SELECT`/`PATIENT_COLUMNS` +
-    the `getSessionsData` patient select.
-    - **Becomes a lead:** `public-booking.mjs` sets `es_lead=true` when a NEW person books a
-      `kind=llamada`. `/reservar` (kind=sesion) creates a real patient (es_lead=false).
-    - **Auto-promoted to patient (es_lead→false):** on their **first real (non-llamada)
-      session** (`queries.js#createSession`; also `/reservar` promotes an existing lead), OR
-      when a llamada is toggled **"Convirtió"** (`queries.js#updateSession`, `convirtio=true`).
-      All promotion updates are guarded `.eq('es_lead',true)` (no-op for real patients) and
-      RLS-safe (they don't touch terapeuta_id).
-    - **UI:** `Pacientes.jsx` got a **"Pacientes / Leads" segmented tab** (Pacientes = es_lead
-      false, Leads = es_lead true, with counts). `SesionDrawer.jsx` got a **"¿Es primera
-      sesión?"** checkbox above the patient picker (create mode only): ON → the picker lists the
-      therapist's unconverted **leads** instead of patients (label/placeholder switch to "Lead"),
-      so a converting lead is scheduled without re-registering; inline "Crear paciente nuevo"
-      flips the toggle off (a walk-in is a patient, not a lead). `PatientSelect.jsx` gained
-      `label`/`placeholder` props.
-    - **Excluded from Seguimiento** (`tracked` now filters `!p.es_lead` — leads aren't in
-      therapy). **Marketing intentionally still sees everyone** — its "nuevos pacientes" already
-      requires ≥1 real session (`if (!real.length) continue`), so leads never counted anyway and
-      the funnel is now MORE accurate.
-    - **Backfill:** 25 existing call-only / never-converted / no-real-session patients flagged
-      es_lead=true (people with zero sessions stayed patients — they were created directly, not
-      from a call). Prod now ~228 patients / ~24 leads (one lead deleted in-app between the count
-      and the backfill; harmless drift).
-    - **CORRECTION to old note:** a llamada is born **"no convirtió"** and flips to "convirtió"
-      manually OR when a future real session is detected (`src/lib/conversion.js`) — NOT the
-      "born confirmada" idea in the design-flaws backlog. The es_lead promotion piggybacks on
-      that same conversion concept.
-  - **Follow-up (same day, commit `3a0f284`): move a person between Pacientes ↔ Leads.** A
-    "Mover a Leads" / "Mover a Pacientes" button in the patient detail panel flips `es_lead` in
-    BOTH directions (fixes a mistaken/accidental conversion either way — there was no reverse
-    path before). Available to whoever can edit the patient (therapist for own, owner for all;
-    RLS-safe — it doesn't touch terapeuta_id). Confirms first, and warns before demoting a
-    person who actually has real sessions.
-  - **Therapist comms:** drafted a Spanish message for Nicolas to send therapists explaining the
-    three therapist-facing improvements (full patient editing, the Leads tab + "¿Es primera
-    sesión?" flow, nicer booking-link preview). Not stored in the repo.
+- [x] **UX polish batch — therapist patient edits + booking preview + LEADS system** (2026-09-14) —
+  moved to `CHANGELOG.md`. `patients.es_lead` flag, `agendar.html` 2nd Vite entry, therapist
+  full-edit of own patients. Read the archive for detail.
 
-> **Older completed work (2026-08-31 and earlier) lives in `CHANGELOG.md`.**
+> **Older completed work (2026-09-14 and earlier) lives in `CHANGELOG.md`.**
 > It is deliberately not loaded into session context. Read it on demand.
 
 ## Pending / Backlog
@@ -471,10 +413,11 @@ of truth; open items as of 2026-08-03:
       if therapists want to record a diagnosis at registration (minor).
 
 ### Immediate — next session
-- [ ] **Cancel the Twilio paid subscription** — reminders now send via Dualhook (cutover 2026-09-22).
-      Rollback is `REMINDERS_PROVIDER=twilio` (one env var), so **keep the Twilio env vars + account
-      ~1 week** while Dualhook proves out on real cycles; then cancel + optionally delete `TWILIO_*` +
-      `sendWhatsAppReminder`/`twilio-webhook.mjs`.
+- [ ] **Cancel the Twilio paid subscription — Nicolás cancelling (decided 2026-09-23).** Reminders +
+      delivery all run on Dualhook, re-verified working 09-23. Cancelling also **moots the Content-SID
+      exposure** in git history. After cancel, optionally delete `TWILIO_*` Netlify env vars +
+      `sendWhatsAppReminder`/`twilio-webhook.mjs` (the `REMINDERS_PROVIDER=twilio` rollback dies with
+      the subscription — acceptable, Dualhook is proven).
 - [ ] **`recordatorio_pago` template still PENDING at Meta** (WABA `1857507018469524`) — unrelated to
       the (live) appointment-reminder loop; check status before building any payment-reminder send.
 - [ ] **Dashboard "por cobrar" data hygiene:** the 72 unpaid past sessions include old seed
@@ -494,11 +437,12 @@ of truth; open items as of 2026-08-03:
   and will be done with cheaper models. Building sessions (Fable) are for new modules only.
 - [ ] **Optional polish:** `src/features/sesiones/views.jsx` still uses `#b48ae4` as the therapist-color fallback (an old status color) — consider a neutral gray so a therapist-less session can't masquerade. Cosmetic only; every session currently has a therapist.
 - [x] ~~**GO LIVE**~~ — DONE 2026-07-01. Cowork set `REMINDERS_LIVE=true` (All scopes) + redeployed; health probe confirms `"REMINDERS_LIVE": true`. Reminder sending is now LIVE. Safety check at go-live: 0 real sessions in the next 23–25h window, so nothing sent immediately — reminders begin as future appointments enter the 24h window. (Note: `SUPABASE_URL` shows false in the probe by design — functions use a hardcoded fallback; `VITE_SUPABASE_URL` is the separate frontend build var. Do not "fix" this.)
-- [ ] **Fake test patients per therapist** (requested, NOT done): BLOCKED by the `patients.telefono` UNIQUE constraint — six patients can't share +593968029896 (all inserts failed `patients_telefono_key`). Options: **(a)** drop/relax that unique constraint via SQL, then create `PacienteFalso <Therapist>` per therapist — but the inbound webhook resolves phone→patient by first match, so with several sharing a number, test ONE therapist at a time; **(b)** skip it — the single **"Nicolas QA-TEST"** patient (+593968029896) already tests every therapist via per-SESSION `terapeuta_id` (calendar + reminders key off the session's therapist, not the patient's). **No standing QA session right now** (cleaned up). To re-test the reminder loop: insert a session on
-  the **"Nicolas QA-TEST"** patient (`33c4ec56…`, +593968029896) with `estado='programada'`,
-  `modalidad='en_linea'` (dodges the room-cap trigger), `reminder_sent_at=now()`, then hit
-  `?test_session_id=<id>` on `twilio-webhook` — or just tap the buttons on any template already on the
-  phone (webhook matches by phone → soonest reminded `programada` session, no new send needed).
+- **Reminder QA recipe (no standing fixture — always clean up):** insert a session on **"Nicolas
+  QA-TEST"** (`33c4ec56…`, +593968029896) with `estado='programada'`, `modalidad='en_linea'` (dodges
+  the room-cap trigger), `reminder_sent_at=now()`, then hit `?test_session_id=<id>` on `twilio-webhook`
+  (still the manual send path even on Dualhook). Delivery truth is now in `whatsapp_delivery_status`.
+  Per-therapist fake patients stay blocked by the `patients.telefono` UNIQUE constraint — but per-SESSION
+  `terapeuta_id` already exercises any therapist, so not needed.
 - [x] ~~Update calendar function CORS~~ — done session #9 (commit becec56): added `https://efimeramente-panel.netlify.app` to `ALLOWED_ORIGINS` (new domain first). Verify after deploy: create/edit a session on the live site, confirm the Calendar event appears and the amber freebusy warning shows on overlap.
 - [ ] **Verify live fixes** — create a test session, confirm it appears in Lista as "Pend." immediately
 - [x] ~~Sync session estados from Google Sheet~~ — done session #9 (see Completed Features)
