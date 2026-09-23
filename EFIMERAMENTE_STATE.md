@@ -67,10 +67,12 @@
     the two halves must match — a Twilio rollback also means Confirmo/Cancelar replies route back to
     `twilio-webhook.mjs` (the Twilio number's inbound webhook), which still works.
   - **Verified end-to-end (QA fixture "QA Prueba" +593968029896 = Nicolás's own number, since
-    deleted):** test send → `200 sent`, `reminder_sent_at` stamped, template delivered. Synthetic
-    Meta payloads against the LIVE webhook: button `Confirmo`→`confirmada`; reset; button
-    `Cancelar`→`cancelada` (+ pagado cleared); typed `Confirmo`→`confirmada`. QA patient + session +
-    synthetic `whatsapp_messages` rows all deleted and verified gone. Kill-switch (`REMINDERS_LIVE`)
+    deleted):** test send → `200 sent`, `reminder_sent_at` stamped, template delivered to the phone.
+    **Confirmed with REAL physical button taps on Nicolás's phone** (Meta → Dualhook → webhook →
+    Supabase): `Confirmo`→`confirmada`; reset; `Cancelar`→`cancelada` (+ pagado cleared). Real inbound
+    payload shape confirmed: `type:'button'`, `button:{text,payload}` (payload = button label) — exactly
+    what `replyString`/`resolveReplyEstado` handle; typed `type:'text'` also verified via synthetic POST.
+    QA patient + sessions + test `whatsapp_messages` rows all deleted and verified gone. Kill-switch (`REMINDERS_LIVE`)
     was toggled OFF during the test window and **restored to `true`** on completion, so live reminders
     resume — now via Dualhook.
   - **Twilio can now be cancelled as a paid subscription** once you're comfortable the Dualhook path
