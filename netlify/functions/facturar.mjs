@@ -1,0 +1,422 @@
+// netlify/functions/facturar.mjs
+//
+// Contífico invoicing engine for Efimeramente — the API replacement for the old
+// Chrome-automation `/facturar`. Modern Netlify Function (default export,
+// Request/Response). Driven by the `/facturar` slash command via HTTP.
+//
+// api.contifico.com is only reachable from Netlify functions, so ALL Contífico
+// traffic runs here, server-side. Auth shape (confirmed in the 2026-09-23 recon):
+//   header  Authorization: <CONTIFICO_API_KEY>   (raw sync key, NO "Bearer")
+//   base    https://api.contifico.com/sistema/api/v1
+//   pos     the CONTIFICO_POS_TOKEN — required only for document creation.
+//
+// ── SAFETY MODEL ────────────────────────────────────────────────────────────
+// This function CAN emit real, SRI-authorized legal documents that cannot be
+// quietly undone. Three guards, all required:
+//   1. ?token=<GUARD_TOKEN>  — anything else 404s (obscurity, like cf-probe).
+//   2. ?mode=<mode>          — dry-run is the DEFAULT and never calls Contífico.
+//   3. ?confirm=<phrase>     — emit-one / batch each need an explicit phrase.
+// Emission order per session is POST /documento/ (creates) → PUT /documento/<id>/sri/
+// (submits to the SRI). Immediately after a successful SRI emission the session
+// is stamped facturada=true. An emitted-but-unmarked invoice is the worst
+// failure mode (a duplicate next run), so the mark is guarded explicitly and any
+// mark failure is reported as CRITICAL.
+//
+// Modes:
+//   recon    — GET-only Contífico exploration (products, a sample document,
+//              persona lookup by cédula). Never writes anything.
+//   dry-run  — (DEFAULT) read Supabase eligible sessions, resolve billing
+//              identity, build the FULL Contífico payload for each, return them.
+//              Zero Contífico calls. Flags every data gap; emits nothing.
+//   emit-one — ?session_id=<uuid>&confirm=EMIT-ONE — emit exactly one invoice.
+//   batch    — ?confirm=EMIT-BATCH — emit every ready-and-eligible session.
+
+import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
+
+const GUARD_TOKEN = '7a3205d04e9055a6cec1489c69e5c81e8c4eb3c6fbd7f183'
+const BASE = 'https://api.contifico.com/sistema/api/v1'
+const API_KEY = process.env.CONTIFICO_API_KEY || ''
+const POS_TOKEN = process.env.CONTIFICO_POS_TOKEN || ''
+const SUPABASE_PROJECT = 'vnityzpuhnkumsyfnskz'
+
+// Product to invoice. Filled in from `mode=recon` (?resource=productos) before
+// the first dry-run so the payload is exact. IVA 0% (psychology is exempt).
+// producto_id is Contífico's internal product id for "SESION INDIVIDUAL".
+const SESION_PRODUCT = {
+  id: null,            // ← set from recon (Contífico producto id)
+  nombre: 'SESION INDIVIDUAL',
+}
+
+const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
+  'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+
+const json = (obj, status = 200) =>
+  new Response(JSON.stringify(obj, null, 2), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
+
+// 'YYYY-MM-DD' → "4 de Septiembre" (capitalized month, no year — matches the
+// insurance format observed on real invoices). Parsed by parts to avoid TZ drift.
+function fechaTexto(fechaStr) {
+  const [, m, d] = String(fechaStr || '').split('-').map(Number)
+  if (!m || !d) return String(fechaStr || '')
+  return `${d} de ${MESES[m - 1] || ''}`.trim()
+}
+
+// 'YYYY-MM-DD' → 'DD/MM/YYYY' (Contífico fecha_emision format).
+function fechaDMY(fechaStr) {
+  const [y, m, d] = String(fechaStr || '').split('-')
+  if (!y || !m || !d) return String(fechaStr || '')
+  return `${d}/${m}/${y}`
+}
+
+const money = (n) => Number(Number(n).toFixed(2))
+
+// ── Contífico HTTP ──────────────────────────────────────────────────────────
+function cfHeaders() {
+  return { 'Content-Type': 'application/json', Authorization: API_KEY }
+}
+
+async function cfGet(path) {
+  const res = await fetch(BASE + path, { method: 'GET', headers: cfHeaders() })
+  const text = await res.text()
+  let body = null
+  try { body = JSON.parse(text) } catch { body = text }
+  return { status: res.status, ok: res.ok, body }
+}
+
+async function cfPost(path, payload) {
+  const res = await fetch(BASE + path, {
+    method: 'POST', headers: cfHeaders(), body: JSON.stringify(payload),
+  })
+  const text = await res.text()
+  let body = null
+  try { body = JSON.parse(text) } catch { body = text }
+  return { status: res.status, ok: res.ok, body }
+}
+
+async function cfPut(path, payload) {
+  const res = await fetch(BASE + path, {
+    method: 'PUT', headers: cfHeaders(), body: JSON.stringify(payload || {}),
+  })
+  const text = await res.text()
+  let body = null
+  try { body = JSON.parse(text) } catch { body = text }
+  return { status: res.status, ok: res.ok, body }
+}
+
+// ── Eligibility + billing resolution ────────────────────────────────────────
+// Eligible: estado='confirmada' AND pagado AND NOT facturada AND tipo<>'llamada'
+// AND patient.facturacion_obligatoria=true. NO date window, NO facturacion_manual
+// exemption (deleted 2026-09-24 — the API can now produce the insurance format).
+async function fetchEligible(supabase) {
+  const { data, error } = await supabase
+    .from('sessions')
+    .select(`
+      id, fecha, monto, tipo, estado, pagado, facturada,
+      patient:patients!inner (
+        id, nombre, apellido, tipo_paciente, nombre_2, apellido_2,
+        cedula, contifico_id, diagnostico_codigo, diagnostico_texto,
+        facturacion_obligatoria,
+        payer:payers ( id, nombre, apellido, cedula, contifico_id,
+                       razon_social, email, telefono )
+      )
+    `)
+    .eq('estado', 'confirmada')
+    .eq('pagado', true)
+    .neq('tipo', 'llamada')
+    .or('facturada.is.null,facturada.eq.false')
+    .eq('patient.facturacion_obligatoria', true)
+    .order('fecha', { ascending: true })
+  if (error) throw new Error('supabase eligible query failed: ' + error.message)
+  // patient.facturacion_obligatoria filter above scopes the embed; keep only rows
+  // whose patient survived the inner join and the flag.
+  return (data || []).filter((s) => s.patient && s.patient.facturacion_obligatoria === true)
+}
+
+// The patient's own display name (always names the PATIENT in the descripcion,
+// even when billing goes to a payer). For a menor the patient is the child.
+function patientDisplayName(p) {
+  if (p.tipo_paciente === 'menor' && p.nombre_2) {
+    // person 1 = tutor, person 2 = the minor (the actual patient).
+    return `${p.nombre_2} ${p.apellido_2 || ''}`.trim()
+  }
+  return `${p.nombre} ${p.apellido || ''}`.trim()
+}
+
+// Billing identity = payer when payer_id is set, else the patient.
+function billingIdentity(p) {
+  const payer = p.payer
+  if (payer && payer.id) {
+    return {
+      source: 'payer',
+      nombre: [payer.nombre, payer.apellido].filter(Boolean).join(' ').trim(),
+      razon_social: payer.razon_social || null,
+      cedula: payer.cedula || null,
+      contifico_id: payer.contifico_id || null,
+      email: payer.email || null,
+      telefono: payer.telefono || null,
+    }
+  }
+  return {
+    source: 'patient',
+    nombre: [p.nombre, p.apellido].filter(Boolean).join(' ').trim(),
+    razon_social: null,
+    cedula: p.cedula && p.cedula !== 'na' ? p.cedula : null,
+    contifico_id: p.contifico_id || null,
+    email: null,
+    telefono: null,
+  }
+}
+
+// The Observaciones string (goes in `descripcion`, mirrored to `referencia`):
+//   Paciente {NOMBRE PACIENTE} | {CIE} {diagnóstico} | Sesión {fecha en texto}
+function buildDescripcion(p, session) {
+  const paciente = patientDisplayName(p)
+  const cie = [p.diagnostico_codigo, p.diagnostico_texto].filter(Boolean).join(' ').trim()
+  return `Paciente ${paciente} | ${cie} | Sesión ${fechaTexto(session.fecha)}`
+}
+
+// Validate a session is data-complete enough to invoice. Returns a list of
+// blocking reasons (empty = ready). We NEVER improvise a fallback here.
+function blockingReasons(p, bill) {
+  const reasons = []
+  // Billing identity needs a cédula/RUC (persona is keyed by cédula in Contífico).
+  const ced = bill.cedula || bill.contifico_id
+  if (!ced) {
+    reasons.push(bill.source === 'payer'
+      ? `payer "${bill.nombre}" has no cédula/contifico_id`
+      : 'patient has no cédula/contifico_id')
+  }
+  // Diagnosis is required for the insurance descripcion.
+  if (!p.diagnostico_codigo && !p.diagnostico_texto) {
+    reasons.push('patient has no diagnóstico (CIE code/text)')
+  }
+  return reasons
+}
+
+// Build the full Contífico POST /documento/ payload for a session. This is the
+// exact object that would be sent (dry-run returns it verbatim).
+function buildDocumentPayload(p, session) {
+  const bill = billingIdentity(p)
+  const precio = money(session.monto)
+  const cedula = bill.cedula || bill.contifico_id || ''
+  // Persona type: 13-digit → RUC (R), else natural (N).
+  const tipoPersona = String(cedula).length === 13 ? 'R' : 'N'
+  const descripcion = buildDescripcion(p, session)
+
+  const detalle = {
+    producto_id: SESION_PRODUCT.id,
+    cantidad: 1,
+    precio,
+    porcentaje_iva: 0,
+    porcentaje_descuento: 0,
+    base_cero: precio,
+    base_gravable: 0,
+    base_no_gravable: 0,
+  }
+
+  return {
+    pos: POS_TOKEN,
+    fecha_emision: fechaDMY(session.fecha),
+    tipo_documento: 'FAC',
+    documento: '',              // Contífico assigns the sequential on emit
+    estado: 'P',                // Pendiente (pre-SRI)
+    electronico: true,
+    autorizacion: '',
+    caja_id: null,
+    cliente: {
+      tipo: tipoPersona,
+      cedula: String(cedula),
+      razon_social: bill.razon_social || bill.nombre,
+      telefonos: bill.telefono || '',
+      direccion: 'Quito',
+      email: bill.email || '',
+    },
+    descripcion,
+    referencia: descripcion,    // recon: Observaciones mirrored verbatim to referencia
+    subtotal_0: precio,
+    subtotal_12: 0,
+    iva: 0,
+    total: precio,
+    detalles: [detalle],
+    cobros: [
+      // "Otros con Utilización del Sistema Financiero" = bank transfer SRI code.
+      { forma_cobro: 'OTR', monto: precio },
+    ],
+  }
+}
+
+// One assembled work item per eligible session.
+function assemble(sessions) {
+  return sessions.map((s) => {
+    const p = s.patient
+    const bill = billingIdentity(p)
+    const reasons = blockingReasons(p, bill)
+    return {
+      session_id: s.id,
+      fecha: s.fecha,
+      monto: money(s.monto),
+      patient: patientDisplayName(p),
+      billing_to: bill.nombre + (bill.source === 'payer' ? ' (payer)' : ''),
+      billing_cedula: bill.cedula || bill.contifico_id || null,
+      ready: reasons.length === 0,
+      blocking: reasons,
+      descripcion: buildDescripcion(p, s),
+      payload: buildDocumentPayload(p, s),
+    }
+  })
+}
+
+// Emit ONE assembled item: POST create → PUT sri → mark facturada. Returns a
+// per-session result. Never throws (so a batch can continue + report).
+async function emitOne(supabase, item) {
+  if (!item.ready) {
+    return { session_id: item.session_id, emitted: false, error: 'not ready: ' + item.blocking.join('; ') }
+  }
+  if (!SESION_PRODUCT.id) {
+    return { session_id: item.session_id, emitted: false, error: 'SESION_PRODUCT.id not configured (run recon)' }
+  }
+
+  // 1) Create the document.
+  const created = await cfPost('/documento/', item.payload)
+  if (!created.ok || !created.body?.id) {
+    return { session_id: item.session_id, emitted: false, step: 'POST /documento/',
+      status: created.status, error: 'create failed', response: created.body }
+  }
+  const docId = created.body.id
+
+  // 2) Submit to the SRI. This is the irreversible emission.
+  const sri = await cfPut(`/documento/${docId}/sri/`, {})
+  if (!sri.ok) {
+    return { session_id: item.session_id, emitted: false, step: 'PUT /documento/<id>/sri/',
+      contifico_id: docId, status: sri.status, error: 'SRI emission failed', response: sri.body }
+  }
+
+  // 3) Mark facturada IMMEDIATELY. An emitted-but-unmarked invoice risks a
+  //    duplicate next run — treat any failure here as CRITICAL and shout it.
+  const { error: markErr } = await supabase
+    .from('sessions').update({ facturada: true }).eq('id', item.session_id)
+  if (markErr) {
+    return { session_id: item.session_id, emitted: true, contifico_id: docId,
+      marked_facturada: false,
+      error: 'CRITICAL: invoice EMITTED but facturada mark FAILED — mark manually before re-running',
+      mark_error: markErr.message, sri_response: sri.body }
+  }
+
+  return { session_id: item.session_id, emitted: true, contifico_id: docId,
+    marked_facturada: true, sri_response: sri.body }
+}
+
+// ── Handler ─────────────────────────────────────────────────────────────────
+export default async (req) => {
+  const url = new URL(req.url)
+  if (url.searchParams.get('token') !== GUARD_TOKEN) {
+    return new Response('Not found', { status: 404 })
+  }
+  if (!API_KEY || !POS_TOKEN) {
+    return json({ error: 'missing_contifico_env', hasKey: !!API_KEY, hasPos: !!POS_TOKEN }, 500)
+  }
+  const supabase = getSupabaseAdmin()
+  if (!supabase) return json({ error: 'missing SUPABASE_SERVICE_KEY' }, 500)
+
+  const mode = url.searchParams.get('mode') || 'dry-run'
+
+  try {
+    // ── recon: GET-only Contífico exploration ────────────────────────────────
+    if (mode === 'recon') {
+      const resource = url.searchParams.get('resource') || 'productos'
+      if (resource === 'productos') {
+        // Optional ?q= filter on nombre for a smaller response.
+        const q = (url.searchParams.get('q') || '').toLowerCase()
+        const r = await cfGet('/producto/')
+        let body = r.body
+        if (Array.isArray(body) && q) {
+          body = body.filter((x) => String(x?.nombre || '').toLowerCase().includes(q))
+        }
+        return json({ mode, resource, status: r.status,
+          count: Array.isArray(body) ? body.length : null, body })
+      }
+      if (resource === 'documento') {
+        const id = url.searchParams.get('id')
+        const path = id ? `/documento/${id}/` : '/documento/'
+        const r = await cfGet(path)
+        // For the list, return only the first item's full shape (schema mirror).
+        const body = (!id && Array.isArray(r.body)) ? { len: r.body.length, first: r.body[0] } : r.body
+        return json({ mode, resource, id: id || null, status: r.status, body })
+      }
+      if (resource === 'persona') {
+        const cedula = url.searchParams.get('cedula') || ''
+        const r = await cfGet(`/persona/?cedula=${encodeURIComponent(cedula)}`)
+        return json({ mode, resource, cedula, status: r.status, body: r.body })
+      }
+      return json({ error: 'unknown resource', resource }, 400)
+    }
+
+    // ── dry-run: build payloads, ZERO Contífico calls ────────────────────────
+    if (mode === 'dry-run') {
+      const sessions = await fetchEligible(supabase)
+      const items = assemble(sessions)
+      const ready = items.filter((i) => i.ready)
+      const blocked = items.filter((i) => !i.ready)
+      return json({
+        mode, contifico_calls: 0,
+        product_configured: !!SESION_PRODUCT.id,
+        totals: { eligible: items.length, ready: ready.length, blocked: blocked.length },
+        blocked: blocked.map((i) => ({
+          session_id: i.session_id, fecha: i.fecha, patient: i.patient,
+          billing_to: i.billing_to, blocking: i.blocking,
+        })),
+        ready: ready.map((i) => ({
+          session_id: i.session_id, fecha: i.fecha, patient: i.patient,
+          billing_to: i.billing_to, monto: i.monto, descripcion: i.descripcion,
+        })),
+        full: items,
+      })
+    }
+
+    // ── emit-one: exactly one invoice ────────────────────────────────────────
+    if (mode === 'emit-one') {
+      if (url.searchParams.get('confirm') !== 'EMIT-ONE') {
+        return json({ error: 'refused: emit-one requires ?confirm=EMIT-ONE' }, 400)
+      }
+      const sessionId = url.searchParams.get('session_id')
+      if (!sessionId) return json({ error: 'emit-one requires ?session_id=<uuid>' }, 400)
+      const sessions = await fetchEligible(supabase)
+      const items = assemble(sessions)
+      const item = items.find((i) => i.session_id === sessionId)
+      if (!item) return json({ error: 'session not found among current eligible set', session_id: sessionId }, 404)
+      const result = await emitOne(supabase, item)
+      return json({ mode, result })
+    }
+
+    // ── batch: every ready session ───────────────────────────────────────────
+    if (mode === 'batch') {
+      if (url.searchParams.get('confirm') !== 'EMIT-BATCH') {
+        return json({ error: 'refused: batch requires ?confirm=EMIT-BATCH' }, 400)
+      }
+      const sessions = await fetchEligible(supabase)
+      const items = assemble(sessions)
+      const ready = items.filter((i) => i.ready)
+      const blocked = items.filter((i) => !i.ready)
+      const results = []
+      for (const item of ready) {
+        // eslint-disable-next-line no-await-in-loop
+        results.push(await emitOne(supabase, item))
+      }
+      return json({
+        mode,
+        totals: { eligible: items.length, ready: ready.length, blocked: blocked.length,
+          emitted: results.filter((r) => r.emitted).length,
+          failed: results.filter((r) => !r.emitted).length },
+        blocked: blocked.map((i) => ({ session_id: i.session_id, patient: i.patient, blocking: i.blocking })),
+        results,
+      })
+    }
+
+    return json({ error: 'unknown mode', mode }, 400)
+  } catch (e) {
+    return json({ error: String(e), stack: e?.stack?.split('\n').slice(0, 5) }, 500)
+  }
+}
