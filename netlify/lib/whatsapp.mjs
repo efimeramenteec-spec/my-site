@@ -105,9 +105,11 @@ export async function sendDualhookReminder({ toE164, name, fecha, hora }) {
 // so a per-patient link can replace the fixed one later WITHOUT resubmitting the
 // template. Suffix comes from env PAYPHONE_LINK_SUFFIX (falls back to the current
 // blank-amount link). Throws on any failure so the caller decides how to react.
-// NOTE: deliberately references ONLY the new `recordatorio_pago` — the superseded
-// pending template (old id 1871176587622662) must never be used.
-const PAYMENT_TEMPLATE = 'recordatorio_pago'
+// NOTE: deliberately references ONLY `recordatorio_pago_v2` — the older
+// `recordatorio_pago` (id 1871176587622662, APPROVED but wrong: fixed numeric
+// {{3}} forcing "sesión(es)", no bank block, no button) is superseded and must
+// never be used. Kept as a new name rather than deleting the approved original.
+const PAYMENT_TEMPLATE = 'recordatorio_pago_v2'
 const PAYMENT_LANG = 'es'
 const DEFAULT_PAYPHONE_SUFFIX = 'r1NzJTGHRqrDZi1UJRm9w' // blank-amount link, 24 Sep 2026
 

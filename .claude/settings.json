@@ -55,11 +55,9 @@
       "Read(**/*.p12)",
       "Bash(echo $SUPABASE_SERVICE_KEY)",
       "Bash(echo $WA_DUALHOOK_API_KEY)",
-      "Edit(//Users/nicolasdelatorre/.claude/**)",
+      "Edit(//Users/nicolasdelatorre/.claude/settings.json)",
+      "Write(//Users/nicolasdelatorre/.claude/settings.json)",
       "Edit(//Users/nicolasdelatorre/Library/**)"
-    ],
-    "ask": [
-      "Bash(git push *)"
     ]
   }
 }

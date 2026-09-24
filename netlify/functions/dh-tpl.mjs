@@ -14,11 +14,9 @@
 // change (docs: dualhook.com/docs/runtime-api-reference#message-templates):
 //   POST   https://api.dualhook.com/v25.0/{WABA_ID}/message_templates
 //   GET    https://api.dualhook.com/v25.0/{WABA_ID}/message_templates  (list/status)
-//   DELETE https://api.dualhook.com/v25.0/{WABA_ID}/message_templates?name=...
 //
 // Guarded by a random token: any request without ?t=<TOKEN> returns 404.
 //   ?t=TOKEN&action=list        → list existing templates + approval status
-//   ?t=TOKEN&action=delete-old  → delete the superseded pending `recordatorio_pago`
 //   ?t=TOKEN&action=create      → submit the 3 payment templates for Meta approval
 //   ?t=TOKEN&action=test-payment&to=<E164>  → send ONE real recordatorio_pago
 //                                 (dummy name/$1/fake session text) to render-check
@@ -31,10 +29,12 @@ const WABA_ID = '1857507018469524'
 const BASE = `https://api.dualhook.com/v25.0/${WABA_ID}/message_templates`
 
 const TEMPLATES = [
-  // #1 — patient payment reminder (replaces the pending `recordatorio_pago`).
-  // {{3}} is a free-text, code-generated "sesiones" phrase. One dynamic URL button.
+  // #1 — patient payment reminder. New name `recordatorio_pago_v2` because the
+  // original `recordatorio_pago` (id 1871176587622662) is APPROVED — we supersede
+  // it without a destructive delete. {{3}} is a free-text, code-generated
+  // "sesiones" phrase. One dynamic URL button.
   {
-    name: 'recordatorio_pago',
+    name: 'recordatorio_pago_v2',
     language: 'es',
     category: 'UTILITY',
     components: [
@@ -119,15 +119,6 @@ export default async (req) => {
     return json({ action, status: res.status, body })
   }
 
-  if (action === 'delete-old') {
-    // Delete every `recordatorio_pago` (the superseded pending one) so the new
-    // submission can reuse the clean name. Reversible: it is fully resubmittable.
-    const res = await fetch(`${BASE}?name=recordatorio_pago`, { method: 'DELETE', headers: auth })
-    let body
-    try { body = JSON.parse(await res.text()) } catch { body = 'unparseable' }
-    return json({ action, status: res.status, body })
-  }
-
   if (action === 'create') {
     const results = []
     for (const tpl of TEMPLATES) {
@@ -166,5 +157,5 @@ export default async (req) => {
     }
   }
 
-  return json({ error: `unknown action "${action}" — use list | delete-old | create | test-payment` }, 400)
+  return json({ error: `unknown action "${action}" — use list | create | test-payment` }, 400)
 }
