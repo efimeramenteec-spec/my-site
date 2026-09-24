@@ -17,6 +17,12 @@ update patients set diagnostico_codigo='F41.1', diagnostico_texto='Trastorno de 
 update patients set diagnostico_codigo='F41.8', diagnostico_texto='Otro Trastorno de Ansiedad Social Especificado'  where id='9d860eb7-0f04-4dc5-a93d-cd0011c1ac46'; -- Thomas Quevedo
 -- Marthin Spatz (menor): invoices say "Trastorno de Adaptación", no numeric F-code.
 update patients set diagnostico_codigo=null,    diagnostico_texto='Trastorno de Adaptación'                         where id='6f9b2b87-54c0-4b80-af10-a84cd096a833'; -- Sharian Narvaez / Marthin Spatz
+-- Emiliano Caradonna: diagnosis + own cédula, both recovered from his Contífico invoices (2026-09-23).
+update patients set diagnostico_codigo='F41',   diagnostico_texto='otros trastornos de ansiedad', cedula='0961793387', contifico_id='0961793387' where id='65d3f379-f725-451c-a117-ce25e64856dd'; -- Emiliano Caradonna
+
+-- Verified against the actual Contífico invoices 2026-09-23 (mode=recon&resource=descripciones):
+-- all diagnoses above match the invoice descripciones exactly. Cinthya Pérez, Valentina Andrade
+-- and Andrés Gotta carry NO CIE in their invoices → diagnosis left null (invoiced without one).
 
 -- Payer own cédulas (= Contífico persona key). Personas already exist in Contífico.
 update payers set cedula='1716794209', contifico_id='1716794209' where id='98344a80-5e5a-46eb-8206-73be046b4664'; -- Germania Domínguez
