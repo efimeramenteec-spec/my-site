@@ -116,12 +116,17 @@ export default async (req) => {
     const res = await fetch(`${BASE}?fields=id,name,language,status,category,rejected_reason&limit=100`, { headers: auth })
     let body
     try { body = JSON.parse(await res.text()) } catch { body = 'unparseable' }
-    return json({ action, status: res.status, body })
+    return json({ action, version: 'only-backoff', status: res.status, body })
   }
 
   if (action === 'create') {
+    // ?only=<name> submits a single template — lets us space submissions out from
+    // the caller to dodge Dualhook's rate-limit circuit (bare 429 on rapid create).
+    const only = url.searchParams.get('only')
+    const batch = only ? TEMPLATES.filter((t) => t.name === only) : TEMPLATES
+    if (only && batch.length === 0) return json({ error: `no template named "${only}"` }, 400)
     const results = []
-    for (const tpl of TEMPLATES) {
+    for (const tpl of batch) {
       try {
         const res = await fetch(BASE, {
           method: 'POST',
