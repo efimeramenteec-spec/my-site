@@ -46,6 +46,34 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **/facturar REWRITTEN against the Contífico REST API — Chrome automation DELETED** (2026-09-23, Opus 4.8).
+  New engine `netlify/functions/facturar.mjs` (modern runtime, token-guarded). Modes: `recon`
+  (GET-only), `dry-run` (default — builds full payloads, **zero Contífico calls**), `emit-one`,
+  `emit-dummy`, `batch`. `.claude/commands/facturar.md` is now a thin API driver (browser protocol,
+  Consumidor Final, Registrar Persona, `facturacion_manual`/NEVER-INVOICE list all removed).
+  - **Emission (proven end-to-end):** `POST /documento/` → `PUT /documento/<id>/sri/` → mark
+    `facturada=true` immediately (emitted-but-unmarked is flagged CRITICAL — the duplicate guard).
+    Auth `Authorization: <CONTIFICO_API_KEY>` (raw, no Bearer). Payload essentials nailed against a
+    real invoice + the docs: `electronico:true` (else cod_error 1005 wants a paper autorización);
+    **`documento` sequential must be supplied** (cod_error 1002 — this account does NOT auto-assign),
+    computed live as max on punto **001-001** + 1; producto `SESION INDIVIDUAL` = `O8bYEmDllFv68b7j`,
+    IVA 0%, `ice`/`servicio` 0, estado **P**, **no `cobros`** (mirrors all 291 existing invoices).
+  - **Verified** by a real **$1 dummy factura to Nicolás** (`001-001-000000291`, id `KVeZJG8noIwoGe8P`,
+    firmado + 49-digit autorización + RIDE/XML). Nicolás confirmed it looks right. (Left on the books;
+    anular later if desired.) ⚠️ Contífico strips accents in `referencia` but keeps them in `descripcion`
+    (the insurance field), so descripcion is clean.
+  - **descripcion (= Observaciones):** `Paciente {NOMBRE PACIENTE} | {CIE} {diagnóstico} | Sesión
+    {fecha en texto}` (pipe format, per Nicolás). Billing party = **payer if `payer_id` set, else
+    patient** (`billingIdentity()`), persona keyed by cédula/contifico_id; descripcion always names the
+    patient (for a `menor`, the child).
+  - **Eligibility:** `confirmada + pagado + NOT facturada + tipo<>llamada + facturacion_obligatoria +
+    fecha >= FACTURAR_SINCE`. **NON-retroactive** — `FACTURAR_SINCE=2026-09-24` is a hard floor; the
+    pre-go-live backlog (already invoiced manually) is never touched. Dry-run confirms 0 eligible today.
+  - **Backfill written** (recon values, confirmed by Nicolás): 6 diagnoses + 3 payer cédulas + a missing
+    `payers` service_role GRANT — mirror `supabase/facturar-backfill-diagnoses-payer-cedulas.sql`.
+    Still blocked pending real data: **Valentina Andrade** (no dx), **Andrés Gotta** (no cédula + no dx).
+  - **Security:** guard token lives ONLY in Netlify secret env `CONTIFICO_FACTURAR_TOKEN`
+    (production/functions) + local `.env` — never in git. Function refuses all requests if unset.
 - [x] **Contífico REST API — read-only reconnaissance for the `/facturar` rewrite** (2026-09-23, Opus 4.8).
   Credentials arrived; probed the API **GET-only** (never POSTed a document) from a throwaway
   token-guarded Netlify function `netlify/functions/cf-probe.mjs` (same pattern as the deleted dh-probe;
@@ -291,26 +319,26 @@
 
 ## Pending / Backlog
 
-### ⭐ DECIDED 2026-09-22 — Contífico REST API purchased; /facturar to be rewritten
-- **Contífico API key purchased ($15.23/mo), awaiting delivery.** Once it arrives, `/facturar`
-  gets **REWRITTEN against the REST API** (`api.contifico.com/sistema/api/v1/`) and the entire
-  **Chrome-automation protocol is deleted**. Alternatives researched and rejected: **Dátil Plus**
-  ~$11.70/mo (migration cost exceeds the $42/yr saving); **direct SRI web services** (free, but
-  XAdES-BES signing + ficha técnica maintenance is a permanent liability).
-- **Therefore: do NOT invest further in the browser-automation `/facturar`.** Payer-aware invoicing
-  (issue to `payer_id` when set) is **part of the API rewrite**, not a separate task on the current
-  protocol. (This supersedes the "Wire `/facturar` to the payer" item under Payer/billing follow-ups.)
-- **The key also unlocks:** `GET /persona/` to fill the **6 missing cédulas + 7 missing
-  `contifico_id`** in one call; pulling **past invoices** to backfill the **10 diagnosis codes**;
-  confirming which API field maps to **"Observaciones"** (`descripcion` / `adicional1` / `adicional2`).
-- **✅ READ-ONLY RECON DONE (2026-09-23, Opus 4.8) — see Completed Features for the full report.**
-  Working auth = `Authorization: <CONTIFICO_API_KEY>` (raw key, no Bearer), `pos` not needed for GETs.
-  **Observaciones = `descripcion`** (mirrored to `referencia`). **API DOES emit to SRI** (POST
-  `/documento/` → PUT `/documento/<id>/sri/`). Persona GUID not exposed ⇒ key clients by cédula/RUC.
-  Gaps to backfill (not yet written): Emiliano/Andrés own cédulas; the 3 payer cédulas; 7 diagnosis
-  entries. (Sharian's row = the Marthin Spatz `menor` case; `contifico_id 1724765266` is CORRECT — the
-  father is the billing persona — and Nicolás already fixed the row 2026-09-23.) Secrets
-  `CONTIFICO_API_KEY`/`CONTIFICO_POS_TOKEN` now in Netlify (functions scope, production context).
+### ✅ DONE 2026-09-23 — /facturar REWRITTEN against the Contífico REST API
+- **The Chrome-automation protocol is DELETED.** `/facturar` now runs entirely through the
+  `facturar` Netlify function (`netlify/functions/facturar.mjs`); the command
+  (`.claude/commands/facturar.md`) is a thin API driver. Full write-up in Completed Features.
+- **Flow proven end-to-end:** `POST /documento/` (`electronico:true`, next `001-001` sequential
+  computed live — the account requires it, cod_error 1002 without it) → `PUT /documento/<id>/sri/`
+  → SRI authorizes async (seconds). Verified by a real **$1 dummy factura to Nicolás**
+  (`001-001-000000291`, firmado, authorized). Auth = `Authorization: <CONTIFICO_API_KEY>` (raw key).
+- **Eligibility (new rules):** `confirmada + pagado + NOT facturada + tipo<>llamada +
+  facturacion_obligatoria=true + fecha >= FACTURAR_SINCE (2026-09-24)`. **NON-retroactive** — the
+  historical backlog is never touched (all already invoiced manually). The old `facturacion_manual`
+  exemption and the named NEVER-INVOICE list are **gone** — the API produces the insurance format.
+- **Observaciones = `descripcion`**, format `Paciente {nombre} | {CIE} {dx} | Sesión {fecha texto}`.
+  Billing party = payer if `payer_id` set, else patient; persona keyed by cédula/contifico_id.
+  (⚠️ Contífico strips accents in the mirrored `referencia` but keeps them in `descripcion`.)
+- **Guard token** moved OUT of git → Netlify secret env `CONTIFICO_FACTURAR_TOKEN`
+  (production/functions) + local `.env`. Backfill applied (6 diagnoses + 3 payer cédulas), mirrored
+  in `supabase/facturar-backfill-diagnoses-payer-cedulas.sql` (also fixes a missing `payers` GRANT).
+- **Still blocked until Nicolás supplies data:** Valentina Andrade (no diagnosis) and Andrés Gotta
+  (no cédula + no diagnosis) — neither has a session ≥ the floor yet.
 - **DualHook send-scope + templates + CUTOVER — ALL DONE (cutover 2026-09-22, see Completed
   Features).** Send scope confirmed; `recordatorio_cita` **APPROVED**; **`deliverReminder` now POSTs
   Dualhook and reminders send live via Dualhook.** Twilio is retired-but-dormant behind
@@ -340,23 +368,19 @@ of truth; open items as of 2026-08-03:
       embedded/linked cross-origin (list currently mirrors `calendar.mjs`).
 
 ### Contífico invoicing — resume here
-- [x] ~~**Build `/facturar` (Protocol 2)**~~ — **SHIPPED.** Full protocol lives in
-      `.claude/commands/facturar.md` (project-level command). All 5 config questions are answered and
-      locked in its "Config reference (confirmed with Nicolas)" section: Producto **SESION INDIVIDUAL**
-      (auto-sets IVA 0%) · Descripción **"Sesión del <fecha>"** · Forma de pago **Otros con Utilización
-      del Sistema Financiero** (= transferencia) · **Emit directly** to SRI (no draft step). Platform =
-      **Contífico (Siigo)**, RUC 1760388700001, browser automation (no free API). Also encodes:
-      Consumidor Final fallback (no cédula, legal <$50), Registrar Persona flow, and the NEVER-INVOICE
-      insurance-format safety list (Sharian Narvaez, Raguel Conforme, Emilie Conforme, Laura Vasquez —
-      enforced by both `patients.facturacion_manual=true` AND by name). **The command file is the source
-      of truth — do NOT re-ask the config questions.**
-- [x] ~~**Eligible-session query for /facturar**~~ — encoded in the command (§1): `estado='confirmada'
-      AND pagado AND NOT facturada AND tipo<>'llamada' AND fecha within rolling last 7 days AND
-      patient.facturacion_manual=false`. Client-ready vs no-cédula (Consumidor Final) vs
-      has-cédula-not-yet-client are split and handled there.
-- [ ] **Finish the 10 client-pending patients:** get the 9 placeholder emails (Aichele Oliver,
-      Huidobro Juliana, Cevallos Jacqueline, Racines Alisson, Conforme Emilie, Padilla Camila,
-      Almache Karina, Ortiz Shally, Chiriboga Joaquin), then bulk-create them (Protocol 1) + stamp.
+- [x] ~~**Build `/facturar` (browser automation, Protocol 2)**~~ — **REPLACED 2026-09-23** by the
+      REST-API rewrite (see the ✅ DONE entry at the top of this backlog + Completed Features). The
+      browser protocol, the Consumidor Final fallback, the Registrar Persona flow, and the
+      `facturacion_manual`/NEVER-INVOICE safety list are all deleted. `.claude/commands/facturar.md`
+      is the source of truth for the new API protocol.
+- [x] ~~**Eligible-session query for /facturar**~~ — superseded: eligibility now lives in
+      `netlify/functions/facturar.mjs` (`facturacion_obligatoria` + non-retroactive `FACTURAR_SINCE`
+      floor; no 7-day window, no `facturacion_manual`).
+- [ ] **Missing cédulas / diagnoses for the obligatoria patients:** the API dry-run lists any blocked
+      session and why. Outstanding: **Valentina Andrade** (no diagnosis) and **Andrés Gotta** (no
+      cédula + no diagnosis). Everyone else was backfilled 2026-09-23. Fill only with real data.
+- [ ] **(Historical, low priority) Fill missing cédulas for non-obligatoria patients** — only matters
+      if their `facturacion_obligatoria` is ever turned on. Original notes below:
 - [ ] **Fill the missing cédulas** — IN PROGRESS (session 2026-07-17). Mined `Sesiones_Consultorio (6).xlsx`
       (cédulas live only in the `Sesiones` tab "Cédula / RUC" col; `Pacientes` tab has none) + cross-checked
       `~/Downloads/cedulas_por_revisar.csv`. Of 98 missing, only **3 were cleanly recoverable + SRI-checksum
@@ -381,20 +405,19 @@ of truth; open items as of 2026-08-03:
       NOTE: app-side, phones aren't normalized on write — spaces
       bypass the UNIQUE constraint, so dups can recur until an input-normalization fix lands.
 - [ ] **`contifico_id` is a marker (= core cédula), not the real Contífico persona id.** Fine for the
-      cédula-based Persona lookup in Protocol 2; upgrade to the real id only if a flow needs it.
+      cédula-based persona lookup in the API (`cliente.cedula`); upgrade to the real id only if needed.
 
 ### Payer / billing model follow-ups (surfaced 2026-09-22, after the `payers` foundation)
-- [ ] **Wire `/facturar` to the payer.** When `patient.payer_id` is set, the factura must be issued
-      to the `payers` row (its cédula/razón_social/contifico_id), NOT the patient. The command still
-      keys off `patient.cedula` — update Protocol 2's Persona lookup to prefer the payer when present.
+- [x] ~~**Wire `/facturar` to the payer.**~~ — DONE 2026-09-23 in the API rewrite: `billingIdentity()`
+      issues to the `payers` row when `payer_id` is set (its cédula/razón_social/contifico_id), else the
+      patient; the descripcion always names the patient.
 - [ ] **Owner UI to manage billing fields.** `payer_id` and `facturacion_obligatoria` are deliberately
       NOT in `PATIENT_COLUMNS` (not writable via the Pacientes form) — they're DB/owner-tooling only for
       now. Build an owner-only control to assign a patient's payer and toggle `facturacion_obligatoria`.
-- [ ] **Flag interaction — NOT a bug:** the 4 insurance patients (Sharian Narváez, Raguel Conforme,
-      Emilie Conforme, Laura Vásquez) are now BOTH `facturacion_manual=true` (excluded from the automated
-      `/facturar` eligibility query) AND `facturacion_obligatoria=true` (the manual FACTURADA toggle is
-      enabled for them). Coherent: they require a factura but it's done manually (insurance format), not
-      via the Contífico automation. Keep both flags; don't "reconcile" them.
+- [x] ~~**Flag interaction — the 4 insurance patients**~~ — RESOLVED 2026-09-23: `facturacion_manual`
+      is no longer read by `/facturar` (eligibility keys off `facturacion_obligatoria` only). The API
+      produces the insurance format, so Sharian Narváez / Raguel & Emilie Conforme / Laura Vásquez are
+      now invoiced automatically like everyone else. The `facturacion_manual` column is left dormant.
 - [ ] **Confirm Washington Andrade's WhatsApp** — his payer `telefono` was assumed = Valentina Andrade's
       `+593992738962` (per Nicolás 2026-09-22). Verify it's actually the number comprobantes arrive from.
 - [ ] **Data oddity:** Laura Vásquez (payer + patient) and Emilie Conforme share cédula `1718240995001`.

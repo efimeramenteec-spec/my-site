@@ -1,106 +1,99 @@
 ---
-description: Emit Contífico facturas for eligible sessions (last 7 days) via browser automation
+description: Emit Contífico facturas for eligible sessions via the REST API (Netlify function)
 ---
 
-# /facturar — weekly Contífico invoicing protocol
+# /facturar — Contífico invoicing protocol (REST API)
 
-Emit electronic facturas in Contífico (Siigo) for every session eligible for automatic
-invoicing, then mark each `facturada` in the app. Contífico has **no free API**, so this is
-**browser automation** driven by Claude-in-Chrome. Work carefully — each emission is a real,
-SRI-authorized legal document.
+Emit electronic facturas in Contífico for every eligible session, then mark each
+`facturada` in the app. This runs entirely through the **`facturar` Netlify function**
+(`netlify/functions/facturar.mjs`) — the old Chrome-automation protocol is retired.
+`api.contifico.com` is only reachable from Netlify, so all Contífico traffic runs
+server-side in that function. **Each emission is a real, SRI-authorized legal document
+that cannot be quietly undone — work carefully.**
 
 ## 0. Setup (once per run)
-- Contífico = Siigo. Empresa RUC **1760388700001**, URL **https://1760388700001.contifico.com**,
-  login user `MarianaVillegasK`.
-- The MCP/automation browser tab does **NOT** share Nicolas's normal Contífico login. Create a
-  fresh tab in the MCP group, navigate to the URL, and **ask Nicolas to click "Iniciar sesión"
-  himself** (credentials are prefilled; Claude must not submit passwords). Wait for the dashboard.
-- Supabase writes/reads use the `mcp__claude_ai_Supabase__*` connector (project
-  `vnityzpuhnkumsyfnskz`).
+- **Function URL:** `https://efimeramente-panel.netlify.app/.netlify/functions/facturar`
+- **Guard token:** read `CONTIFICO_FACTURAR_TOKEN` from `~/my-site/.env` (never printed,
+  never committed — it lives in the Netlify env too). Every call needs `?token=<it>`.
+  Export it once: `TOKEN=$(grep '^CONTIFICO_FACTURAR_TOKEN=' ~/my-site/.env | cut -d= -f2)`
+- The function already holds the Contífico creds (`CONTIFICO_API_KEY`, `CONTIFICO_POS_TOKEN`)
+  and `SUPABASE_SERVICE_KEY` in the Netlify env. Nothing else to configure.
+- Supabase reads/writes for backfill use the `mcp__claude_ai_Supabase__*` connector
+  (project `vnityzpuhnkumsyfnskz`).
 
-## 1. Find eligible sessions
-A session is eligible when ALL are true: `estado='confirmada'` AND `pagado=true` AND
-`NOT facturada` AND `tipo <> 'llamada'` AND `fecha` within the **rolling last 7 days**.
+## 1. Eligibility (encoded in the function — do not re-derive)
+A session is eligible when ALL are true:
+`estado='confirmada'` AND `pagado=true` AND `NOT facturada` AND `tipo <> 'llamada'`
+AND `patient.facturacion_obligatoria = true` AND `fecha >= FACTURAR_SINCE` (**2026-09-24**).
 
-```sql
-select s.id, s.fecha, s.monto, p.nombre, p.apellido, p.cedula, p.contifico_id,
-       p.facturacion_manual
-from sessions s join patients p on p.id = s.patient_id
-where s.estado='confirmada' and s.pagado=true and coalesce(s.facturada,false)=false
-  and s.tipo <> 'llamada'
-  and s.fecha >= current_date - interval '7 days' and s.fecha <= current_date
-  and coalesce(p.facturacion_manual,false) = false   -- HARD exemption, see §2
-order by p.apellido, s.fecha;
+- **Non-retroactive:** `FACTURAR_SINCE` is a hard floor. Every session before it was
+  already invoiced manually; the protocol must never touch the historical backlog.
+- **No `facturacion_manual` exemption and no named NEVER-INVOICE list** — both were
+  deleted 2026-09-24. The 4 old insurance patients (Laura Vásquez, Raguel/Emilie Conforme,
+  Sharian Narváez) ARE now invoiced by this protocol; the API produces the insurance format.
+
+## 2. Dry-run FIRST — always
+```bash
+curl -s "$URL?token=$TOKEN&mode=dry-run" | jq
 ```
+Returns `{ totals:{eligible,ready,blocked}, ready:[…], blocked:[…], full:[…] }` and makes
+**zero Contífico calls**. Review it:
+- **`ready`** — data-complete, will be emitted. Check each `descripcion` string, which is
+  what the insurance depends on. Format (built by the function):
+  `Paciente {NOMBRE PACIENTE} | {CIE} {diagnóstico} | Sesión {fecha en texto}`
+  e.g. `Paciente Laura Vásquez | F41 otros trastornos de ansiedad | Sesión 4 de Septiembre`.
+  Billing goes to the **payer** when `patient.payer_id` is set, otherwise the patient —
+  but the descripcion **always names the patient** (for a `menor`, the child).
+- **`blocked`** — each lists why. **STOP and report these; never improvise a fallback.**
+  Blocks are always one of: missing **cédula/contifico_id** (patient's own, or the linked
+  payer's) or missing **diagnóstico** (`diagnostico_codigo`/`diagnostico_texto`).
 
-Split the results:
-- **Client-ready** (`contifico_id IS NOT NULL`) → invoice to the patient (real factura).
-- **No cédula on file** (`cedula IS NULL`, or only a placeholder email) → **Consumidor Final**
-  (legal because every session is under $50). See §4.
-- **Has cédula but not yet a Contífico client** (`cedula` set, `contifico_id` null) → the patient
-  must be created in Contífico first (Registrar Persona), then invoiced. Confirm with Nicolas
-  whether to create-and-invoice or fall back to Consumidor Final.
+### Fixing a block (only with real data — ask Nicolás, never invent)
+- Diagnosis → `update patients set diagnostico_codigo=…, diagnostico_texto=… where id=…;`
+  (a `menor` with no numeric CIE may carry `diagnostico_texto` only, code null.)
+- Patient cédula → `update patients set cedula=…, contifico_id=… where id=…;`
+- Payer cédula → `update payers set cedula=…, contifico_id=… where id=…;`
+Then re-run the dry-run and confirm the session moved to `ready`.
 
-## 2. ⚠️ NEVER-INVOICE exemptions (insurance-format cases)
-These patients need a special insurance-format factura that **Nicolas issues by hand**. The
-protocol must NEVER emit a factura for them — not as themselves, not to a relative, not as
-Consumidor Final. It is enforced two ways; respect BOTH:
-1. **Data flag:** `patients.facturacion_manual = true` — already excluded by the query above.
-2. **Named safety net** (do not invoice even if the flag is somehow missing):
-   - **Sharian Narvaez**
-   - **Raguel Conforme (Vasquez)**
-   - **Emilie Conforme**
-   - **Laura Vasquez**
+## 3. Show Nicolás the plan, get his OK
+Report the `ready` list (patient, billing party, amount, descripcion) + the total, and the
+`blocked` list. **Wait for his go-ahead before emitting** — these are legal documents.
 
-To exempt a new patient later: `update patients set facturacion_manual=true where id='…';`
+## 4. Emit
+Two paths. Both do `POST /documento/` (create, `electronico:true`, next sequential computed
+live from Contífico) → `PUT /documento/<id>/sri/` (SRI emission) → **mark `facturada=true`
+immediately**. SRI authorization is async but usually completes in seconds.
 
-## 3. Emit one factura per session (real factura)
-From the dashboard, open **"Crear una factura electrónica"**
-(`/sistema/registro/documento/registrar/?de=1`). For each session:
-1. **Persona:** click the Persona field and type the patient's `contifico_id` (their cédula).
-   **Gotcha:** right after navigating, the first click+type often does NOT register — click the
-   field again and re-type, then screenshot and **verify the Persona name is populated** before
-   continuing (an empty Persona makes the emit fail with "La persona es obligatoria").
-   Select the matching autocomplete row.
-2. **Servicios ▸ Agregar detalle** → click the Producto field, type `SESION INDIVIDUAL`, pick the
-   **"(SESION INDIVIDUAL) SESION INDIVIDUAL"** option. This product auto-sets **IVA 0%** (correct —
-   psychology is exempt).
-3. Set **Precio U.** = the session's `monto` (triple-click the field, type the amount).
-4. Selecting a product auto-adds a blank second row — **delete it** (row trash icon → "Aceptar").
-5. **Descripción** (required): `Sesión del DD/MM/YYYY` using the session's `fecha`.
-6. **Formas de Pago:** the default **"Otros con Utilización del Sistema Financiero"** IS the SRI
-   code for a bank transfer — leave it (there is no literal "Transferencia" option). Valor
-   auto-fills to the total.
-7. Click **"Guardar y enviar al SRI"** (the irreversible emission), wait ~3s. Success = the URL
-   changes to `/documento/<id>/` and shows "Documento registrado y enviado con éxito."
-8. Immediately mark the session invoiced:
-   `update sessions set facturada=true where id='<session_id>';`
+- **One session (recommended for the first of a batch, as a live check):**
+  ```bash
+  curl -s "$URL?token=$TOKEN&mode=emit-one&session_id=<uuid>&confirm=EMIT-ONE" | jq
+  ```
+- **Whole batch (every `ready` session):**
+  ```bash
+  curl -s "$URL?token=$TOKEN&mode=batch&confirm=EMIT-BATCH" | jq
+  ```
+Each result carries `contifico_id`, `marked_facturada`, and `urls` (RIDE/XML).
 
-## 4. Consumidor Final (patients without a cédula)
-Same flow as §3, except in the **Persona** field type `9999999999999` and select the built-in
-**"9999999999 - Consumidor Final"**. Everything else (product, price, IVA 0%, descripción, forma
-de pago, emit, mark facturada) is identical. Anonymous buyer — the patient can't deduct it, but
-it's legal under $50.
+### ⚠️ The one failure mode to guard
+An emitted-but-unmarked invoice risks a **duplicate next run**. If any result shows
+`emitted:true` with `marked_facturada:false` it is flagged **CRITICAL** — set
+`facturada=true` on that `session_id` by hand before re-running anything.
 
-## 5. Creating a Contífico client (Registrar Persona) — when needed
-For a cédula-holder not yet in Contífico: `/sistema/persona/registrar/`, Tipo **Natural**, fill
-Cédula (typing it triggers an SRI name lookup + green check), Nombre, Teléfonos,
-Dirección **QUITO**, Email (+Enter to add as a tag), check the **Cliente** role (Cuenta Por Cobrar
-auto-fills **"Clientes Comerciales"**), **Guardar**. For a 13-digit RUC: put the RUC in the Ruc
-field and the 10-digit core in Cédula. Then stamp `patients.contifico_id = <10-digit cédula>`.
-(For onboarding many patients at once, the bulk XLS import at
-`/sistema/persona/importacion_masiva_personas/` is faster — Cuenta Contable Cliente must be
-exactly `Clientes Comerciales`, names as `APELLIDOS NOMBRES`.)
+## 5. Verify + finish
+- Re-run `mode=dry-run`; confirm `ready` is now 0.
+- Optionally confirm SRI authorization of a doc:
+  `curl -s "$URL?token=$TOKEN&mode=recon&resource=documento&id=<contifico_id>" | jq '.body | {documento,firmado,autorizacion,url_ride}'`
+- Report: each patient, amount, Contífico `documento` number; anything skipped (blocked) and why;
+  any new sessions that appeared mid-run.
 
-## 6. Finish
-- After the batch, re-run the §1 query and confirm the client-ready count is 0.
-- Report: each patient, amount, and Contífico document number; list any skipped (no cédula, or
-  exempt), and any new sessions that appeared mid-run.
-- Keep the DB consistent: every emitted factura MUST have `facturada=true`. If a Supabase write
-  fails (transient 5xx), retry it before finishing so nothing is emitted-but-unmarked (which would
-  risk a duplicate next run).
+## Config reference (locked)
+Producto **SESION INDIVIDUAL** (`producto_id O8bYEmDllFv68b7j`) · IVA **0%** · precio = session
+`monto` · establecimiento-punto **001-001** (sequential auto-computed) · estado **P** (por cobrar,
+no `cobros` — matches every existing invoice) · Observaciones → **`descripcion`** (mirrored to
+`referencia`) · billing party = **payer if `payer_id` set, else patient** · persona keyed by
+**cédula/contifico_id** (Contífico creates it if new). Company RUC 1760388700001.
 
-## Config reference (confirmed with Nicolas)
-Producto **SESION INDIVIDUAL** · IVA **0%** · Descripción **"Sesión del <fecha>"** · Forma de pago
-**Otros con Utilización del Sistema Financiero** (= transferencia) · **Emit directly** to the SRI
-(no draft/approval step). Address constant **QUITO**.
+## Modes reference
+`recon` (GET-only exploration), `dry-run` (default, no Contífico calls), `emit-one`
+(`?session_id&confirm=EMIT-ONE`), `emit-dummy` (`?confirm=EMIT-DUMMY` — a $1 test invoice to a
+fixed identity, no session touched), `batch` (`?confirm=EMIT-BATCH`).
