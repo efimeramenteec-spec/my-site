@@ -45,14 +45,17 @@ Returns `{ totals:{eligible,ready,blocked}, ready:[…], blocked:[…], full:[�
   Billing goes to the **payer** when `patient.payer_id` is set, otherwise the patient —
   but the descripcion **always names the patient** (for a `menor`, the child).
 - **`blocked`** — each lists why. **STOP and report these; never improvise a fallback.**
-  Blocks are always one of: missing **cédula/contifico_id** (patient's own, or the linked
-  payer's) or missing **diagnóstico** (`diagnostico_codigo`/`diagnostico_texto`).
+  The only hard block is a missing **cédula/contifico_id** (patient's own, or the linked
+  payer's). **Diagnosis is optional** — a patient without one is invoiced with a no-CIE
+  descripcion (`Paciente {nombre} | Sesión {fecha}`); when present, the CIE is included.
 
 ### Fixing a block (only with real data — ask Nicolás, never invent)
-- Diagnosis → `update patients set diagnostico_codigo=…, diagnostico_texto=… where id=…;`
-  (a `menor` with no numeric CIE may carry `diagnostico_texto` only, code null.)
 - Patient cédula → `update patients set cedula=…, contifico_id=… where id=…;`
 - Payer cédula → `update payers set cedula=…, contifico_id=… where id=…;`
+  (If a cédula isn't in the app, it may be recoverable from the patient's past invoices
+  in Contífico — `mode=recon&resource=persona&cedula=…`.)
+- Diagnosis (optional, improves the descripcion) →
+  `update patients set diagnostico_codigo=…, diagnostico_texto=… where id=…;`
 Then re-run the dry-run and confirm the session moved to `ready`.
 
 ## 3. Show Nicolás the plan, get his OK

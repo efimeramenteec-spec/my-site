@@ -23,6 +23,10 @@ update payers set cedula='1716794209', contifico_id='1716794209' where id='98344
 update payers set cedula='1716725765', contifico_id='1716725765' where id='d59610a6-e693-4269-914b-61ab914f8db8'; -- Gabriela Páliz
 update payers set cedula='1712067378', contifico_id='1712067378' where id='d7af743c-0c5e-463f-8298-c681e1d3d4af'; -- Washington Andrade
 
--- STILL BLOCKED after this backfill (need Nicolás to supply):
---   Valentina Andrade — no diagnosis on any past invoice.
---   Andrés Gotta — no cédula (own null, no payer) AND no diagnosis.
+-- Andrés Gotta's own cédula, recovered from his Contífico persona (verified persona
+-- "ANDRES GOTTA", cédula 1761043908). Added 2026-09-23.
+update patients set cedula='1761043908', contifico_id='1761043908' where id='3ff1dfdd-9ce4-493d-a413-cf5ffe3b94ed'; -- Andrés Gotta
+
+-- No obligatoria patient is blocked after this. Diagnosis is OPTIONAL (Nicolás,
+-- 2026-09-23): patients without one (e.g. Valentina Andrade) are invoiced with a
+-- no-CIE descripcion. The function blocks ONLY on a missing cédula/contifico_id.

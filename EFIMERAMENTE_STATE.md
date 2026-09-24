@@ -69,9 +69,11 @@
   - **Eligibility:** `confirmada + pagado + NOT facturada + tipo<>llamada + facturacion_obligatoria +
     fecha >= FACTURAR_SINCE`. **NON-retroactive** — `FACTURAR_SINCE=2026-09-24` is a hard floor; the
     pre-go-live backlog (already invoiced manually) is never touched. Dry-run confirms 0 eligible today.
-  - **Backfill written** (recon values, confirmed by Nicolás): 6 diagnoses + 3 payer cédulas + a missing
-    `payers` service_role GRANT — mirror `supabase/facturar-backfill-diagnoses-payer-cedulas.sql`.
-    Still blocked pending real data: **Valentina Andrade** (no dx), **Andrés Gotta** (no cédula + no dx).
+  - **Backfill written** (recon values, confirmed by Nicolás): 6 diagnoses + 3 payer cédulas + Andrés
+    Gotta's cédula **1761043908** (verified in Contífico) + a missing `payers` service_role GRANT —
+    mirror `supabase/facturar-backfill-diagnoses-payer-cedulas.sql`. **Diagnosis is OPTIONAL** (Nicolás,
+    2026-09-23): patients without one (e.g. Valentina Andrade) are invoiced with a no-CIE descripcion
+    `Paciente {nombre} | Sesión {fecha}`. **All 20 obligatoria sessions now dry-run READY (0 blocked).**
   - **Security:** guard token lives ONLY in Netlify secret env `CONTIFICO_FACTURAR_TOKEN`
     (production/functions) + local `.env` — never in git. Function refuses all requests if unset.
 - [x] **Contífico REST API — read-only reconnaissance for the `/facturar` rewrite** (2026-09-23, Opus 4.8).
@@ -337,8 +339,9 @@
 - **Guard token** moved OUT of git → Netlify secret env `CONTIFICO_FACTURAR_TOKEN`
   (production/functions) + local `.env`. Backfill applied (6 diagnoses + 3 payer cédulas), mirrored
   in `supabase/facturar-backfill-diagnoses-payer-cedulas.sql` (also fixes a missing `payers` GRANT).
-- **Still blocked until Nicolás supplies data:** Valentina Andrade (no diagnosis) and Andrés Gotta
-  (no cédula + no diagnosis) — neither has a session ≥ the floor yet.
+- **No obligatoria patient is blocked anymore:** Andrés Gotta's cédula (1761043908) was added and
+  diagnosis is now optional, so Valentina Andrade invoices fine without one. Dry-run (?all=1) shows all
+  20 obligatoria sessions READY; the normal floor keeps them out until a session lands ≥ 2026-09-24.
 - **DualHook send-scope + templates + CUTOVER — ALL DONE (cutover 2026-09-22, see Completed
   Features).** Send scope confirmed; `recordatorio_cita` **APPROVED**; **`deliverReminder` now POSTs
   Dualhook and reminders send live via Dualhook.** Twilio is retired-but-dormant behind
@@ -376,9 +379,9 @@ of truth; open items as of 2026-08-03:
 - [x] ~~**Eligible-session query for /facturar**~~ — superseded: eligibility now lives in
       `netlify/functions/facturar.mjs` (`facturacion_obligatoria` + non-retroactive `FACTURAR_SINCE`
       floor; no 7-day window, no `facturacion_manual`).
-- [ ] **Missing cédulas / diagnoses for the obligatoria patients:** the API dry-run lists any blocked
-      session and why. Outstanding: **Valentina Andrade** (no diagnosis) and **Andrés Gotta** (no
-      cédula + no diagnosis). Everyone else was backfilled 2026-09-23. Fill only with real data.
+- [x] ~~**Missing cédulas / diagnoses for the obligatoria patients**~~ — DONE 2026-09-23. All 10
+      backfilled; Andrés Gotta's cédula (1761043908) recovered from Contífico; diagnosis made optional
+      so Valentina Andrade invoices without one. Dry-run reports 0 blocked. Fill only with real data.
 - [ ] **(Historical, low priority) Fill missing cédulas for non-obligatoria patients** — only matters
       if their `facturacion_obligatoria` is ever turned on. Original notes below:
 - [ ] **Fill the missing cédulas** — IN PROGRESS (session 2026-07-17). Mined `Sesiones_Consultorio (6).xlsx`
