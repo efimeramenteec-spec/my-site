@@ -95,6 +95,62 @@ export async function sendDualhookReminder({ toE164, name, fecha, hora }) {
   return res.json()
 }
 
+// ── Payment reminder (Dualhook, template `recordatorio_pago`) ────────────────
+// Sends the patient payment-reminder template (UTILITY, es). Body vars:
+//   {{1}} nombre · {{2}} monto (owed, net of saldo a favor) · {{3}} sesiones text
+//   (code-generated, e.g. "tu sesión del 22 de septiembre" / "las sesiones de
+//   Micaela del 20 y 22 de septiembre").
+// The template carries one URL button ("Pagar con tarjeta") whose URL is the
+// DYNAMIC form https://ppls.me/{{1}} — we fill {{1}} with a Payphone link suffix
+// so a per-patient link can replace the fixed one later WITHOUT resubmitting the
+// template. Suffix comes from env PAYPHONE_LINK_SUFFIX (falls back to the current
+// blank-amount link). Throws on any failure so the caller decides how to react.
+// NOTE: deliberately references ONLY the new `recordatorio_pago` — the superseded
+// pending template (old id 1871176587622662) must never be used.
+const PAYMENT_TEMPLATE = 'recordatorio_pago'
+const PAYMENT_LANG = 'es'
+const DEFAULT_PAYPHONE_SUFFIX = 'r1NzJTGHRqrDZi1UJRm9w' // blank-amount link, 24 Sep 2026
+
+export async function sendDualhookPaymentReminder({ toE164, name, monto, sesionesText, payphoneSuffix }) {
+  const apiKey = process.env.WA_DUALHOOK_API_KEY
+  if (!apiKey) throw new Error('WA_DUALHOOK_API_KEY missing — no send performed')
+  const to = String(toE164).replace(/^\+/, '') // Cloud API wants digits, no '+'
+  const suffix = payphoneSuffix || process.env.PAYPHONE_LINK_SUFFIX || DEFAULT_PAYPHONE_SUFFIX
+  const body = {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'template',
+    template: {
+      name: PAYMENT_TEMPLATE,
+      language: { code: PAYMENT_LANG },
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: String(name) },
+            { type: 'text', text: String(monto) },
+            { type: 'text', text: String(sesionesText) },
+          ],
+        },
+        {
+          // Fills {{1}} in the button URL https://ppls.me/{{1}}
+          type: 'button',
+          sub_type: 'url',
+          index: '0',
+          parameters: [{ type: 'text', text: suffix }],
+        },
+      ],
+    },
+  }
+  const res = await fetch(DUALHOOK_SEND_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`Dualhook ${res.status}: ${await res.text()}`)
+  return res.json()
+}
+
 // ── Twilio (legacy fallback, REMINDERS_PROVIDER=twilio) ──────────────────────
 // Send one WhatsApp reminder via Twilio's Content API (approved quick-reply
 // template; ONE variable {{1}} = patient name). Throws on any failure so the
