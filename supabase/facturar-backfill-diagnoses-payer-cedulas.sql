@@ -15,8 +15,9 @@ update patients set diagnostico_codigo='F88',   diagnostico_texto='Otros trastor
 update patients set diagnostico_codigo='F88',   diagnostico_texto='Otros trastornos del desarrollo psicológico'     where id='f2a17a5d-153e-56be-9adf-ac12f9936b6a'; -- Raguel Conforme
 update patients set diagnostico_codigo='F41.1', diagnostico_texto='Trastorno de Ansiedad Generalizada'              where id='7c7aa18a-bfe6-443d-b211-73c1b167e3b7'; -- Micaela Castro
 update patients set diagnostico_codigo='F41.8', diagnostico_texto='Otro Trastorno de Ansiedad Social Especificado'  where id='9d860eb7-0f04-4dc5-a93d-cd0011c1ac46'; -- Thomas Quevedo
--- Marthin Spatz (menor): invoices say "Trastorno de Adaptación", no numeric F-code.
-update patients set diagnostico_codigo=null,    diagnostico_texto='Trastorno de Adaptación'                         where id='6f9b2b87-54c0-4b80-af10-a84cd096a833'; -- Sharian Narvaez / Marthin Spatz
+-- Marthin Spatz (menor): invoices say "Trastorno de Adaptación" (no numeric F-code);
+-- F43.2 is the standard CIE-10 code for Trastornos de adaptación (added 2026-09-23).
+update patients set diagnostico_codigo='F43.2', diagnostico_texto='Trastorno de Adaptación'                         where id='6f9b2b87-54c0-4b80-af10-a84cd096a833'; -- Sharian Narvaez / Marthin Spatz
 -- Emiliano Caradonna: diagnosis + own cédula, both recovered from his Contífico invoices (2026-09-23).
 update patients set diagnostico_codigo='F41',   diagnostico_texto='otros trastornos de ansiedad', cedula='0961793387', contifico_id='0961793387' where id='65d3f379-f725-451c-a117-ce25e64856dd'; -- Emiliano Caradonna
 
