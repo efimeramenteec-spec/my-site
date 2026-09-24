@@ -449,11 +449,30 @@ of truth; open items as of 2026-08-03:
         `recordatorio_pago_v2`; button suffix from env **`PAYPHONE_LINK_SUFFIX`**, set in Netlify to
         `r1NzJTGHRqrDZi1UJRm9w`, so a per-patient link swaps with no redeploy). **Render test PASSED**
         to Nicolás's number (dummy name/$1/fake session — accepted by WhatsApp).
-      - **Still TODO for #8:** the Mon–Sat 10:00 payment-reminder cron + eligibility (confirmada,
-        date ≤ today−2, unpaid, never reminded, skip anyone already en mora), payer-aware routing, the
-        "En mora" Finanzas card, and amount-net-of-saldo — all depend on the payer table + saldo lotes
-        (#19). `PAYMENT_REMINDERS_LIVE` stays unset/false until that's built.
-      - **Cleanup pending:** delete `dh-tpl.mjs` once Nicolás confirms the render looks right.
+      - **Render confirmed perfect by Nicolás → `dh-tpl.mjs` throwaway DELETED.**
+- [x] **Payment-reminder protocol BUILT + went LIVE for the go-live batch (2026-09-24, Opus 4.8).**
+      - **Core:** `netlify/lib/paymentReminders.mjs` — rule: estado=confirmada, tipo≠llamada,
+        pagado=false, fecha ≤ today−2 (America/Guayaquil), `recordatorio_pago_at IS NULL`,
+        `pago_excluido=false`; skip any patient with a reminded-and-still-unpaid session (en mora);
+        one msg/patient; sum monto; code-gen {{3}} sesiones-text; stamp `recordatorio_pago_at` on send.
+      - **Scheduled:** `send-payment-reminders.mjs`, cron `0 15 * * 1-6` = 10:00 GYE Mon–Sat (never
+        Sunday), gated by `PAYMENT_REMINDERS_LIVE`. **`PAYMENT_REMINDERS_LIVE` is still UNSET (dry)** —
+        deliberately held OFF until payer routing exists (tipo_paciente can't be trusted to flag minors,
+        e.g. Eduarda). So the cron does NOT auto-send yet; go-live runs are manual via ↓.
+      - **Manual trigger:** `payment-run.mjs` (token-guarded HTTP, `?t=…&mode=dry|live`) since scheduled
+        fns aren't HTTP-invocable — used for the go-live batch + catch-up.
+      - **DB (MCP):** `sessions.recordatorio_pago_at` + `sessions.pago_excluido` (+ index); room-cap
+        trigger now skips flag-only updates (`supabase/payment-reminder-fields.sql`,
+        `supabase/presencial-room-cap-trigger.sql`).
+      - **Go-live boundary:** 31 pre-22-Sep unpaid confirmed sessions flagged `pago_excluido` (Nicolás
+        handles those manually, one last time). Protocol charges the 22nd onward.
+      - **LIVE SENT 24 Sep (the 22nd's sessions):** Shyam Yelpi ($39), Isabella Schreckinger ($39),
+        Valentina Andrade ($32, self-pays). **Held:** Eduarda Acosta (minor → mom, needs payer routing;
+        her 22nd session `pago_excluido`) and Andrés Chávez (pre-22 arrears, manual; 22nd `pago_excluido`).
+      - **Still TODO for #8:** amount-net-of-saldo (#19), the "En mora" Finanzas card + daily
+        `resumen_en_mora` WhatsApp to Nicolás, and **payer-aware routing (building next — minors/payers
+        message the payer's phone)**. Enable `PAYMENT_REMINDERS_LIVE=true` once routing lands + minors
+        are flagged.
 - [ ] **Dashboard "por cobrar" data hygiene:** the 72 unpaid past sessions include old seed
       rows the sheet sync couldn't match (76 unmatched) — some may actually be paid. Numbers
       self-correct as Nicolas marks history via the Deudores list.
