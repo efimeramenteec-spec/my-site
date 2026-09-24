@@ -440,6 +440,21 @@ export default async (req) => {
         }
         return json({ mode, resource, id: id || null, status: r.status, body: r.body })
       }
+      if (resource === 'descripciones') {
+        // Compact read-only dump: every document's descripcion + billing party,
+        // for mining diagnoses from past invoices. Optional ?cedula= filter.
+        const ced = url.searchParams.get('cedula') || ''
+        const r = await cfGet('/documento/')
+        if (!Array.isArray(r.body)) return json({ mode, resource, status: r.status, body: r.body })
+        let rows = r.body.map((d) => ({
+          documento: d?.documento || null,
+          cedula: d?.persona?.cedula || null,
+          razon_social: d?.persona?.razon_social || null,
+          descripcion: d?.descripcion || null,
+        }))
+        if (ced) rows = rows.filter((x) => x.cedula === ced)
+        return json({ mode, resource, status: r.status, count: rows.length, rows })
+      }
       if (resource === 'persona') {
         const cedula = url.searchParams.get('cedula') || ''
         const r = await cfGet(`/persona/?cedula=${encodeURIComponent(cedula)}`)
