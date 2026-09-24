@@ -118,7 +118,7 @@ export default async (req) => {
     const res = await fetch(`${BASE}?fields=id,name,language,status,category,rejected_reason&limit=100`, { headers: auth })
     let body
     try { body = JSON.parse(await res.text()) } catch { body = 'unparseable' }
-    return json({ action, version: 'only-backoff', status: res.status, body })
+    return json({ action, version: 'mora-fix', status: res.status, body })
   }
 
   if (action === 'create') {
