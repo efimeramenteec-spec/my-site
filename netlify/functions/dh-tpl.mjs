@@ -75,7 +75,9 @@ const TEMPLATES = [
     components: [
       {
         type: 'BODY',
-        text: 'Hola Nicolás 🌿 En mora hoy: {{1}} pacientes, ${{2}} en total.\n{{3}}',
+        // Trailing "Revísalos en la app." is required: Meta forbids a variable at
+        // the very end of the body (error 2388299), and the spec copy ended in {{3}}.
+        text: 'Hola Nicolás 🌿 En mora hoy: {{1}} pacientes, ${{2}} en total.\n{{3}}\nRevísalos en la app.',
         example: {
           body_text: [['3', '156', '• María López — $52\n• Juan Pérez — $39\n• Ana Ruiz — $65']],
         },
