@@ -377,9 +377,23 @@ export default async (req) => {
         const id = url.searchParams.get('id')
         const path = id ? `/documento/${id}/` : '/documento/'
         const r = await cfGet(path)
-        // For the list, return only the first item's full shape (schema mirror).
-        const body = (!id && Array.isArray(r.body)) ? { len: r.body.length, first: r.body[0] } : r.body
-        return json({ mode, resource, id: id || null, status: r.status, body })
+        if (!id && Array.isArray(r.body)) {
+          // Summarize the sequence structure: group FAC numbers by establecimiento-
+          // punto prefix and report the max sequential per prefix (to compute next).
+          const groups = {}
+          for (const d of r.body) {
+            const num = String(d?.documento || '')
+            const m = num.match(/^(\d{3}-\d{3})-(\d+)$/)
+            if (!m) continue
+            const g = (groups[m[1]] = groups[m[1]] || { count: 0, max: 0, maxDoc: '' })
+            g.count++
+            const seq = parseInt(m[2], 10)
+            if (seq > g.max) { g.max = seq; g.maxDoc = num }
+          }
+          return json({ mode, resource, status: r.status,
+            len: r.body.length, prefixes: groups, first: r.body[0] })
+        }
+        return json({ mode, resource, id: id || null, status: r.status, body: r.body })
       }
       if (resource === 'persona') {
         const cedula = url.searchParams.get('cedula') || ''
