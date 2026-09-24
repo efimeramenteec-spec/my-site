@@ -47,6 +47,12 @@ const SESION_PRODUCT = {
   nombre: 'SESION INDIVIDUAL',
 }
 
+// Establecimiento-punto de emisión for the electronic sequential. All 291 existing
+// invoices are on 001-001; this account's API requires the `documento` number to
+// be supplied (it is NOT auto-assigned — POST returns cod_error 1002 without it).
+// The next sequential is computed live from Contífico right before each emission.
+const PUNTO_EMISION = '001-001'
+
 // Go-live floor: the protocol is NON-retroactive (Nicolás, 2026-09-23). Every
 // session BEFORE this date was already invoiced in real life, so the API path
 // must never touch them. Eligibility is hard-floored at this date on session
@@ -273,9 +279,31 @@ function buildDocumentPayload(p, session) {
   })
 }
 
+// Compute the next electronic sequential for a punto de emisión: max existing
+// number on that prefix + 1, zero-padded to 9 digits. Contífico is the source of
+// truth, so this is re-read right before every emission (concurrency-safe).
+async function nextDocumentNumber(prefix) {
+  const r = await cfGet('/documento/')
+  if (!r.ok || !Array.isArray(r.body)) {
+    throw new Error('could not read documents to compute next number: ' + r.status)
+  }
+  let max = 0
+  for (const d of r.body) {
+    const m = String(d?.documento || '').match(/^(\d{3}-\d{3})-(\d+)$/)
+    if (m && m[1] === prefix) { const s = parseInt(m[2], 10); if (s > max) max = s }
+  }
+  return `${prefix}-${String(max + 1).padStart(9, '0')}`
+}
+
 // POST /documento/ (create) → PUT /documento/<id>/sri/ (emit to SRI). Returns
 // { ok, contifico_id, sri, error, step }. Does NOT mark facturada (callers do).
+// Assigns the next sequential `documento` number just before POSTing.
 async function emitPayload(payload) {
+  try {
+    payload.documento = await nextDocumentNumber(PUNTO_EMISION)
+  } catch (e) {
+    return { ok: false, step: 'nextDocumentNumber', error: String(e) }
+  }
   const created = await cfPost('/documento/', payload)
   if (!created.ok || !created.body?.id) {
     return { ok: false, step: 'POST /documento/', status: created.status,
