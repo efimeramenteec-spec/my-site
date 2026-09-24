@@ -24,6 +24,19 @@ declare
   cap constant int := 3;          -- number of physical consultorios
   overlap_count int;
 begin
+  -- Flag-only updates (pagado, recordatorio_pago_at, pago_excluido, facturada…) don't
+  -- touch the schedule, so they must never trip the cap — otherwise updating a
+  -- presencial row in an already-full historical slot wrongly raises ROOMS_FULL
+  -- (2026-09-24). Only enforce on INSERT or when a schedule field actually changes.
+  if TG_OP = 'UPDATE'
+     and NEW.modalidad is not distinct from OLD.modalidad
+     and NEW.fecha is not distinct from OLD.fecha
+     and NEW.hora_inicio is not distinct from OLD.hora_inicio
+     and NEW.hora_fin is not distinct from OLD.hora_fin
+     and NEW.estado is not distinct from OLD.estado then
+    return NEW;
+  end if;
+
   -- Only a non-cancelled PRESENCIAL session with a real time window occupies a
   -- room; everything else is exempt and passes straight through.
   if NEW.modalidad is distinct from 'presencial'
