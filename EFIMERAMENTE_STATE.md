@@ -435,8 +435,25 @@ of truth; open items as of 2026-08-03:
       exposure** in git history. After cancel, optionally delete `TWILIO_*` Netlify env vars +
       `sendWhatsAppReminder`/`twilio-webhook.mjs` (the `REMINDERS_PROVIDER=twilio` rollback dies with
       the subscription — acceptable, Dualhook is proven).
-- [ ] **`recordatorio_pago` template still PENDING at Meta** (WABA `1857507018469524`) — unrelated to
-      the (live) appointment-reminder loop; check status before building any payment-reminder send.
+- [x] **Payment-reminder templates submitted + #1 wired (2026-09-24, Opus 4.8).** On WABA
+      `1857507018469524`, via the token-guarded `dh-tpl.mjs` throwaway (Dualhook proxy):
+      - **`recordatorio_pago_v2`** (id `3646376502176152`) — **APPROVED**. The patient payment
+        reminder (bank block + dynamic URL button "Pagar con tarjeta" → `https://ppls.me/{{1}}`).
+        Body vars {{1}} nombre / {{2}} monto / {{3}} sesiones-text (code-generated). New name, NOT the
+        old `recordatorio_pago` (id `1871176587622662`) which turned out to be **APPROVED, not pending**
+        as an earlier note assumed — left dormant rather than deleting an approved asset.
+      - **`comprobante_sin_identificar`** (id `1595464335377117`) — **APPROVED** (feeds the #2 build).
+      - **`resumen_en_mora`** (id `4657291211223040`) — **PENDING**. Had to append a trailing
+        "Revísalos en la app." because Meta rejects a body ending in a variable (error 2388299).
+      - **Wired:** `sendDualhookPaymentReminder` in `netlify/lib/whatsapp.mjs` (template
+        `recordatorio_pago_v2`; button suffix from env **`PAYPHONE_LINK_SUFFIX`**, set in Netlify to
+        `r1NzJTGHRqrDZi1UJRm9w`, so a per-patient link swaps with no redeploy). **Render test PASSED**
+        to Nicolás's number (dummy name/$1/fake session — accepted by WhatsApp).
+      - **Still TODO for #8:** the Mon–Sat 10:00 payment-reminder cron + eligibility (confirmada,
+        date ≤ today−2, unpaid, never reminded, skip anyone already en mora), payer-aware routing, the
+        "En mora" Finanzas card, and amount-net-of-saldo — all depend on the payer table + saldo lotes
+        (#19). `PAYMENT_REMINDERS_LIVE` stays unset/false until that's built.
+      - **Cleanup pending:** delete `dh-tpl.mjs` once Nicolás confirms the render looks right.
 - [ ] **Dashboard "por cobrar" data hygiene:** the 72 unpaid past sessions include old seed
       rows the sheet sync couldn't match (76 unmatched) — some may actually be paid. Numbers
       self-correct as Nicolas marks history via the Deudores list.
