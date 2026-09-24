@@ -33,7 +33,11 @@
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
 
-const GUARD_TOKEN = '7a3205d04e9055a6cec1489c69e5c81e8c4eb3c6fbd7f183'
+// Guard token lives ONLY in the Netlify env (CONTIFICO_FACTURAR_TOKEN, secret,
+// production/functions) — NOT in git. This function is permanent and emits legal
+// invoices, so the token must not be committed. If the env var is unset the
+// function refuses every request (there is no hardcoded fallback).
+const GUARD_TOKEN = process.env.CONTIFICO_FACTURAR_TOKEN || ''
 const BASE = 'https://api.contifico.com/sistema/api/v1'
 const API_KEY = process.env.CONTIFICO_API_KEY || ''
 const POS_TOKEN = process.env.CONTIFICO_POS_TOKEN || ''
@@ -380,7 +384,7 @@ async function emitOne(supabase, item) {
 // ── Handler ─────────────────────────────────────────────────────────────────
 export default async (req) => {
   const url = new URL(req.url)
-  if (url.searchParams.get('token') !== GUARD_TOKEN) {
+  if (!GUARD_TOKEN || url.searchParams.get('token') !== GUARD_TOKEN) {
     return new Response('Not found', { status: 404 })
   }
   if (!API_KEY || !POS_TOKEN) {
