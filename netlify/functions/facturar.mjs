@@ -47,6 +47,13 @@ const SESION_PRODUCT = {
   nombre: 'SESION INDIVIDUAL',
 }
 
+// Go-live floor: the protocol is NON-retroactive (Nicolás, 2026-09-23). Every
+// session BEFORE this date was already invoiced in real life, so the API path
+// must never touch them. Eligibility is hard-floored at this date on session
+// `fecha`. Do not lower it — it is the wall that stops the historical backlog
+// from being re-emitted.
+const FACTURAR_SINCE = '2026-09-24'
+
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
   'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 
@@ -127,6 +134,7 @@ async function fetchEligible(supabase) {
     .eq('pagado', true)
     .neq('tipo', 'llamada')
     .or('facturada.is.null,facturada.eq.false')
+    .gte('fecha', FACTURAR_SINCE)   // NON-retroactive: never invoice the pre-go-live backlog
     .eq('patient.facturacion_obligatoria', true)
     .order('fecha', { ascending: true })
   if (error) throw new Error('supabase eligible query failed: ' + error.message)
@@ -205,15 +213,13 @@ function blockingReasons(p, bill) {
 
 // Build the full Contífico POST /documento/ payload for a session. This is the
 // exact object that would be sent (dry-run returns it verbatim).
-function buildDocumentPayload(p, session) {
-  const bill = billingIdentity(p)
-  const precio = money(session.monto)
+// Core payload assembler shared by real (session) invoices and the $1 dummy.
+// `bill` = { key, razon_social, nombre, telefono, email } ; direccion defaults Quito.
+function buildPayloadCore({ bill, precio, fecha, descripcion }) {
   const key = String(bill.key || '')
   // Persona type: 13-digit → RUC (R), else natural (N). Our personas are keyed by
   // the 10-digit contifico_id, so this is 'N' in practice.
   const isRuc = key.length === 13
-  const descripcion = buildDescripcion(p, session)
-
   const detalle = {
     producto_id: SESION_PRODUCT.id,
     cantidad: 1,
@@ -224,13 +230,12 @@ function buildDocumentPayload(p, session) {
     base_gravable: 0,
     base_no_gravable: 0,
   }
-
   return {
     // `documento` (sequential) and `autorizacion` are intentionally OMITTED:
     // for electronic docs Contífico auto-assigns the sequential from the POS's
     // establecimiento/punto de emisión, and the SRI clave is filled by PUT /sri/.
     pos: POS_TOKEN,
-    fecha_emision: fechaDMY(session.fecha),
+    fecha_emision: fechaDMY(fecha),
     tipo_documento: 'FAC',
     estado: 'P',                // Pendiente / por cobrar — mirrors all 291 existing invoices
     caja_id: null,
@@ -240,7 +245,7 @@ function buildDocumentPayload(p, session) {
       cedula: key,
       razon_social: (bill.razon_social || bill.nombre || '').toUpperCase(),
       telefonos: bill.telefono || '',
-      direccion: 'Quito',
+      direccion: bill.direccion || 'Quito',
       email: bill.email || '',
       es_extranjero: false,
     },
@@ -256,6 +261,35 @@ function buildDocumentPayload(p, session) {
     // No `cobros`: the practice emits facturas as "por cobrar" (estado P) and
     // tracks payment separately — matches every existing invoice (cobros:[]).
   }
+}
+
+// Build the full Contífico POST /documento/ payload for a session.
+function buildDocumentPayload(p, session) {
+  return buildPayloadCore({
+    bill: billingIdentity(p),
+    precio: money(session.monto),
+    fecha: session.fecha,
+    descripcion: buildDescripcion(p, session),
+  })
+}
+
+// POST /documento/ (create) → PUT /documento/<id>/sri/ (emit to SRI). Returns
+// { ok, contifico_id, sri, error, step }. Does NOT mark facturada (callers do).
+async function emitPayload(payload) {
+  const created = await cfPost('/documento/', payload)
+  if (!created.ok || !created.body?.id) {
+    return { ok: false, step: 'POST /documento/', status: created.status,
+      error: 'create failed', response: created.body }
+  }
+  const docId = created.body.id
+  const sri = await cfPut(`/documento/${docId}/sri/`, {})
+  if (!sri.ok) {
+    return { ok: false, step: 'PUT /documento/<id>/sri/', contifico_id: docId,
+      status: sri.status, error: 'SRI emission failed', response: sri.body }
+  }
+  return { ok: true, contifico_id: docId, sri: sri.body,
+    urls: { ride: created.body.url_ride || sri.body?.url_ride || null,
+            xml: created.body.url_xml || sri.body?.url_xml || null } }
 }
 
 // One assembled work item per eligible session.
@@ -289,19 +323,10 @@ async function emitOne(supabase, item) {
     return { session_id: item.session_id, emitted: false, error: 'SESION_PRODUCT.id not configured (run recon)' }
   }
 
-  // 1) Create the document.
-  const created = await cfPost('/documento/', item.payload)
-  if (!created.ok || !created.body?.id) {
-    return { session_id: item.session_id, emitted: false, step: 'POST /documento/',
-      status: created.status, error: 'create failed', response: created.body }
-  }
-  const docId = created.body.id
-
-  // 2) Submit to the SRI. This is the irreversible emission.
-  const sri = await cfPut(`/documento/${docId}/sri/`, {})
-  if (!sri.ok) {
-    return { session_id: item.session_id, emitted: false, step: 'PUT /documento/<id>/sri/',
-      contifico_id: docId, status: sri.status, error: 'SRI emission failed', response: sri.body }
+  // 1+2) Create the document then submit to the SRI (the irreversible emission).
+  const em = await emitPayload(item.payload)
+  if (!em.ok) {
+    return { session_id: item.session_id, emitted: false, ...em }
   }
 
   // 3) Mark facturada IMMEDIATELY. An emitted-but-unmarked invoice risks a
@@ -309,14 +334,14 @@ async function emitOne(supabase, item) {
   const { error: markErr } = await supabase
     .from('sessions').update({ facturada: true }).eq('id', item.session_id)
   if (markErr) {
-    return { session_id: item.session_id, emitted: true, contifico_id: docId,
+    return { session_id: item.session_id, emitted: true, contifico_id: em.contifico_id,
       marked_facturada: false,
       error: 'CRITICAL: invoice EMITTED but facturada mark FAILED — mark manually before re-running',
-      mark_error: markErr.message, sri_response: sri.body }
+      mark_error: markErr.message }
   }
 
-  return { session_id: item.session_id, emitted: true, contifico_id: docId,
-    marked_facturada: true, sri_response: sri.body }
+  return { session_id: item.session_id, emitted: true, contifico_id: em.contifico_id,
+    marked_facturada: true, urls: em.urls }
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -372,6 +397,7 @@ export default async (req) => {
       const blocked = items.filter((i) => !i.ready)
       return json({
         mode, contifico_calls: 0,
+        since: FACTURAR_SINCE,
         product_configured: !!SESION_PRODUCT.id,
         totals: { eligible: items.length, ready: ready.length, blocked: blocked.length },
         blocked: blocked.map((i) => ({
@@ -385,6 +411,35 @@ export default async (req) => {
         // Redact the POS token in the echoed payloads — dry-run output is for review.
         full: items.map((i) => ({ ...i, payload: { ...i.payload, pos: '***REDACTED***' } })),
       })
+    }
+
+    // ── emit-dummy: one $1 test invoice to a fixed identity ──────────────────
+    // Validates the full POST→SRI→verify path without touching any patient
+    // session (no facturada mark). Identity + amount are hardcoded to Nicolás's
+    // own data at $1 (minimum impact); descripcion uses the real pipe format.
+    if (mode === 'emit-dummy') {
+      if (url.searchParams.get('confirm') !== 'EMIT-DUMMY') {
+        return json({ error: 'refused: emit-dummy requires ?confirm=EMIT-DUMMY' }, 400)
+      }
+      const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guayaquil' }))
+      const fecha = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      const descripcion = `Paciente Nicolás De la Torre | F99 prueba de facturación electrónica | Sesión ${fechaTexto(fecha)}`
+      const payload = buildPayloadCore({
+        bill: {
+          key: '1722559331',
+          nombre: 'Nicolás De la Torre',
+          razon_social: 'NICOLÁS DE LA TORRE',
+          telefono: '+593968029896',
+          email: 'nicolasdltz97@gmail.com',
+          direccion: 'Tumbaco',
+        },
+        precio: 1,
+        fecha,
+        descripcion,
+      })
+      const em = await emitPayload(payload)
+      return json({ mode, descripcion, emitted: em.ok, ...em,
+        payload: { ...payload, pos: '***REDACTED***' } })
     }
 
     // ── emit-one: exactly one invoice ────────────────────────────────────────
