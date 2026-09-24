@@ -127,8 +127,8 @@ async function cfPut(path, payload) {
 // Eligible: estado='confirmada' AND pagado AND NOT facturada AND tipo<>'llamada'
 // AND patient.facturacion_obligatoria=true. NO date window, NO facturacion_manual
 // exemption (deleted 2026-09-24 — the API can now produce the insurance format).
-async function fetchEligible(supabase) {
-  const { data, error } = await supabase
+async function fetchEligible(supabase, { ignoreFloor = false } = {}) {
+  let query = supabase
     .from('sessions')
     .select(`
       id, fecha, monto, tipo, estado, pagado, facturada,
@@ -144,9 +144,12 @@ async function fetchEligible(supabase) {
     .eq('pagado', true)
     .neq('tipo', 'llamada')
     .or('facturada.is.null,facturada.eq.false')
-    .gte('fecha', FACTURAR_SINCE)   // NON-retroactive: never invoice the pre-go-live backlog
     .eq('patient.facturacion_obligatoria', true)
     .order('fecha', { ascending: true })
+  // NON-retroactive floor: never invoice the pre-go-live backlog. `ignoreFloor`
+  // (dry-run ?all=1) lifts it for inspection ONLY — dry-run makes no Contífico calls.
+  if (!ignoreFloor) query = query.gte('fecha', FACTURAR_SINCE)
+  const { data, error } = await query
   if (error) throw new Error('supabase eligible query failed: ' + error.message)
   // patient.facturacion_obligatoria filter above scopes the embed; keep only rows
   // whose patient survived the inner join and the flag.
@@ -200,7 +203,13 @@ function billingIdentity(p) {
 function buildDescripcion(p, session) {
   const paciente = patientDisplayName(p)
   const cie = [p.diagnostico_codigo, p.diagnostico_texto].filter(Boolean).join(' ').trim()
-  return `Paciente ${paciente} | ${cie} | Sesión ${fechaTexto(session.fecha)}`
+  const sesion = `Sesión ${fechaTexto(session.fecha)}`
+  // The CIE segment is included only when a diagnosis is on file. Patients without
+  // one (e.g. Valentina Andrade, per Nicolás 2026-09-23) are invoiced without it —
+  // matches their historical invoices, which carried no CIE. No empty "| |".
+  return cie
+    ? `Paciente ${paciente} | ${cie} | ${sesion}`
+    : `Paciente ${paciente} | ${sesion}`
 }
 
 // Validate a session is data-complete enough to invoice. Returns a list of
@@ -214,10 +223,9 @@ function blockingReasons(p, bill) {
       ? `payer "${bill.nombre}" has no cédula/contifico_id`
       : 'patient has no cédula/contifico_id')
   }
-  // Diagnosis is required for the insurance descripcion.
-  if (!p.diagnostico_codigo && !p.diagnostico_texto) {
-    reasons.push('patient has no diagnóstico (CIE code/text)')
-  }
+  // Diagnosis is NOT a hard requirement — the SRI doesn't need it, and patients
+  // without one (Nicolás, 2026-09-23) are invoiced with a no-CIE descripcion. When
+  // a diagnosis IS on file it's included (see buildDescripcion).
   return reasons
 }
 
@@ -442,13 +450,15 @@ export default async (req) => {
 
     // ── dry-run: build payloads, ZERO Contífico calls ────────────────────────
     if (mode === 'dry-run') {
-      const sessions = await fetchEligible(supabase)
+      const ignoreFloor = url.searchParams.get('all') === '1'
+      const sessions = await fetchEligible(supabase, { ignoreFloor })
       const items = assemble(sessions)
       const ready = items.filter((i) => i.ready)
       const blocked = items.filter((i) => !i.ready)
       return json({
         mode, contifico_calls: 0,
         since: FACTURAR_SINCE,
+        floor_ignored: ignoreFloor,   // ?all=1 — inspection only; emit paths always honor the floor
         product_configured: !!SESION_PRODUCT.id,
         totals: { eligible: items.length, ready: ready.length, blocked: blocked.length },
         blocked: blocked.map((i) => ({
