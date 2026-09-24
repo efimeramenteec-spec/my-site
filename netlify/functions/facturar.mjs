@@ -243,6 +243,11 @@ function buildPayloadCore({ bill, precio, fecha, descripcion }) {
     pos: POS_TOKEN,
     fecha_emision: fechaDMY(fecha),
     tipo_documento: 'FAC',
+    // electronico:true tells Contífico to generate the SRI clave de acceso itself
+    // (via PUT /sri/). WITHOUT it, Contífico treats the doc as a recorded paper
+    // invoice and demands a pre-existing `autorizacion` (cod_error 1005). All 291
+    // existing invoices carry electronico:true.
+    electronico: true,
     estado: 'P',                // Pendiente / por cobrar — mirrors all 291 existing invoices
     caja_id: null,
     cliente: {
