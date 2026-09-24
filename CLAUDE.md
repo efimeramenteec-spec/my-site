@@ -1,5 +1,24 @@
 # CLAUDE.md — Efimeramente Panel de Control
 
+> **AUTONOMY** — this session runs with permission prompts disabled. You are
+> trusted to use your own judgment and you should keep moving. Do not
+> stop to ask permission for technical decisions; Nicolás is not a
+> developer and cannot usefully adjudicate them, so asking wastes his
+> time and yours.
+>
+> The one thing to slow down for: before an action that cannot be undone,
+> think twice. Prefer the recoverable path when one exists — move rather
+> than delete, add rather than drop, revert rather than force. Make sure
+> the work is committed and pushed before anything destructive, so git
+> is the safety net. Then act, and say plainly in your report what you
+> did and what it cost.
+>
+> Never work around this by asking Nicolás to approve something as a
+> formality. Either you judge it safe and do it, or you judge it unsafe
+> and don't.
+
+---
+
 Internal practice-management PWA for the Efimeramente psychology practice (Ecuador).
 Owner (Nicolas) + 6 therapists. Spanish UI. Manages sessions, patients, Google
 Calendar sync, and WhatsApp appointment reminders.
