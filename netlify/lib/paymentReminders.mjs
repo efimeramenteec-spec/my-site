@@ -12,9 +12,13 @@
 //     included session is stamped recordatorio_pago_at so it's reminded exactly once.
 //   • Never insists: if a patient has ANY session already reminded and still unpaid
 //     (= "en mora"), skip them entirely — Nicolás handles those personally.
-//   • Amount = sum of the included sessions' monto. (Saldo-a-favor netting [#19] and
-//     payer-aware routing are not built yet — TODO; today we sum monto and message the
-//     patient's own phone.)
+//   • Amount = sum of the included sessions' monto. (Saldo-a-favor netting [#19] is TODO.)
+//   • Recipient = patients.telefono, ALWAYS (Option A, 2026-09-25): the number saved on
+//     the patient is who we message. No payer routing — payer_id is invoicing-only. For a
+//     minor (tipo_paciente='menor') that saved number is the tutor's, so we greet the
+//     tutor (person 1 = nombre) and NAME the minor (nombre_2) in {{3}} — "la sesión de
+//     Camila del …" — so a parent who pays for both themselves and their child can tell
+//     which session each message is about.
 
 import { sendDualhookPaymentReminder, normalizePhone } from './whatsapp.mjs'
 
@@ -46,19 +50,35 @@ function dm(dateStr) {
   return { d, mes: MESES[m - 1] || '' }
 }
 
-// Build the {{3}} phrase from the included session dates. Examples:
-//   ["2026-09-22"]                          → "tu sesión del 22 de septiembre"
-//   ["2026-09-20","2026-09-22"]             → "tus sesiones del 20 y 22 de septiembre"
-//   ["2026-09-30","2026-10-02"]             → "tus sesiones del 30 de septiembre y 2 de octubre"
-export function buildSesionesText(fechas) {
+const joinList = (items) => {
+  if (items.length <= 1) return items[0] || ''
+  if (items.length === 2) return `${items[0]} y ${items[1]}`
+  return `${items.slice(0, -1).join(', ')} y ${items[items.length - 1]}`
+}
+
+// Date fragment for a set of session dates: "22 de septiembre",
+// "20 y 22 de septiembre", "30 de septiembre y 2 de octubre".
+function fechasFragment(fechas) {
   const parts = [...new Set(fechas)].sort().map(dm)
-  if (parts.length === 1) return `tu sesión del ${parts[0].d} de ${parts[0].mes}`
   const sameMonth = parts.every((p) => p.mes === parts[0].mes)
-  const joinList = (items) => items.length === 2
-    ? `${items[0]} y ${items[1]}`
-    : `${items.slice(0, -1).join(', ')} y ${items[items.length - 1]}`
-  if (sameMonth) return `tus sesiones del ${joinList(parts.map((p) => String(p.d)))} de ${parts[0].mes}`
-  return `tus sesiones del ${joinList(parts.map((p) => `${p.d} de ${p.mes}`))}`
+  if (parts.length === 1) return `${parts[0].d} de ${parts[0].mes}`
+  if (sameMonth) return `${joinList(parts.map((p) => String(p.d)))} de ${parts[0].mes}`
+  return joinList(parts.map((p) => `${p.d} de ${p.mes}`))
+}
+
+// Self-pay {{3}} (addressed to the patient): "tu sesión del …" / "tus sesiones del …".
+export function buildSesionesText(fechas) {
+  const n = new Set(fechas).size
+  return `${n === 1 ? 'tu sesión' : 'tus sesiones'} del ${fechasFragment(fechas)}`
+}
+
+// Minor {{3}} (message goes to the tutor at the patient's saved phone; {{1}} is the
+// tutor). Names the child so tutor and practice both know which session is charged:
+//   "la sesión de Camila del 23 de septiembre" / "las sesiones de Camila del 20 y 22 …"
+export function buildMinorSesionesText(minorNombre, fechas) {
+  const n = new Set(fechas).size
+  const who = String(minorNombre || '').trim().split(/\s+/)[0] || 'tu paciente'
+  return `${n === 1 ? 'la sesión' : 'las sesiones'} de ${who} del ${fechasFragment(fechas)}`
 }
 
 function firstName(nombre) {
@@ -76,7 +96,7 @@ export async function runPaymentReminders(supabase, { now = new Date(), live = f
 
   const { data: sessions, error } = await supabase
     .from('sessions')
-    .select('id, fecha, monto, patient_id, patient:patients(nombre, apellido, telefono)')
+    .select('id, fecha, monto, patient_id, patient:patients(nombre, apellido, nombre_2, tipo_paciente, telefono)')
     .eq('estado', 'confirmada')
     .neq('tipo', 'llamada')
     .eq('pagado', false)
@@ -102,12 +122,15 @@ export async function runPaymentReminders(supabase, { now = new Date(), live = f
   const report = { today, cutoff, live: !!live, dryRun: !!dryRun, sent: 0, skipped: 0, failed: 0, patients: [] }
   for (const [pid, rows] of byPatient) {
     const p = rows[0].patient || {}
-    const name = firstName(p.nombre)
+    const isMenor = p.tipo_paciente === 'menor'
+    const name = firstName(p.nombre) // tutor for a menor, the patient otherwise
     const monto = fmtMonto(rows.reduce((a, r) => a + Number(r.monto || 0), 0))
-    const sesionesText = buildSesionesText(rows.map((r) => r.fecha))
+    const fechas = rows.map((r) => r.fecha)
+    const sesionesText = isMenor ? buildMinorSesionesText(p.nombre_2, fechas) : buildSesionesText(fechas)
     const toE164 = normalizePhone(p.telefono)
     const entry = {
       patient_id: pid, name, apellido: p.apellido || null,
+      tipo: p.tipo_paciente || null, minor: isMenor ? firstName(p.nombre_2) : null,
       phone: toE164, rawPhone: p.telefono || null, monto, sesionesText,
       sessionIds: rows.map((r) => r.id),
     }
