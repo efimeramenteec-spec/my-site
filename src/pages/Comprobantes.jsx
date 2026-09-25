@@ -406,7 +406,7 @@ export default function Comprobantes() {
         <div>
           <h1 className="font-heading text-xl font-bold text-content-primary">Comprobantes</h1>
           <p className="font-caption text-xs text-content-muted">
-            Pagos recibidos por WhatsApp en los últimos 7 días, leídos automáticamente. No verificado con el banco: revisa cada comprobante antes de marcar pagado.
+            Pagos recibidos por WhatsApp en los últimos 7 días. Los comprobantes claros se validan y marcan pagados solos; aquí quedan solo los que necesitan tu revisión (monto que no cuadra, remitente o imagen no reconocidos, referencia repetida, sobrepago…).
           </p>
         </div>
         <Badge variant={totalPending ? 'lavender' : 'neutral'}>
@@ -474,6 +474,7 @@ export default function Comprobantes() {
                   </span>
                   <span className="font-caption text-xs text-content-muted">
                     {p.reconciledSessionIds?.length ? `${p.reconciledSessionIds.length} sesión(es) marcada(s)` : 'Descartado'}
+                    {p.autoReconciled && <span className="ml-1 text-brand-lavender">· auto</span>}
                   </span>
                 </div>
               ))}

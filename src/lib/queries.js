@@ -303,6 +303,7 @@ function normalizeProof(row) {
     caption: media?.caption || null,
     reconciledAt: row.reconciled_at || null,
     reconciledSessionIds: row.reconciled_session_ids || [],
+    autoReconciled: row.auto_reconciled || false,
     // OCR: the structured transfer record + its status (null/'pending' = not
     // read yet, 'ok', 'needs_review', 'failed'). Filled by the extract-proof fn.
     extracted: row.extracted || null,
@@ -330,7 +331,7 @@ export async function getPaymentProofsData({ daysBack = PROOF_WINDOW_DAYS } = {}
       const { data: rows, error } = await supabase
         .from('whatsapp_messages')
         .select(
-          'id, patient_id, cuerpo, received_at, reconciled_at, reconciled_session_ids, raw_payload,' +
+          'id, patient_id, cuerpo, received_at, reconciled_at, reconciled_session_ids, auto_reconciled, raw_payload,' +
             ' extracted, extraction_status,' +
             ' patient:patients(id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,metodo_pago)',
         )
