@@ -455,24 +455,26 @@ of truth; open items as of 2026-08-03:
         pagado=false, fecha ≤ today−2 (America/Guayaquil), `recordatorio_pago_at IS NULL`,
         `pago_excluido=false`; skip any patient with a reminded-and-still-unpaid session (en mora);
         one msg/patient; sum monto; code-gen {{3}} sesiones-text; stamp `recordatorio_pago_at` on send.
-      - **Scheduled:** `send-payment-reminders.mjs`, cron `0 15 * * 1-6` = 10:00 GYE Mon–Sat (never
-        Sunday), gated by `PAYMENT_REMINDERS_LIVE`. **`PAYMENT_REMINDERS_LIVE` is still UNSET (dry)** —
-        deliberately held OFF until payer routing exists (tipo_paciente can't be trusted to flag minors,
-        e.g. Eduarda). So the cron does NOT auto-send yet; go-live runs are manual via ↓.
+      - **Scheduled + LIVE:** `send-payment-reminders.mjs`, cron `0 15 * * 1-6` = 10:00 GYE Mon–Sat
+        (never Sunday). **`PAYMENT_REMINDERS_LIVE=true` set in Netlify (functions scope) on 2026-09-25** —
+        the cron now auto-sends every Mon–Sat, hands-off (runs on Netlify's servers, no laptop needed).
       - **Manual trigger:** `payment-run.mjs` (token-guarded HTTP, `?t=…&mode=dry|live`) since scheduled
-        fns aren't HTTP-invocable — used for the go-live batch + catch-up.
+        fns aren't HTTP-invocable — used for the go-live batches + catch-up + previews.
+      - **Recipient model = Option A (decided 2026-09-25):** reminders go to `patients.telefono`, ALWAYS.
+        NO payer routing — `payer_id` is invoicing-only. Minors (`tipo_paciente='menor'`) have the tutor's
+        number saved as the patient phone; the message greets the tutor and NAMES the minor in {{3}}
+        ("la sesión de Camila del …"). See memory `payment-reminder-routing`.
       - **DB (MCP):** `sessions.recordatorio_pago_at` + `sessions.pago_excluido` (+ index); room-cap
         trigger now skips flag-only updates (`supabase/payment-reminder-fields.sql`,
         `supabase/presencial-room-cap-trigger.sql`).
       - **Go-live boundary:** 31 pre-22-Sep unpaid confirmed sessions flagged `pago_excluido` (Nicolás
         handles those manually, one last time). Protocol charges the 22nd onward.
-      - **LIVE SENT 24 Sep (the 22nd's sessions):** Shyam Yelpi ($39), Isabella Schreckinger ($39),
-        Valentina Andrade ($32, self-pays). **Held:** Eduarda Acosta (minor → mom, needs payer routing;
-        her 22nd session `pago_excluido`) and Andrés Chávez (pre-22 arrears, manual; 22nd `pago_excluido`).
-      - **Still TODO for #8:** amount-net-of-saldo (#19), the "En mora" Finanzas card + daily
-        `resumen_en_mora` WhatsApp to Nicolás, and **payer-aware routing (building next — minors/payers
-        message the payer's phone)**. Enable `PAYMENT_REMINDERS_LIVE=true` once routing lands + minors
-        are flagged.
+      - **LIVE SENT 24 Sep (22nd's sessions):** Shyam Yelpi ($39), Isabella Schreckinger ($39), Valentina
+        Andrade ($32, self-pays). Held: Eduarda Acosta + Andrés Chávez (22nd `pago_excluido`).
+      - **LIVE SENT 25 Sep (23rd's sessions):** Karina Almache (for minor Camila Mena, $39), Shally Ortiz,
+        Sara Pavlica, Nathalie Suárez, Andrea Torres — all $39. Cristina Fueres dropped (paid).
+      - **Still TODO for #8:** amount-net-of-saldo (#19); the "En mora" Finanzas card + daily
+        `resumen_en_mora` WhatsApp to Nicolás (template PENDING at Meta).
 - [ ] **Dashboard "por cobrar" data hygiene:** the 72 unpaid past sessions include old seed
       rows the sheet sync couldn't match (76 unmatched) — some may actually be paid. Numbers
       self-correct as Nicolas marks history via the Deudores list.
