@@ -475,6 +475,24 @@ of truth; open items as of 2026-08-03:
         Sara Pavlica, Nathalie Suárez, Andrea Torres — all $39. Cristina Fueres dropped (paid).
       - **Still TODO for #8:** amount-net-of-saldo (#19); the "En mora" Finanzas card + daily
         `resumen_en_mora` WhatsApp to Nicolás (template PENDING at Meta).
+- [x] **Comprobante AUTO-MARK LIVE (spec #2, 2026-09-25, Opus 4.8).** Clean payment proofs now
+      mark their session(s) paid on their own; anything with a warning stays in the Comprobantes card.
+      - **Core:** `netlify/lib/proofOcr.mjs` (shared OCR, extracted from `extract-proof.mjs`) +
+        `netlify/lib/proofReconcile.mjs` (deterministic decider + apply). Auto-marks ONLY when: matched
+        patient · extraction `ok` · confidence≠low · recipient Mariana · amount = one session's price
+        (oldest if several same-price — Nicolás's call) OR exact sum of all unpaid · reference
+        (`transfer_id`) not reused. Withhold reasons: unmatched / unreadable / not-a-proof / low_confidence
+        / recipient_mismatch / no_unpaid_sessions / **overpayment** (until saldo #19) / amount_no_match /
+        **reused_reference**. Marks `pagado=true,paid_at,metodo_pago` + stamps `reconciled_*` +
+        `auto_reconciled=true`; logs proof→session(s).
+      - **Scheduled:** `process-proofs.mjs`, cron `*/10 * * * *`, gated by **`COMPROBANTES_AUTO_LIVE=true`**
+        (set in Netlify 2026-09-25). Runs before the 10:00 reminder cron so payers who paid aren't nagged.
+        Polling is ~free (idle run = 1 query); OCR cost is per-new-proof, independent of cadence.
+      - **Manual trigger:** `proofs-run.mjs` (token-guarded, `?t=…&mode=dry|live&days=N`).
+      - **DB:** `whatsapp_messages.auto_reconciled` (`supabase/whatsapp-messages-auto-reconciled.sql`).
+        Comprobantes page copy updated + "· auto" badge on processed list.
+      - **Deferred:** the WhatsApp warning alert to Nicolás (needs template #3 `comprobante_sin_identificar`,
+        PENDING at Meta — wire once approved). Overpayment auto-credit waits on saldo a favor #19.
 - [ ] **Dashboard "por cobrar" data hygiene:** the 72 unpaid past sessions include old seed
       rows the sheet sync couldn't match (76 unmatched) — some may actually be paid. Numbers
       self-correct as Nicolas marks history via the Deudores list.
