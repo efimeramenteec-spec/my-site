@@ -46,7 +46,8 @@ export const TEMPLATES = [
     category: 'UTILITY',
     components: [
       { type: 'BODY',
-        text: 'Hola {{1}} 🌿 ¿Cómo fue la llamada con {{2}} de las {{3}}?',
+        // Trailing static text is required — Meta rejects a variable at the end.
+        text: 'Hola {{1}} 🌿 ¿Cómo fue la llamada con {{2}} de las {{3}}? Cuéntanos 👇',
         example: { body_text: [['Francisco', 'María', '10:00']] } },
       { type: 'BUTTONS', buttons: [
         { type: 'QUICK_REPLY', text: 'Se hizo' },
@@ -73,7 +74,8 @@ export const TEMPLATES = [
     category: 'UTILITY',
     components: [
       { type: 'BODY',
-        text: 'Hola {{1}} 🌿 ¿Te gustaría agendar tu primera sesión con {{2}}?',
+        // Trailing static text is required — Meta rejects a variable at the end.
+        text: 'Hola {{1}} 🌿 ¿Te gustaría agendar tu primera sesión con {{2}}? Escríbenos y la coordinamos.',
         example: { body_text: [['María', 'Francisco']] } },
       { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Sí, quiero agendar' }] },
     ],
