@@ -23,6 +23,16 @@ const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
 const FRANCISCO_ID = '2f5bf11b-42a8-562f-99c9-501c62a4ca04'
 const APP_BASE = process.env.URL || 'https://efimeramente-panel.netlify.app'
 
+// The bot may SEND to a lead when it's globally live OR when that lead's phone is
+// in the test allow-list (LEAD_BOT_TEST_PHONES, comma-separated, last-9 match).
+// Test mode keeps real leads dark while one number drives the flow end-to-end.
+export function botAllowedForPhone(phone) {
+  if (process.env.LEAD_BOT_LIVE === 'true') return true
+  const list = (process.env.LEAD_BOT_TEST_PHONES || '')
+    .split(',').map((s) => s.trim()).filter(Boolean).map(last9)
+  return !!phone && list.includes(last9(phone))
+}
+
 function phoneMatches(rows, fromRaw) {
   const norm = normalizePhone(fromRaw)
   const l9 = last9(fromRaw)
@@ -493,8 +503,8 @@ async function firstSessionInterest(supabase, lead) {
 // Entry point, called from the webhook after the lead row is recorded. Self-gates
 // on LEAD_BOT_LIVE + bot_paused so callers don't have to. Never throws.
 export async function runBot(supabase, { lead, isNew, msg }) {
-  if (process.env.LEAD_BOT_LIVE !== 'true') return
   if (!lead || lead.bot_paused) return
+  if (!botAllowedForPhone(lead.phone)) return
   try {
     const tap = extractTap(msg)
     // Any inbound means the lead is active again — clear the nudge counter so a
@@ -619,7 +629,7 @@ export async function handleTherapistResult(supabase, msg) {
   }
   // No contestó → mark + one rebook message to the lead (template; window likely closed).
   await advanceStage(supabase, lead, 'no_contesto')
-  if (!lead.rebook_sent_at && !lead.bot_paused) {
+  if (!lead.rebook_sent_at && !lead.bot_paused && botAllowedForPhone(lead.phone)) {
     try {
       await sendRebook(lead.phone, { name: leadFirstName(lead), therapist: await therapistShort(supabase, lead.therapist_id) })
       await patchLead(supabase, lead, { rebook_sent_at: new Date().toISOString() })

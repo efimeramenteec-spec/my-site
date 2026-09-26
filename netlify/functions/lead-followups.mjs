@@ -11,14 +11,15 @@
 // The no-show rebook is INBOUND-triggered (therapist taps "No contestó" →
 // whatsapp-cloud-webhook → handleTherapistResult), not a cron job.
 //
-// KILL-SWITCH: sends only when LEAD_BOT_LIVE === 'true'; otherwise a dry run that
+// KILL-SWITCH: per-lead gate — sends when LEAD_BOT_LIVE === 'true' OR the lead's
+// phone is in LEAD_BOT_TEST_PHONES (test mode). Everyone else is a dry run that
 // logs eligible counts and touches nothing. Never touches `convirtio` (read-only).
 //
 // Scheduled functions aren't HTTP-invocable — trigger from the Netlify UI
 // (Functions → lead-followups → Run now) to test the batch (respects the switch).
 
 import { getSupabaseAdmin, TZ_OFFSET, formatHora } from '../lib/whatsapp.mjs'
-import { nudgeLead, sendReminderForLead, sendResultForLead, sendFirstSessionForLead } from '../lib/leadBot.mjs'
+import { nudgeLead, sendReminderForLead, sendResultForLead, sendFirstSessionForLead, botAllowedForPhone } from '../lib/leadBot.mjs'
 
 export const config = { schedule: '*/15 * * * *' }
 
@@ -53,7 +54,10 @@ export default async () => {
   const quiet = ecHour >= 21 || ecHour < 8
 
   const counts = { nudge: 0, reminder: 0, result: 0, nudge48: 0 }
-  const act = async (fn) => { if (live) return fn(); return 'dry' }
+  // Per-LEAD gate: send when globally live OR the lead's phone is in the test
+  // allow-list. Job C sends to the therapist but is gated on the LEAD's phone so
+  // a test lead's result still reaches the therapist. Real leads stay dark.
+  const act = (lead, fn) => (botAllowedForPhone(lead.phone) ? fn() : Promise.resolve('dry'))
 
   // ── A. Silent nudges ────────────────────────────────────────────────────────
   if (!quiet) {
@@ -65,7 +69,7 @@ export default async () => {
       const age = now.getTime() - new Date(lead.last_bot_at).getTime()
       const threshold = (lead.nudges_sent || 0) === 0 ? 2 * H : 20 * H // +2h, then +22h total
       if (age < threshold) continue
-      const r = await act(() => nudgeLead(supabase, lead))
+      const r = await act(lead, () => nudgeLead(supabase, lead))
       if (r === 'sent') counts.nudge++
       else if (r === 'dry') counts.nudge++
     }
@@ -87,7 +91,7 @@ export default async () => {
       const untilStart = startAt(s).getTime() - now.getTime()
       // Window [50, 75] min before start; a call booked <1h out never enters it.
       if (untilStart < 50 * MIN || untilStart > 75 * MIN) continue
-      const r = await act(() => sendReminderForLead(supabase, lead, t, formatHora(s.hora_inicio)))
+      const r = await act(lead, () => sendReminderForLead(supabase, lead, t, formatHora(s.hora_inicio)))
       if (r === 'sent' || r === 'dry') counts.reminder++
     }
   }
@@ -107,7 +111,7 @@ export default async () => {
       const sinceEnd = now.getTime() - endAt(s).getTime()
       // Ended between 5 and 90 min ago (90 covers a couple of missed cron ticks).
       if (sinceEnd < 5 * MIN || sinceEnd > 90 * MIN) continue
-      const r = await act(() => sendResultForLead(supabase, lead, t, formatHora(s.hora_inicio)))
+      const r = await act(lead, () => sendResultForLead(supabase, lead, t, formatHora(s.hora_inicio)))
       if (r === 'sent' || r === 'dry') counts.result++
     }
   }
@@ -125,11 +129,12 @@ export default async () => {
       if (s?.convirtio === true) continue // converted already — don't nudge (never touch convirtio)
       const t = therapists.get(lead.therapist_id)
       if (!t) continue
-      const r = await act(() => sendFirstSessionForLead(supabase, lead, t))
+      const r = await act(lead, () => sendFirstSessionForLead(supabase, lead, t))
       if (r === 'sent' || r === 'dry') counts.nudge48++
     }
   }
 
-  console.log(`[followups] ${live ? 'LIVE' : 'dry'} ecHour=${ecHour} quiet=${quiet} ${JSON.stringify(counts)}`)
-  return json({ live, quiet, ...counts })
+  const test = !!(process.env.LEAD_BOT_TEST_PHONES || '').trim()
+  console.log(`[followups] live=${live} test=${test} ecHour=${ecHour} quiet=${quiet} ${JSON.stringify(counts)}`)
+  return json({ live, test, quiet, ...counts })
 }
