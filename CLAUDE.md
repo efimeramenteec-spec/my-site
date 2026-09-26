@@ -261,6 +261,33 @@ Uses `SUPABASE_SERVICE_KEY` — **never open anon RLS on patients/sessions for t
 auth/freebusy lives in `netlify/lib/calendar.mjs`. Llamadas get NO WhatsApp reminder (excluded in
 `send-reminders`). Availability is edited in the app's **Disponibilidad** page (owner: everyone;
 therapist: own row via RLS `therapists_self_update`).
+**The slot + booking engine now lives in `netlify/lib/booking.mjs`** (`computeSlots`, `nextSlots`,
+`createBooking`) — extracted so the lead bot books free calls through the exact same code. This file
+keeps only its HTTP shell (CORS, honeypot, rate limits, validation) and delegates the core. Do NOT
+re-inline a second slot engine.
+
+### Lead funnel / WhatsApp button bot (#4 + #20, shipped 2026-09-26 — behind `LEAD_BOT_LIVE=false`)
+Turns Meta ad leads into booked free calls, no hand-typed replies. **Measurement is always on**; the bot
+only SENDS when `LEAD_BOT_LIVE=true`. See `EFIMERAMENTE_STATE.md` for the go-live gate + test checklist.
+- **`netlify/lib/leadBot.mjs`** — the brain. Classifies an inbound sender (patient/therapist/payer vs
+  lead), creates/advances the `leads` row, runs the button state machine (message 1 → categoría list →
+  therapist cards → slot list → booking → confirmation; FAQ list with canned answers), and the follow-up
+  entry points. **No free-form model output ever reaches a lead** — the LLM (APIMart, cheap model) only
+  CLASSIFIES free text into {precio,ubicacion,seguro,pago,otro}; code sends canned copy. Wired into
+  `whatsapp-cloud-webhook.mjs` (which also handles `smb_message_echoes` → `bot_paused`, the manual-reply
+  pause, and the therapist's `Se hizo`/`No contestó` result reply).
+- **`netlify/lib/waSend.mjs`** — Cloud-API session sends (text, reply buttons, list, image cards) via
+  Dualhook, valid inside the free 72h CTWA window ($0). Templates live in **`netlify/lib/leadTemplates.mjs`**
+  (recordatorio_llamada, resultado_llamada, rebook_llamada, primera_sesion + submit/send).
+- **`netlify/functions/lead-followups.mjs`** — `*/15` cron: +2h/+22h silent nudges (quiet hours
+  21:00–08:00 GYE), call reminder 1h before, therapist result 5 min after, 48h first-session nudge.
+  Kill-switch = `LEAD_BOT_LIVE`. **Never touches `convirtio`** (read-only).
+- **DB:** `leads` (owner-only RLS, one row per phone, stage timestamps), `funnel_categorias` (editable
+  category→cards mapping), `therapists.recibe_nuevos` / `funnel_caption` / `funnel_card_url`. Migrations
+  `supabase/lead-funnel-0{1,2,3}-*.sql`. Config `recibe_nuevos` OFF for Daniela + Mariana.
+- **Marketing Module** (`src/pages/MarketingFunnel.jsx` + `src/lib/funnel.js`): Embudo tab (funnel by
+  day/week + by ad, % between steps, median time to booking) and Configuración tab (category ordering +
+  captions/recibe_nuevos editors). Legacy campaign spend view kept under the Campañas tab.
 
 ### `send-reminders.mjs` — hourly WhatsApp reminder (SCHEDULED, cron-only)
 Cron `0 * * * *` declared **in-code** via `export const config = { schedule }` (not `netlify.toml`).

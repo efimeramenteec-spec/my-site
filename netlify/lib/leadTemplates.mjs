@@ -82,6 +82,22 @@ export const TEMPLATES = [
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// Fast read of the current Meta status of our templates (name → status/category).
+export async function listTemplates() {
+  const apiKey = process.env.WA_DUALHOOK_API_KEY
+  if (!apiKey) throw new Error('WA_DUALHOOK_API_KEY missing')
+  const names = TEMPLATES.map((t) => t.name)
+  const res = await fetch(`${TEMPLATES_URL}?fields=name,status,category,language&limit=200`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  })
+  const txt = await res.text()
+  if (!res.ok) return { status: res.status, body: txt.slice(0, 300) }
+  let json
+  try { json = JSON.parse(txt) } catch { return { status: res.status, body: txt.slice(0, 300) } }
+  const mine = (json.data || []).filter((t) => names.includes(t.name))
+  return { status: res.status, templates: mine }
+}
+
 // Submit all templates for Meta review. Idempotent-ish: Meta rejects a duplicate
 // name with a clear error, which we report rather than treat as fatal. Backs off
 // on Dualhook's 429 circuit breaker (retries each create up to 3x). Returns a

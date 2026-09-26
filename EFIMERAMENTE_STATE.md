@@ -45,6 +45,41 @@
 | Maria Gracia Villalba | mariamariavc8@gmail.com | ✅ yes |
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
+## 🔜 Lead funnel (#4 + #20) — SHIPPED 2026-09-26, behind `LEAD_BOT_LIVE=false` (NOT live yet)
+
+WhatsApp button-bot that turns ad leads into booked free calls. All 4 phases built + deployed.
+Spec: `~/Desktop/MD FILES - MISCELANEOUS/PERMANENT TO-DO.md` → "#4 + #20 Lead funnel — decided 26 Sep".
+
+**Files:** `netlify/lib/leadBot.mjs` (brain: classify sender, create/advance lead, button state machine,
+follow-up entry points), `netlify/lib/waSend.mjs` (Cloud-API session sends), `netlify/lib/booking.mjs`
+(the ONE slot+booking engine, now shared with `public-booking.mjs`), `netlify/lib/leadTemplates.mjs`
+(4 templates + submit + send), `netlify/functions/lead-followups.mjs` (*/15 cron), the wiring in
+`netlify/functions/whatsapp-cloud-webhook.mjs`, and the dashboard in `src/pages/MarketingFunnel.jsx` +
+`src/lib/funnel.js`. DB: `supabase/lead-funnel-0{1,2,3}-*.sql` (leads table, funnel_categorias,
+therapists.recibe_nuevos/funnel_caption/funnel_card_url).
+
+**Measurement is ALREADY ON** (independent of the flag): every non-patient/therapist/payer inbound
+creates a `leads` row with CTWA attribution. The bot only SENDS when `LEAD_BOT_LIVE=true`.
+
+**⛔ GO-LIVE GATE #1 — smb_message_echoes UNVERIFIED.** The manual-reply pause depends on Dualhook
+forwarding `smb_message_echoes`; there is no way to confirm this without a live test. The echo handler
+is deployed and logs `SMB ECHO forwarded by Dualhook` on any echo. **Before flipping the flag:** Nicolás
+sends one manual WhatsApp from the business number to any test number → check Netlify function logs for
+that marker. If it never appears, Dualhook doesn't forward echoes and the bot must NOT go live as-is
+(fallback: a per-lead "pausar bot" toggle in the Marketing Module).
+
+**Templates at Meta (submitted 2026-09-26 via `submit-lead-templates` fn):** `recordatorio_llamada`,
+`resultado_llamada` (the two named), plus `rebook_llamada` + `primera_sesion` (added — the no-show rebook
+and 48h nudge send after the 24h window closes, so they must be templates; flagged for Nicolás's review).
+Check status in Meta; the bot flow itself doesn't wait on them — only the follow-ups do.
+
+**Cards:** `therapists.funnel_card_url` is NULL for everyone — the bot falls back to a text header until
+the card image URLs are populated (Marketing → Configuración, or SQL).
+
+**Go-live test checklist (Nicolás):** message 9933 from a non-patient phone → walk 4 taps
+(Elegir terapeuta → categoría → tarjeta → horario) + 1 FAQ → book a real slot → cancel it. Plus the
+echo test above. Then set `LEAD_BOT_LIVE=true`.
+
 ## Completed Features
 - [x] **#19 saldo a favor — comprobante→lote + net-of-credit matching/reminders + package_anchor DROPPED
   (steps 2–7 of the finish plan)** (2026-09-25, Opus 4.8). Commits `5ee272e` (2–6) + `5566b0e` (7).
