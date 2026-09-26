@@ -46,6 +46,49 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **#19 Saldo a favor (credit lotes) LIVE + old 4-pack mechanism RETIRED + comprobante warning alert +
+  Sesiones search fix** (2026-09-26, Opus 4.8). Four things shipped this session.
+  - **Comprobante warning alert (spec #2 additions) — LIVE.** On every WITHHELD proof the auto-processor
+    now WhatsApps Nicolás once (template `comprobante_sin_identificar`, id `1595464335377117`, APPROVED).
+    New `sendDualhookComprobanteAlert({sender,amount,motivo})` in `netlify/lib/whatsapp.mjs` (recipient =
+    env `OWNER_WHATSAPP`, fallback `+593968029896`; Meta rejects empty vars so all 3 are coerced). Wired in
+    `netlify/lib/proofReconcile.mjs` `runProofAutomation`: on `withhold`, if `!proof.alerted_at` send + stamp
+    `alerted_at` (the THROTTLE — the every-10-min processor would re-alert forever otherwise); best-effort, a
+    failed send never crashes the batch and leaves `alerted_at` null to retry; dry runs show `would-alert`.
+    Reasons → Spanish `motivo` map (`unmatched`→"remitente no identificado", `amount_no_match`, `overpayment`,
+    `reused_reference`, `extraction_*`→"no se pudo leer la imagen", …). Additive column
+    `whatsapp_messages.alerted_at` applied (migration `add_whatsapp_alerted_at`, mirror
+    `supabase/whatsapp-messages-alerted-at.sql`). Burst on first live run was ≤2 (only 2 held proofs then).
+  - **#19 saldo a favor — LIVE.** Replaces the 4-session-package prepay. `saldo_lotes` table
+    (`amount / price_per_session / remaining`, FIFO, owner RLS + explicit service_role/authenticated GRANTs,
+    `payer_id` denormalized for future payer-group scoping; origin `package|overpayment|prepay|manual`).
+    Pure math in `netlify/lib/saldo.mjs` (`totalCredit`, `netOwed`, `isPackagePayment` [$140], `packageLote`
+    [$35/session], FIFO `consume` → `{applied,shortfall}`; node-unit-checked). **DB trigger
+    `consume_saldo_on_confirm`** (BEFORE INSERT/UPDATE on sessions): on confirmada + unpaid + billable, FIFO-draws
+    the patient's credit at the lote price, **full-coverage only** (package lotes are whole multiples so partials
+    never happen; if credit can't cover the whole session it stays unpaid for the reminder/comprobante flow),
+    sets pagado+paid_at. Fires from ALL write paths. **Verified in a rolled-back tx** (pays while credit covers,
+    leaves unpaid when exhausted, ignores llamadas — nothing persisted). Migration
+    `saldo_lotes_table_and_trigger`; mirror `supabase/saldo-lotes.sql`. **Backfill applied: 7 live-credit lotes,
+    $433** (Daniel $35, Emily $35, Isabel $70, Ramesvary $105, Samantha **$48 @ her special $24 rate**, Shyam
+    $105, Thomas $35 [now a menor]). Micaela dropped (balance $0, re-typed menor). Rate: $35 standard,
+    per-patient exceptions carried explicitly. Loose $39/$32 session pricing left as-is (Nicolás's existing
+    "mismatch → warning → fix tarifa → auto-pays next time" flow handles it).
+  - **Old 4-pack mechanism RETIRED.** The `package_anchor` checkbox ("primera sesión de un paquete de 4") +
+    the ★ star on anchor rows are GONE, superseded by saldo a favor. Removed: the drawer control +
+    schedule-time prepay (so packaged patients' sessions now come in unpaid and the trigger pays them on
+    confirm — leaving both would DOUBLE-COUNT), `PackageStar` in `views.jsx`, deleted `src/lib/packages.js`,
+    and `package_anchor` dropped from `queries.js` SESSION_SELECT/SESSION_COLUMNS + the getPatientsData select.
+    **DB column `sessions.package_anchor` left DORMANT** (nothing reads/writes it; it's the provenance of the
+    backfilled lotes) — a `DROP COLUMN` is a separate approved step, not done.
+  - **Sesiones → Lista search now matches BOTH names.** Was `nombre`+`apellido` only, so a menor/pareja couldn't
+    be found by the second person. Now uses `patientSearchText(s.patient)` (covers `nombre_2`/`apellido_2`).
+    Surfaced because Nicolás re-typed Micaela AND Thomas as menores this session.
+  - **DEFERRED (next):** (1) `proofReconcile`: $140 comprobante → package lote, matched-sender overpayment
+    surplus → `overpayment` lote, match against amount-net-of-credit + consume — only needed once odd-amount
+    (non-package) lotes exist; package lotes are clean multiples the trigger fully covers. (2) `paymentReminders`
+    net-of-credit (same trigger). (3) `DROP COLUMN sessions.package_anchor` (needs approval). No new-package
+    auto-creation until (1): record a new pack by adding a lote row or marking sessions paid manually.
 - [x] **Payment reminders + Comprobante auto-mark — BUILT & LIVE** (2026-09-24/25, Opus 4.8). Three-part
   billing automation; all live and hands-off (cloud crons, no laptop needed).
   - **WhatsApp templates** (WABA `1857507018469524`, submitted via the since-DELETED token-guarded
@@ -282,71 +325,7 @@
     inside an open 24h window, so reminders/proactive sends need a template. (2) then rewrite
     `deliverReminder` (`netlify/lib/whatsapp.mjs`) to POST Dualhook and **retire Twilio**. No new plan, no
     new token, no config change needed for sending itself.
-- [x] **Billing foundation — `payers` table + patient billing/diagnóstico columns**
-  (2026-09-22, Opus 4.8). Schema groundwork for issuing facturas to a billing entity that
-  isn't always the patient (minors, relatives paying). Migration `payers_and_patient_billing`
-  (mirror `supabase/payers-and-patient-billing.sql`).
-  - **NEW TABLE `payers`** — the entity an invoice is issued to: `nombre, apellido, cedula,
-    contifico_id, email, telefono, razon_social` (+ id/timestamps). `telefono` matters because
-    **comprobantes arrive from the payer's WhatsApp number.** RLS = **owner-only**
-    (`payers_owner` = `is_owner()`); therapists don't manage payers.
-  - **`patients.payer_id` → payers.id, NULLABLE.** NULL = patient pays for themselves (~95%).
-    4 payers seeded + linked, with the faked "(Name)" free-text surnames cleaned once linked:
-    **Laura Vásquez** (ced 1718240995001, contifico 1718240995) covers herself + **Raguel
-    Conforme** + **Emilie Conforme** (the +593999643019 insurance trio); **Germania Domínguez**
-    covers **Micaela Castro** (row cleaned "Micaela Castro"/"(Germania Dominguez)" → "Micaela"/
-    "Castro"); **Gabriela Páliz** covers **Thomas Quevedo** (surname set from the parents'
-    parenthetical); **Washington Andrade** covers **Valentina Andrade** (payer phone = Valentina's
-    +593992738962, per Nicolás). Raguel's "Conforme Vasquez" left as a real compound surname.
-  - **`patients.facturacion_obligatoria`** boolean default false — this patient REQUIRES an SRI
-    factura. Set true for exactly 10: Emiliano Caradonna, Laura Vásquez, Raguel Conforme, Emilie
-    Conforme, Sharian Narváez, Cinthya Pérez, Valentina Andrade, Andrés Gotta, Micaela Castro,
-    Thomas Quevedo (collisions resolved by first name vs Diego Narvaez / the 4 other Pérez / the
-    5 other Andrés / Micaela Mojarrango / Valentina Yanchaluiza). **⚠️ DO NOT confuse with
-    `facturacion_manual`** ("never auto-invoice") — different flag, opposite meaning, both coexist.
-  - **`patients.diagnostico_codigo` + `diagnostico_texto`** — both nullable, never required. UI
-    label explicitly names **CIE-10** so therapists know a clinical category is expected.
-  - **App wiring:** `PATIENT_SELECT` gains payer_id/facturacion_obligatoria/diagnostico_*;
-    `PATIENT_COLUMNS` gains diagnostico_codigo/texto only (payer_id + facturacion_obligatoria are
-    billing-scoped — set via DB/owner tooling, NOT writable through the patient form for now);
-    `SESSION_SELECT` embed gains `facturacion_obligatoria` so the Lista row can gate. **FACTURADA
-    toggle** (`views.jsx`) is now enabled ONLY when `patient.facturacion_obligatoria` (still off
-    for cancelled/llamada); disabled elsewhere with copy "No facturable". Pacientes → Configuración
-    form got the two CIE diagnóstico inputs. Build green.
-- [x] **Presencial 3-room cap — closed the `/reservar` hole + made it DB-authoritative**
-  (2026-09-17, Opus 4.8). **Incident:** 4 presencial sessions landed on the same 17:00 window
-  today (only 3 consultorios). Diagnosed live: the 4th (Cecília Saltos, Francisco, 17:00–18:00)
-  came in through the **public `/reservar`** self-booking page, which never checked the room cap
-  (the cap lived ONLY in the in-app drawer + `Sesiones#handleSubmit` — a known deferred gap).
-  Nicolás's edit-time suspicion wasn't the cause this time; it was a fresh public booking.
-  (Aside confirmed with Nicolás: the two "Cecília" patient rows sharing +593983561095 are NOT a
-  duplicate — mother sees Francisco, minor daughter sees Sophia; legit shared-number family, left
-  as-is.) **Fix, two layers:**
-  - **Layer A — public `/reservar`:** `public-booking.mjs` now counts non-cancelled presencial
-    sessions overlapping the requested window across ALL therapists and returns **`rooms_full` 409**
-    when 3 are taken (`CONSULTORIOS=3`, mirrors `conflicts.js`). `PublicBooking.jsx` shows a
-    dedicated notice ("…ya no tiene consultorio presencial disponible… o agéndala En línea") and
-    sends the user back to pick another slot. NOTE: modalidad is chosen on the LAST form step
-    (after slots), so slots can't pre-filter — the book-time 409 is the guard.
-  - **Layer B — DB trigger (the hard wall):** `enforce_presencial_room_cap`
-    (migration `presencial_room_cap_trigger`, mirror `supabase/presencial-room-cap-trigger.sql`)
-    is a `BEFORE INSERT OR UPDATE` trigger on `sessions` that rejects a 4th overlapping
-    non-cancelled presencial from ANY path (app, public, SQL, import, future code). Half-open
-    overlap (back-to-back OK); en línea/llamada/cancelled/no_show exempt; takes a per-day
-    `pg_advisory_xact_lock` so simultaneous bookings can't each see a free room. Raises
-    `ROOMS_FULL …`; `queries.js#friendlySessionError` maps it to the drawer copy for in-app edits.
-    **Verified in prod** (rolled-back test): 4th presencial @17:00 REJECTED; en línea @17:00 and
-    presencial in a free window both ALLOWED. **This means the incident already cannot recur even
-    before the front-end deploy** — the trigger blocks the insert regardless of client.
-  - Build green. To bulk-load legacy overlapping presencial, temporarily DISABLE the trigger
-    (noted in the .sql header).
-- [x] **WhatsApp Coexistence — inbound Cloud API webhook + Comprobantes payment-proof reading/OCR, Phase 1**
-  (2026-09-15/16) — moved to `CHANGELOG.md`. Dualhook BSP (WABA `1857507018469524`, PN `915558374975708`);
-  `whatsapp-cloud-webhook.mjs` (inbound → `whatsapp_messages`), `/comprobantes` owner page, `wa-proof-media.mjs`
-  (Dualhook two-hop image fetch), `extract-proof.mjs` (APIMart Opus 4.8 OCR, `stream:false`). Migrations
-  `whatsapp_messages_reconcile` + `whatsapp_messages_extraction`. Human-confirm mode LIVE; auto-mark+push
-  was the deferred NEXT. Read the archive + memory `whatsapp-coexistence-consolidation.md` for detail.
-> **Older completed work (2026-09-14 and earlier) lives in `CHANGELOG.md`.**
+> **Older completed work (2026-09-22 and earlier) lives in `CHANGELOG.md`.**
 > It is deliberately not loaded into session context. Read it on demand.
 
 ## Pending / Backlog
@@ -465,15 +444,16 @@ of truth; open items as of 2026-08-03:
       exposure** in git history. After cancel, optionally delete `TWILIO_*` Netlify env vars +
       `sendWhatsAppReminder`/`twilio-webhook.mjs` (the `REMINDERS_PROVIDER=twilio` rollback dies with
       the subscription — acceptable, Dualhook is proven).
-- [ ] **Billing automation — remaining pieces (surfaced 2026-09-25).** Reminders + comprobante auto-mark
-      are LIVE (see Completed Features); what's left:
+- [ ] **Billing automation — remaining pieces (surfaced 2026-09-25; updated 09-26).** Reminders, comprobante
+      auto-mark, comprobante warning alert, and #19 saldo a favor are all LIVE (see Completed Features); left:
       - **"En mora" Finanzas card + daily `resumen_en_mora` WhatsApp to Nicolás** — both wait on the
         `resumen_en_mora` template APPROVING at Meta (id `4657291211223040`, PENDING as of 09-25).
-      - **Comprobante warning alert to Nicolás** on held proofs — template `comprobante_sin_identificar`
-        is **already APPROVED** (`1595464335377117`); just needs the send wired into `proofReconcile.mjs`
-        (fire on each `withhold`, throttled). Not blocked on Meta.
-      - **Saldo a favor (#19)** — until built, overpayments HOLD in Comprobantes instead of auto-crediting;
-        also blocks amount-net-of-saldo in the reminder amount.
+      - **#19 remaining wiring:** `proofReconcile` overpayment→lote / $140→package lote / match-net-of-credit +
+        consume; `paymentReminders` net-of-credit. Only bites once odd-amount lotes exist — package lotes are
+        whole multiples the confirm-trigger already fully covers. Until (1), a new package is recorded by adding
+        a `saldo_lotes` row or marking sessions paid by hand.
+      - **`DROP COLUMN sessions.package_anchor`** — dormant since the 4-pack retire (09-26); drop is destructive,
+        needs Nicolás's yes. It's the provenance of the backfilled lotes.
       - **Camila Mena rate discrepancy:** session recorded at $39 but her mom (Karina Almache) paid $35 —
         sitting HELD in Comprobantes. Nicolás to reconcile the tarifa vs. the sent amount.
 - [ ] **Dashboard "por cobrar" data hygiene:** the 72 unpaid past sessions include old seed

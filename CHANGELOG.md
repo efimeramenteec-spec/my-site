@@ -5,6 +5,71 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+- [x] **Billing foundation — `payers` table + patient billing/diagnóstico columns**
+  (2026-09-22, Opus 4.8). Schema groundwork for issuing facturas to a billing entity that
+  isn't always the patient (minors, relatives paying). Migration `payers_and_patient_billing`
+  (mirror `supabase/payers-and-patient-billing.sql`).
+  - **NEW TABLE `payers`** — the entity an invoice is issued to: `nombre, apellido, cedula,
+    contifico_id, email, telefono, razon_social` (+ id/timestamps). `telefono` matters because
+    **comprobantes arrive from the payer's WhatsApp number.** RLS = **owner-only**
+    (`payers_owner` = `is_owner()`); therapists don't manage payers.
+  - **`patients.payer_id` → payers.id, NULLABLE.** NULL = patient pays for themselves (~95%).
+    4 payers seeded + linked, with the faked "(Name)" free-text surnames cleaned once linked:
+    **Laura Vásquez** (ced 1718240995001, contifico 1718240995) covers herself + **Raguel
+    Conforme** + **Emilie Conforme** (the +593999643019 insurance trio); **Germania Domínguez**
+    covers **Micaela Castro** (row cleaned "Micaela Castro"/"(Germania Dominguez)" → "Micaela"/
+    "Castro"); **Gabriela Páliz** covers **Thomas Quevedo** (surname set from the parents'
+    parenthetical); **Washington Andrade** covers **Valentina Andrade** (payer phone = Valentina's
+    +593992738962, per Nicolás). Raguel's "Conforme Vasquez" left as a real compound surname.
+  - **`patients.facturacion_obligatoria`** boolean default false — this patient REQUIRES an SRI
+    factura. Set true for exactly 10: Emiliano Caradonna, Laura Vásquez, Raguel Conforme, Emilie
+    Conforme, Sharian Narváez, Cinthya Pérez, Valentina Andrade, Andrés Gotta, Micaela Castro,
+    Thomas Quevedo (collisions resolved by first name vs Diego Narvaez / the 4 other Pérez / the
+    5 other Andrés / Micaela Mojarrango / Valentina Yanchaluiza). **⚠️ DO NOT confuse with
+    `facturacion_manual`** ("never auto-invoice") — different flag, opposite meaning, both coexist.
+  - **`patients.diagnostico_codigo` + `diagnostico_texto`** — both nullable, never required. UI
+    label explicitly names **CIE-10** so therapists know a clinical category is expected.
+  - **App wiring:** `PATIENT_SELECT` gains payer_id/facturacion_obligatoria/diagnostico_*;
+    `PATIENT_COLUMNS` gains diagnostico_codigo/texto only (payer_id + facturacion_obligatoria are
+    billing-scoped — set via DB/owner tooling, NOT writable through the patient form for now);
+    `SESSION_SELECT` embed gains `facturacion_obligatoria` so the Lista row can gate. **FACTURADA
+    toggle** (`views.jsx`) is now enabled ONLY when `patient.facturacion_obligatoria` (still off
+    for cancelled/llamada); disabled elsewhere with copy "No facturable". Pacientes → Configuración
+    form got the two CIE diagnóstico inputs. Build green.
+- [x] **Presencial 3-room cap — closed the `/reservar` hole + made it DB-authoritative**
+  (2026-09-17, Opus 4.8). **Incident:** 4 presencial sessions landed on the same 17:00 window
+  today (only 3 consultorios). Diagnosed live: the 4th (Cecília Saltos, Francisco, 17:00–18:00)
+  came in through the **public `/reservar`** self-booking page, which never checked the room cap
+  (the cap lived ONLY in the in-app drawer + `Sesiones#handleSubmit` — a known deferred gap).
+  Nicolás's edit-time suspicion wasn't the cause this time; it was a fresh public booking.
+  (Aside confirmed with Nicolás: the two "Cecília" patient rows sharing +593983561095 are NOT a
+  duplicate — mother sees Francisco, minor daughter sees Sophia; legit shared-number family, left
+  as-is.) **Fix, two layers:**
+  - **Layer A — public `/reservar`:** `public-booking.mjs` now counts non-cancelled presencial
+    sessions overlapping the requested window across ALL therapists and returns **`rooms_full` 409**
+    when 3 are taken (`CONSULTORIOS=3`, mirrors `conflicts.js`). `PublicBooking.jsx` shows a
+    dedicated notice ("…ya no tiene consultorio presencial disponible… o agéndala En línea") and
+    sends the user back to pick another slot. NOTE: modalidad is chosen on the LAST form step
+    (after slots), so slots can't pre-filter — the book-time 409 is the guard.
+  - **Layer B — DB trigger (the hard wall):** `enforce_presencial_room_cap`
+    (migration `presencial_room_cap_trigger`, mirror `supabase/presencial-room-cap-trigger.sql`)
+    is a `BEFORE INSERT OR UPDATE` trigger on `sessions` that rejects a 4th overlapping
+    non-cancelled presencial from ANY path (app, public, SQL, import, future code). Half-open
+    overlap (back-to-back OK); en línea/llamada/cancelled/no_show exempt; takes a per-day
+    `pg_advisory_xact_lock` so simultaneous bookings can't each see a free room. Raises
+    `ROOMS_FULL …`; `queries.js#friendlySessionError` maps it to the drawer copy for in-app edits.
+    **Verified in prod** (rolled-back test): 4th presencial @17:00 REJECTED; en línea @17:00 and
+    presencial in a free window both ALLOWED. **This means the incident already cannot recur even
+    before the front-end deploy** — the trigger blocks the insert regardless of client.
+  - Build green. To bulk-load legacy overlapping presencial, temporarily DISABLE the trigger
+    (noted in the .sql header).
+- [x] **WhatsApp Coexistence — inbound Cloud API webhook + Comprobantes payment-proof reading/OCR, Phase 1**
+  (2026-09-15/16). Dualhook BSP (WABA `1857507018469524`, PN `915558374975708`);
+  `whatsapp-cloud-webhook.mjs` (inbound → `whatsapp_messages`), `/comprobantes` owner page, `wa-proof-media.mjs`
+  (Dualhook two-hop image fetch), `extract-proof.mjs` (APIMart Opus 4.8 OCR, `stream:false`). Migrations
+  `whatsapp_messages_reconcile` + `whatsapp_messages_extraction`. Human-confirm mode LIVE; auto-mark+push
+  was the deferred NEXT. See memory `whatsapp-coexistence-consolidation.md` for detail.
+
 - [x] **WhatsApp Coexistence — inbound Cloud API webhook (payment-proof reading), Phase 1**
   (2026-09-15, Opus 4.8, commit `90080e1`, deployed + VERIFIED LIVE). Goal: collapse the practice's
   **two** WhatsApp numbers into **one** and auto-read patient bank-transfer screenshots. The central
