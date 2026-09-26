@@ -87,7 +87,7 @@ export async function listTemplates() {
   const apiKey = process.env.WA_DUALHOOK_API_KEY
   if (!apiKey) throw new Error('WA_DUALHOOK_API_KEY missing')
   const names = TEMPLATES.map((t) => t.name)
-  const res = await fetch(`${TEMPLATES_URL}?fields=name,status,category,language&limit=200`, {
+  const res = await fetch(`${TEMPLATES_URL}?fields=name,status,category,language&limit=100`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   })
   const txt = await res.text()

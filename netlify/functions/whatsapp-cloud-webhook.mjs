@@ -176,6 +176,15 @@ export default async (req) => {
       }
 
       for (const msg of messages) {
+        // Meta retry dedupe: if the bot/estado response is slow, Meta redelivers
+        // the SAME message id. If it's already logged, it was processed on the
+        // first delivery — skip all side-effects (estado flip, bot sends) so a
+        // retry can't double-send. Logging stays idempotent regardless.
+        if (msg.id) {
+          const { data: seen } = await supabase
+            .from('whatsapp_messages').select('id').eq('twilio_sid', msg.id).limit(1)
+          if (seen && seen.length) { console.log(`[wa-cloud] dup ${msg.id} — skip`); continue }
+        }
         const patient = matchPatient(msg.from)
         rows.push({
           patient_id: patient?.id || null,
