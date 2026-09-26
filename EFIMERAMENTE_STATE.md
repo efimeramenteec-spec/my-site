@@ -45,7 +45,9 @@
 | Maria Gracia Villalba | mariamariavc8@gmail.com | ✅ yes |
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
-## 🔜 Lead funnel (#4 + #20) — SHIPPED 2026-09-26, behind `LEAD_BOT_LIVE=false` (NOT live yet)
+## ✅ Lead funnel (#4 + #20) — LIVE for real leads since 2026-09-26 (`LEAD_BOT_LIVE=true`)
+
+**Rollback:** set Netlify env `LEAD_BOT_LIVE=false` + redeploy (empty commit) → bot goes silent, measurement continues.
 
 WhatsApp button-bot that turns ad leads into booked free calls. All 4 phases built + deployed.
 Spec: `~/Desktop/MD FILES - MISCELANEOUS/PERMANENT TO-DO.md` → "#4 + #20 Lead funnel — decided 26 Sep".
@@ -61,12 +63,10 @@ therapists.recibe_nuevos/funnel_caption/funnel_card_url).
 **Measurement is ALREADY ON** (independent of the flag): every non-patient/therapist/payer inbound
 creates a `leads` row with CTWA attribution. The bot only SENDS when `LEAD_BOT_LIVE=true`.
 
-**⛔ GO-LIVE GATE #1 — smb_message_echoes UNVERIFIED.** The manual-reply pause depends on Dualhook
-forwarding `smb_message_echoes`; there is no way to confirm this without a live test. The echo handler
-is deployed and logs `SMB ECHO forwarded by Dualhook` on any echo. **Before flipping the flag:** Nicolás
-sends one manual WhatsApp from the business number to any test number → check Netlify function logs for
-that marker. If it never appears, Dualhook doesn't forward echoes and the bot must NOT go live as-is
-(fallback: a per-lead "pausar bot" toggle in the Marketing Module).
+**✅ GO-LIVE GATE CLEARED — smb_message_echoes VERIFIED (2026-09-26).** Nicolás manually messaged a lead
+from the business app; `handleEchoes` flipped that lead's `bot_paused` to true (observed in the DB). So the
+manual-reply pause works: hand-reply in a lead's chat → bot goes silent for that lead forever. Full flow
+also tested end-to-end (Msg 1 → cards w/ photos → booking + Calendar sync) + FAQ path confirmed working.
 
 **Templates at Meta (submitted 2026-09-26 via the `submit-lead-templates` fn, guard env `LEAD_TOOLS_TOKEN`):**
 - `recordatorio_llamada` — **APPROVED** (call reminder to lead; buttons Confirmo / Cambiar hora)
