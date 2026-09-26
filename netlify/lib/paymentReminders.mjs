@@ -23,6 +23,7 @@
 import { sendDualhookPaymentReminder, normalizePhone } from './whatsapp.mjs'
 
 const GYE_OFFSET_H = -5 // Ecuador, no DST
+const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
   'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 
@@ -119,21 +120,40 @@ export async function runPaymentReminders(supabase, { now = new Date(), live = f
     byPatient.get(s.patient_id).push(s)
   }
 
+  // Saldo a favor (#19): the amount asked is owed NET of the patient's open credit
+  // (spec #6 / #8). If credit covers everything, don't remind at all.
+  const creditByPatient = new Map()
+  const pids = [...byPatient.keys()]
+  if (pids.length) {
+    const { data: lotes, error: lErr } = await supabase
+      .from('saldo_lotes').select('patient_id, remaining').in('patient_id', pids).gt('remaining', 0)
+    if (lErr) throw new Error('lotes query: ' + lErr.message)
+    for (const l of lotes || []) {
+      creditByPatient.set(l.patient_id, round2((creditByPatient.get(l.patient_id) || 0) + Number(l.remaining || 0)))
+    }
+  }
+
   const report = { today, cutoff, live: !!live, dryRun: !!dryRun, sent: 0, skipped: 0, failed: 0, patients: [] }
   for (const [pid, rows] of byPatient) {
     const p = rows[0].patient || {}
     const isMenor = p.tipo_paciente === 'menor'
     const name = firstName(p.nombre) // tutor for a menor, the patient otherwise
-    const monto = fmtMonto(rows.reduce((a, r) => a + Number(r.monto || 0), 0))
+    const gross = round2(rows.reduce((a, r) => a + Number(r.monto || 0), 0))
+    const credit = creditByPatient.get(pid) || 0
+    const net = round2(Math.max(0, gross - credit))
+    const monto = fmtMonto(net)
     const fechas = rows.map((r) => r.fecha)
     const sesionesText = isMenor ? buildMinorSesionesText(p.nombre_2, fechas) : buildSesionesText(fechas)
     const toE164 = normalizePhone(p.telefono)
     const entry = {
       patient_id: pid, name, apellido: p.apellido || null,
       tipo: p.tipo_paciente || null, minor: isMenor ? firstName(p.nombre_2) : null,
-      phone: toE164, rawPhone: p.telefono || null, monto, sesionesText,
+      phone: toE164, rawPhone: p.telefono || null, gross, credit, monto, sesionesText,
       sessionIds: rows.map((r) => r.id),
     }
+    // Fully covered by saldo a favor → nothing owed, don't remind (and don't stamp, so
+    // it isn't treated as "reminded and unpaid" = en mora). The confirm-trigger pays it.
+    if (net <= 0) { entry.result = 'skipped_covered_by_credit'; report.skipped++; report.patients.push(entry); continue }
     if (!toE164) { entry.result = 'skipped_no_phone'; report.skipped++; report.patients.push(entry); continue }
     if (dryRun || !live) { entry.result = 'dry'; report.patients.push(entry); continue }
     try {
