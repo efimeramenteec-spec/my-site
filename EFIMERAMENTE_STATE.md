@@ -68,10 +68,16 @@ sends one manual WhatsApp from the business number to any test number → check 
 that marker. If it never appears, Dualhook doesn't forward echoes and the bot must NOT go live as-is
 (fallback: a per-lead "pausar bot" toggle in the Marketing Module).
 
-**Templates at Meta (submitted 2026-09-26 via `submit-lead-templates` fn):** `recordatorio_llamada`,
-`resultado_llamada` (the two named), plus `rebook_llamada` + `primera_sesion` (added — the no-show rebook
-and 48h nudge send after the 24h window closes, so they must be templates; flagged for Nicolás's review).
-Check status in Meta; the bot flow itself doesn't wait on them — only the follow-ups do.
+**Templates at Meta (submitted 2026-09-26 via the `submit-lead-templates` fn, guard env `LEAD_TOOLS_TOKEN`):**
+- `recordatorio_llamada` — **APPROVED** (call reminder to lead; buttons Confirmo / Cambiar hora)
+- `resultado_llamada` — **PENDING** (call result to therapist; buttons Se hizo / No contestó)
+- `primera_sesion` — **PENDING** (48h first-session nudge; button Sí, quiero agendar) [added]
+- `rebook_llamada` — **PENDING, reclassified MARKETING by Meta** (no-show rebook; button Sí, reagendar) [added]
+
+`rebook_llamada`+`primera_sesion` were added beyond the two named because their sends land after the 24h
+window closes (must be templates) — review the wording. Meta rule learned: **a template body can't end in a
+variable, and a trailing emoji doesn't count as text** (bit `resultado_llamada`/`primera_sesion` — fixed with
+trailing words). The bot flow itself doesn't wait on any template; only the follow-ups do.
 
 **Cards:** `therapists.funnel_card_url` is NULL for everyone — the bot falls back to a text header until
 the card image URLs are populated (Marketing → Configuración, or SQL).
@@ -81,6 +87,13 @@ the card image URLs are populated (Marketing → Configuración, or SQL).
 echo test above. Then set `LEAD_BOT_LIVE=true`.
 
 ## Completed Features
+- [x] **#4 + #20 Lead funnel WhatsApp bot — 4 phases SHIPPED, behind `LEAD_BOT_LIVE=false`** (2026-09-26,
+  Opus 4.8). Commits `2eb9c8f` (A) `9e8d60e` (B) `a74e3ae` (C) `d9d7448` (D) + fixes. Full record + go-live
+  gate in the "🔜 Lead funnel" section above. New: `netlify/lib/{leadBot,waSend,booking,leadTemplates}.mjs`,
+  `netlify/functions/{lead-followups,submit-lead-templates}.mjs`, `src/pages/MarketingFunnel.jsx`,
+  `src/lib/funnel.js`; migrations `lead_funnel_0{1,2,3}_*`. `public-booking.mjs` now delegates to the shared
+  `booking.mjs` engine. Webhook retry-dedupe added. Templates at Meta: `recordatorio_llamada` APPROVED, the
+  other 3 PENDING. **Gate before go-live: verify `smb_message_echoes` forwarding (one manual-reply test).**
 - [x] **#19 saldo a favor — comprobante→lote + net-of-credit matching/reminders + package_anchor DROPPED
   (steps 2–7 of the finish plan)** (2026-09-25, Opus 4.8). Commits `5ee272e` (2–6) + `5566b0e` (7).
   Step 1 (verify the 7 backfilled lotes, $433) re-confirmed with Nicolás — correct; the only non-$35
@@ -314,31 +327,6 @@ echo test above. Then set `LEAD_BOT_LIVE=true`.
     (commit `85dde30`). **NEVER `git add -A` in this repo** — stray `.bak`/local-settings files carry
     secrets. Content SID remains in public git history (commits `b33e98a`/`eaeec71`/`abd6f28`); low
     severity (identifier, not a credential) and **mooted by cancelling Twilio** (Nicolás's call 09-23).
-- [x] **Appointment reminders CUT OVER from Twilio → Dualhook (Cloud API) — full loop verified**
-  (2026-09-22, Opus 4.8). Retires Twilio for the 24h appointment reminder. **Both halves moved
-  together** (outbound send + inbound Confirmo/Cancelar reply).
-  - **Outbound:** `deliverReminder` (`netlify/lib/whatsapp.mjs`) now POSTs the approved template
-    `recordatorio_cita` to **`POST https://api.dualhook.com/v25.0/915558374975708/messages`**
-    (`type:'template'`, `language.code:'es'`, 3 body params `{{1}}`=nombre `{{2}}`=fecha (día + mes en
-    español) `{{3}}`=hora `HH:MM`), Bearer `WA_DUALHOOK_API_KEY`. Signature of `deliverReminder`
-    unchanged, so `send-reminders.mjs` (cron `0 * * * *`) and the `?test_session_id` path were **not
-    modified**. `.neq('tipo','llamada')` exclusion untouched — llamadas still get NO reminder.
-  - **Inbound:** Confirmo/Cancelar replies now arrive at **`whatsapp-cloud-webhook.mjs`** (Dualhook's
-    Meta webhook override), NOT `twilio-webhook.mjs`. New shared `applyInboundReplyEstado` flips the
-    patient's soonest reminded `programada` session, soft-cancels the Calendar event on cancel, and
-    pushes the therapist — mirroring the old Twilio behaviour. Handles a quick-reply **button tap**
-    (Cloud API `type:'button'` / `interactive`) AND a **typed** "Confirmo"/"Cancelar" (`type:'text'`),
-    accent/case-insensitive (`resolveReplyEstado`).
-  - **Provider switch / ROLLBACK:** `REMINDERS_PROVIDER` env (default `dualhook`). Set it to `twilio`
-    to instantly fall back to the intact Twilio path — **one env-var change, no deploy, no code change**.
-    Twilio code (`sendWhatsAppReminder` + `twilio-webhook.mjs`) is left fully intact but dormant. NOTE:
-    the two halves must match — a Twilio rollback also means Confirmo/Cancelar replies route back to
-    `twilio-webhook.mjs` (the Twilio number's inbound webhook), which still works.
-  - **Verified end-to-end** (real button taps → estado flips; real inbound shape `type:'button'`,
-    `button:{text,payload}`; typed `type:'text'` also handled). Further verified 2026-09-23 (see entry
-    above). Kill-switch `REMINDERS_LIVE` restored to `true`; live reminders run via Dualhook.
-  - **Twilio can be cancelled as a paid subscription** once comfortable (keep env/creds for the one-var
-    rollback first). Pre-existing **"Nicolas QA-TEST"** row (created 2026-06-30) left untouched.
 > **Older completed work (2026-09-22 and earlier) lives in `CHANGELOG.md`.**
 > It is deliberately not loaded into session context. Read it on demand.
 

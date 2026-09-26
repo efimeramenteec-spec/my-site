@@ -5,6 +5,32 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+- [x] **Appointment reminders CUT OVER from Twilio → Dualhook (Cloud API) — full loop verified**
+  (2026-09-22, Opus 4.8). Retires Twilio for the 24h appointment reminder. **Both halves moved
+  together** (outbound send + inbound Confirmo/Cancelar reply).
+  - **Outbound:** `deliverReminder` (`netlify/lib/whatsapp.mjs`) now POSTs the approved template
+    `recordatorio_cita` to **`POST https://api.dualhook.com/v25.0/915558374975708/messages`**
+    (`type:'template'`, `language.code:'es'`, 3 body params `{{1}}`=nombre `{{2}}`=fecha (día + mes en
+    español) `{{3}}`=hora `HH:MM`), Bearer `WA_DUALHOOK_API_KEY`. Signature of `deliverReminder`
+    unchanged, so `send-reminders.mjs` (cron `0 * * * *`) and the `?test_session_id` path were **not
+    modified**. `.neq('tipo','llamada')` exclusion untouched — llamadas still get NO reminder.
+  - **Inbound:** Confirmo/Cancelar replies now arrive at **`whatsapp-cloud-webhook.mjs`** (Dualhook's
+    Meta webhook override), NOT `twilio-webhook.mjs`. New shared `applyInboundReplyEstado` flips the
+    patient's soonest reminded `programada` session, soft-cancels the Calendar event on cancel, and
+    pushes the therapist — mirroring the old Twilio behaviour. Handles a quick-reply **button tap**
+    (Cloud API `type:'button'` / `interactive`) AND a **typed** "Confirmo"/"Cancelar" (`type:'text'`),
+    accent/case-insensitive (`resolveReplyEstado`).
+  - **Provider switch / ROLLBACK:** `REMINDERS_PROVIDER` env (default `dualhook`). Set it to `twilio`
+    to instantly fall back to the intact Twilio path — **one env-var change, no deploy, no code change**.
+    Twilio code (`sendWhatsAppReminder` + `twilio-webhook.mjs`) is left fully intact but dormant. NOTE:
+    the two halves must match — a Twilio rollback also means Confirmo/Cancelar replies route back to
+    `twilio-webhook.mjs` (the Twilio number's inbound webhook), which still works.
+  - **Verified end-to-end** (real button taps → estado flips; real inbound shape `type:'button'`,
+    `button:{text,payload}`; typed `type:'text'` also handled). Further verified 2026-09-23 (see entry
+    above). Kill-switch `REMINDERS_LIVE` restored to `true`; live reminders run via Dualhook.
+  - **Twilio can be cancelled as a paid subscription** once comfortable (keep env/creds for the one-var
+    rollback first). Pre-existing **"Nicolas QA-TEST"** row (created 2026-06-30) left untouched.
+
 - [x] **WhatsApp reminder templates created + submitted to Meta on WABA `1857507018469524`**
   (2026-09-22, Opus 4.8). The template gate from the DualHook send-scope investigation is now
   cleared. Two **UTILITY / language `es`** templates submitted through the Dualhook Cloud-API proxy
