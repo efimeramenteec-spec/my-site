@@ -46,6 +46,36 @@
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
 ## Completed Features
+- [x] **#19 saldo a favor — comprobante→lote + net-of-credit matching/reminders + package_anchor DROPPED
+  (steps 2–7 of the finish plan)** (2026-09-25, Opus 4.8). Commits `5ee272e` (2–6) + `5566b0e` (7).
+  Step 1 (verify the 7 backfilled lotes, $433) re-confirmed with Nicolás — correct; the only non-$35
+  component is Samantha Aldaz's special $24 rate ($48 = 2×$24), everything else is 11×$35.
+  - **proofReconcile (`netlify/lib/proofReconcile.mjs`) now decides against the patient's saldo pool.**
+    `decideAutoReconcile(proof, ex, unpaid, ctx)` gained `ctx = {credit, tarifa, payerId}` and returns a
+    richer plan (`mark` | `lote` | `withhold`). Rules: **$140 → package lote** ($35/session) then settles
+    whatever the pooled credit now fully covers; **overpayment from a matched sender → surplus banked as a
+    lote at tarifa** (existing credit drawn for the rest); **no-debt payment → prepay lote**; **match vs
+    amount owed NET of credit + consume credit on match** ($10 credit + $40 session → $30 exact);
+    **underpayment stays a warning** (never partial credit). New apply path: `fifoConsumeLotes` +
+    `insertLote` + `applyPlan` (insert-then-consume so a package lote is used last and an overpayment
+    surplus is never drawn). `report` gained a `lotes` counter + per-item lote/credit fields.
+  - **Same-day matching bug fixed:** the matcher used `fecha < today`, missing a session confirmed & paid
+    the SAME day (real case: Thais Cardoso's $39 for today's session would have mis-banked as prepay
+    credit). Now `<= today`.
+  - **paymentReminders (`netlify/lib/paymentReminders.mjs`):** amount asked = owed **net of credit**;
+    fully-covered patients are skipped (`skipped_covered_by_credit`) and NOT stamped, so they don't
+    become "en mora". Entry now carries `gross`/`credit`.
+  - **Step 7 — `sessions.package_anchor` DROPPED** (migration `drop_sessions_package_anchor`, mirror
+    `supabase/drop-sessions-package-anchor.sql`). Dormant since bd31c6a; provenance of the 7 lotes lives
+    in `saldo_lotes.source_session_id` + note. Approved by Nicolás in chat.
+  - **⚠️ Pool-based semantics (documented, not a bug):** both the confirm trigger AND proofReconcile settle
+    draw the session's **`monto`** from total remaining credit; `price_per_session` is nominal accounting,
+    not a per-session cap. So a $140 pool covers ~$140 of sessions at their real monto — exactly 4 sessions
+    only when tarifa == $35. For $39-tarifa package buyers (Emily, Ramesvary) a $140 pack covers ~3.5
+    sessions, not 4. If Nicolás wants a package to always cover 4 sessions regardless of tarifa, the trigger
+    + settle must consume `price_per_session` instead of `monto` — a deliberate future change, not shipped.
+  - **Verified:** 15 pure-decision unit assertions (all pass) + dry runs of both processors against the live
+    DB (nothing written; Thais's $39 now marks today's session; reminders query + lotes join clean).
 - [x] **#19 Saldo a favor (credit lotes) LIVE + old 4-pack mechanism RETIRED + comprobante warning alert +
   Sesiones search fix** (2026-09-26, Opus 4.8). Four things shipped this session.
   - **Comprobante warning alert (spec #2 additions) — LIVE.** On every WITHHELD proof the auto-processor
@@ -448,12 +478,15 @@ of truth; open items as of 2026-08-03:
       auto-mark, comprobante warning alert, and #19 saldo a favor are all LIVE (see Completed Features); left:
       - **"En mora" Finanzas card + daily `resumen_en_mora` WhatsApp to Nicolás** — both wait on the
         `resumen_en_mora` template APPROVING at Meta (id `4657291211223040`, PENDING as of 09-25).
-      - **#19 remaining wiring:** `proofReconcile` overpayment→lote / $140→package lote / match-net-of-credit +
-        consume; `paymentReminders` net-of-credit. Only bites once odd-amount lotes exist — package lotes are
-        whole multiples the confirm-trigger already fully covers. Until (1), a new package is recorded by adding
-        a `saldo_lotes` row or marking sessions paid by hand.
-      - **`DROP COLUMN sessions.package_anchor`** — dormant since the 4-pack retire (09-26); drop is destructive,
-        needs Nicolás's yes. It's the provenance of the backfilled lotes.
+      - ~~**#19 remaining wiring**~~ — ✅ **DONE 2026-09-25** (commit `5ee272e`): proofReconcile does
+        $140→package lote / overpayment→surplus lote / no-debt→prepay lote / match-net-of-credit + consume;
+        paymentReminders asks net-of-credit. A new package is now recorded automatically from a $140
+        comprobante (no more manual `saldo_lotes` row). See Completed Features.
+      - ~~**`DROP COLUMN sessions.package_anchor`**~~ — ✅ **DONE 2026-09-25** (commit `5566b0e`, migration
+        `drop_sessions_package_anchor`).
+      - **Possible future tweak (not shipped):** package/settle consumption is POOL-based (draws session
+        `monto`), so a $140 pack covers 4 sessions only at $35 tarifa. Switch trigger+settle to consume
+        `price_per_session` if a pack should always = 4 sessions regardless of tarifa. Decide when it matters.
       - **Camila Mena rate discrepancy:** session recorded at $39 but her mom (Karina Almache) paid $35 —
         sitting HELD in Comprobantes. Nicolás to reconcile the tarifa vs. the sent amount.
 - [ ] **Dashboard "por cobrar" data hygiene:** the 72 unpaid past sessions include old seed
