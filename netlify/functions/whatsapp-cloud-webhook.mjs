@@ -27,6 +27,7 @@
 import crypto from 'crypto'
 import { getSupabaseAdmin, normalizePhone, resolveReplyEstado, applyInboundReplyEstado } from '../lib/whatsapp.mjs'
 import { notifyTherapist } from '../lib/push.mjs'
+import { isTherapistOrPayer, recordLead, handleEchoes } from '../lib/leadBot.mjs'
 
 const text = (body, status = 200) => new Response(body, { status, headers: { 'Content-Type': 'text/plain' } })
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
@@ -122,6 +123,18 @@ export default async (req) => {
     for (const change of entry?.changes || []) {
       const value = change?.value
 
+      // ── smb_message_echoes (Coexistence) ─────────────────────────────────────
+      // Echoes of messages sent MANUALLY from the business WhatsApp app (Nicolás
+      // typing, not an API send). For a lead this is the hard pause signal — the
+      // bot goes silent for that lead forever. Also the litmus test that Dualhook
+      // forwards echoes at all (each one logs a distinctive marker). These arrive
+      // WITHOUT a `messages` array, so handle + continue.
+      if (Array.isArray(value?.message_echoes) && value.message_echoes.length) {
+        try { await handleEchoes(supabase, value) }
+        catch (e) { console.warn('[wa-cloud] echo handling failed (non-blocking):', e.message) }
+        continue
+      }
+
       // ── Delivery-status events (sent/delivered/read/failed) ──────────────────
       // Meta pushes these for every message WE send (e.g. the reminder template).
       // A Dualhook 200 only means "accepted" — the real proof a patient got the
@@ -185,6 +198,20 @@ export default async (req) => {
             await applyInboundReplyEstado(supabase, msg.from, estado, { notifyTherapist })
           } catch (e) {
             console.warn('[wa-cloud] estado flip failed (non-blocking):', e.message)
+          }
+        }
+
+        // ── Lead funnel (#4 + #20) ──────────────────────────────────────────
+        // A message from a phone that isn't a patient/therapist/payer is a lead.
+        // Record it (measurement is always on, regardless of LEAD_BOT_LIVE). The
+        // bot's replies + stage advancement (Phase B) hang off this same point.
+        if (!patient) {
+          try {
+            if (!(await isTherapistOrPayer(supabase, msg.from))) {
+              await recordLead(supabase, { msg, contact: value.contacts?.[0] || null })
+            }
+          } catch (e) {
+            console.warn('[wa-cloud] lead record failed (non-blocking):', e.message)
           }
         }
       }
