@@ -86,6 +86,22 @@ the card image URLs are populated (Marketing → Configuración, or SQL).
 (Elegir terapeuta → categoría → tarjeta → horario) + 1 FAQ → book a real slot → cancel it. Plus the
 echo test above. Then set `LEAD_BOT_LIVE=true`.
 
+**TEST MODE (live now):** env `LEAD_BOT_TEST_PHONES` (last-9 match, comma-sep) makes the bot answer ONLY
+those numbers while real leads stay dark. Currently `593968029896` (Nicolás). `botAllowedForPhone` in
+leadBot.mjs gates runBot + lead-followups per-lead. Remove the number / clear the env when going fully live.
+
+**Tested end-to-end 2026-09-26 (Nicolás, test mode):** Hola → Msg 1 → Elegir terapeuta → categoría
+(no_seguro) → cards WITH PHOTOS → Elegir a Ma. Gracia → real slot → booking + Google Calendar sync +
+es_lead/fuente correct. Card images live at `/cards/*.jpg`; `therapists.funnel_card_url` populated.
+**BUG FOUND & FIXED (commit 25ba446):** the messages-branch patient cache select omitted `es_lead`, so
+after booking `patient.es_lead` was undefined → `(!patient || patient.es_lead)` falsy → runBot skipped
+for ALL post-booking messages. Now includes es_lead; verified runBot runs post-booking.
+**Next-session polish (minor, non-blocking):** free-text classify returned null for "cuánto cuesta"
+(likely the `claude-haiku-4-5` model id on APIMart — check/adjust `classifyFreeText` in leadBot.mjs); it
+falls back gracefully (re-shows menu). FAQ button path (showFaqList) is unblocked by the es_lead fix.
+WhatsApp reply buttons are single-use (grey out after one tap) — returning leads must send free text to
+get fresh buttons; that's by design (classifier → re-show menu).
+
 ## Completed Features
 - [x] **#4 + #20 Lead funnel WhatsApp bot — 4 phases SHIPPED, behind `LEAD_BOT_LIVE=false`** (2026-09-26,
   Opus 4.8). Commits `2eb9c8f` (A) `9e8d60e` (B) `a74e3ae` (C) `d9d7448` (D) + fixes. Full record + go-live
