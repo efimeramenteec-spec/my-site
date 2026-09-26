@@ -62,11 +62,9 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
   const [npErrors, setNpErrors] = useState({})
   const [npSaving, setNpSaving] = useState(false)
   const [npError, setNpError] = useState('')
-  // #4/#19: whether THIS session starts a 4-pack (edit, owner-only) — now just the
-  // ★ marker. Prepaid packs are tracked as saldo a favor (#19): the credit is drawn
-  // automatically by the DB trigger when a session is confirmed, so there's no
-  // schedule-time prepay checkbox any more (that would double-count the credit).
-  const [packageAnchor, setPackageAnchor] = useState(false)
+  // #19: prepaid packs are now saldo a favor (credit) — the DB trigger draws it when
+  // a session is confirmed. The old package_anchor mechanism (the "primera sesión de
+  // un paquete" check + ★ marker) is retired.
   // "¿Es primera sesión?" — when on, the patient picker lists unconverted LEADS
   // (people who booked a free llamada) instead of patients, so a converting lead
   // can be scheduled without re-registering them. Creating a real session for a
@@ -91,10 +89,8 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
         modalidad: initial.modalidad || 'presencial',
         monto: initial.monto ?? TARIFA_DEFAULT,
       })
-      setPackageAnchor(!!initial.package_anchor)
     } else {
       setForm(blankForm(defaultDate, therapists))
-      setPackageAnchor(false)
     }
     setFirstSession(false)
     setErrors({})
@@ -267,7 +263,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     }
     const payload =
       mode === 'edit' && initial
-        ? { ...base, estado: initial.estado, pagado: initial.pagado, metodo_pago: initial.metodo_pago, package_anchor: packageAnchor }
+        ? { ...base, estado: initial.estado, pagado: initial.pagado, metodo_pago: initial.metodo_pago }
         : { ...base, estado: 'programada', pagado: false, metodo_pago: patient?.metodo_pago || 'transferencia' }
 
     const res = await onSubmit(payload)
@@ -402,16 +398,6 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
               <input type="number" min="0" step="1" className={nativeInput} value={form.monto} onChange={(e) => set('monto', e.target.value)} />
             </Field>
           </div>
-
-          {/* #4/#19: owner marks THIS session as the start of a 4-pack (★ marker) */}
-          {mode === 'edit' && fullAccess && (
-            <label className="flex items-start gap-2.5 rounded-card border border-stroke/50 px-4 py-3">
-              <input type="checkbox" checked={packageAnchor} onChange={(e) => setPackageAnchor(e.target.checked)} className="mt-0.5 h-4 w-4 accent-amber-500" />
-              <span className="font-caption text-xs text-content-secondary">
-                <span className="font-bold">★ Inicio de paquete de 4.</span> Marca esta sesión como la primera de un paquete. El prepago se lleva como saldo a favor y se descuenta solo al confirmar cada sesión.
-              </span>
-            </label>
-          )}
 
           {mode !== 'edit' && (
             <p className="font-caption text-xs text-content-muted">

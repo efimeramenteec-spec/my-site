@@ -10,13 +10,13 @@ import {
 } from './demoStore.js'
 // Joined select used everywhere we need patient + therapist names/colors.
 const SESSION_SELECT =
-  'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,facturada,metodo_pago,notas,convirtio,package_anchor,google_event_id,reminder_sent_at,' +
+  'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,facturada,metodo_pago,notas,convirtio,google_event_id,reminder_sent_at,' +
   'patient:patients(id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,facturacion_obligatoria),therapist:therapists(id,nombre,apellido,color,calendar_email)'
 
 // Only real columns may be written to the sessions table.
 const SESSION_COLUMNS = [
   'patient_id', 'terapeuta_id', 'fecha', 'hora_inicio', 'hora_fin',
-  'tipo', 'modalidad', 'estado', 'monto', 'pagado', 'facturada', 'metodo_pago', 'notas', 'convirtio', 'package_anchor', 'google_event_id',
+  'tipo', 'modalidad', 'estado', 'monto', 'pagado', 'facturada', 'metodo_pago', 'notas', 'convirtio', 'google_event_id',
 ]
 const pickColumns = (obj) =>
   Object.fromEntries(SESSION_COLUMNS.filter((k) => k in obj).map((k) => [k, obj[k]]))
@@ -505,7 +505,7 @@ export async function getPatientsData() {
           .order('nombre', { ascending: true }),
         fetchAll(() => supabase
           .from('sessions')
-          .select('id,patient_id,terapeuta_id,fecha,hora_inicio,tipo,modalidad,estado,monto,pagado,metodo_pago,package_anchor')
+          .select('id,patient_id,terapeuta_id,fecha,hora_inicio,tipo,modalidad,estado,monto,pagado,metodo_pago')
           .order('fecha', { ascending: false })
           .order('hora_inicio', { ascending: false })
           .order('id', { ascending: true })),
