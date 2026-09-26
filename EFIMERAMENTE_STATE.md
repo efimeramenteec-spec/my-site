@@ -79,16 +79,12 @@ window closes (must be templates) — review the wording. Meta rule learned: **a
 variable, and a trailing emoji doesn't count as text** (bit `resultado_llamada`/`primera_sesion` — fixed with
 trailing words). The bot flow itself doesn't wait on any template; only the follow-ups do.
 
-**Cards:** `therapists.funnel_card_url` is NULL for everyone — the bot falls back to a text header until
-the card image URLs are populated (Marketing → Configuración, or SQL).
+**Cards:** `therapists.funnel_card_url` populated for all 6 pool therapists → `/cards/*.jpg` (served 200,
+`public/cards/`). Edit in Marketing → Configuración or SQL.
 
-**Go-live test checklist (Nicolás):** message 9933 from a non-patient phone → walk 4 taps
-(Elegir terapeuta → categoría → tarjeta → horario) + 1 FAQ → book a real slot → cancel it. Plus the
-echo test above. Then set `LEAD_BOT_LIVE=true`.
-
-**TEST MODE (live now):** env `LEAD_BOT_TEST_PHONES` (last-9 match, comma-sep) makes the bot answer ONLY
-those numbers while real leads stay dark. Currently `593968029896` (Nicolás). `botAllowedForPhone` in
-leadBot.mjs gates runBot + lead-followups per-lead. Remove the number / clear the env when going fully live.
+**TEST MODE:** env `LEAD_BOT_TEST_PHONES` (last-9 match, comma-sep) — retained but now moot since
+`LEAD_BOT_LIVE=true` makes `botAllowedForPhone` return true for everyone. `botAllowedForPhone` in
+leadBot.mjs gates runBot + lead-followups per-lead; used to gate go-live before the flag flip.
 
 **Tested end-to-end 2026-09-26 (Nicolás, test mode):** Hola → Msg 1 → Elegir terapeuta → categoría
 (no_seguro) → cards WITH PHOTOS → Elegir a Ma. Gracia → real slot → booking + Google Calendar sync +
@@ -103,13 +99,15 @@ WhatsApp reply buttons are single-use (grey out after one tap) — returning lea
 get fresh buttons; that's by design (classifier → re-show menu).
 
 ## Completed Features
-- [x] **#4 + #20 Lead funnel WhatsApp bot — 4 phases SHIPPED, behind `LEAD_BOT_LIVE=false`** (2026-09-26,
-  Opus 4.8). Commits `2eb9c8f` (A) `9e8d60e` (B) `a74e3ae` (C) `d9d7448` (D) + fixes. Full record + go-live
-  gate in the "🔜 Lead funnel" section above. New: `netlify/lib/{leadBot,waSend,booking,leadTemplates}.mjs`,
+- [x] **#4 + #20 Lead funnel WhatsApp bot — 4 phases + LIVE for real leads** (2026-09-26, Opus 4.8).
+  `LEAD_BOT_LIVE=true`. Commits `2eb9c8f` (A) `9e8d60e` (B) `a74e3ae` (C) `d9d7448` (D) + fixes. Full record
+  in the "✅ Lead funnel" section above. New: `netlify/lib/{leadBot,waSend,booking,leadTemplates}.mjs`,
   `netlify/functions/{lead-followups,submit-lead-templates}.mjs`, `src/pages/MarketingFunnel.jsx`,
-  `src/lib/funnel.js`; migrations `lead_funnel_0{1,2,3}_*`. `public-booking.mjs` now delegates to the shared
-  `booking.mjs` engine. Webhook retry-dedupe added. Templates at Meta: `recordatorio_llamada` APPROVED, the
-  other 3 PENDING. **Gate before go-live: verify `smb_message_echoes` forwarding (one manual-reply test).**
+  `src/lib/funnel.js`; migrations `lead_funnel_0{1,2,3}_*`. `public-booking.mjs` delegates to shared
+  `booking.mjs`. **Gotcha fixed (`25ba446`):** messages-branch patient cache select MUST include `es_lead`,
+  else booked leads (es_lead patients) read undefined → `(!patient||patient.es_lead)` falsy → runBot skipped
+  for all post-booking msgs. **Verified:** full flow + echo pause (smb_message_echoes → bot_paused) + FAQ.
+  Test mode `LEAD_BOT_TEST_PHONES` retained. Templates: `recordatorio_llamada` APPROVED, other 3 PENDING.
 - [x] **#19 saldo a favor — comprobante→lote + net-of-credit matching/reminders + package_anchor DROPPED
   (steps 2–7 of the finish plan)** (2026-09-25, Opus 4.8). Commits `5ee272e` (2–6) + `5566b0e` (7).
   Step 1 (verify the 7 backfilled lotes, $433) re-confirmed with Nicolás — correct; the only non-$35
@@ -322,27 +320,6 @@ get fresh buttons; that's by design (classifier → re-show menu).
     **cédula/RUC** (patient's own, or the linked `payer` for minors) — no persona GUID needed; keep it
     payer-aware. Persona lookup/creation and the exact document payload (line items, IVA, `pos`) are the
     next things to nail down (still GET-safe recon) before writing any POST.
-- [x] **Reminder delivery-status tracking + out-of-window delivery CONFIRMED** (2026-09-23, Opus 4.8).
-  Nicolás reported "no confirmations from patients in a day." Conclusion: **system works, NOT a bug.**
-  Full loop re-verified on **3 phones** incl. a **cold, never-messaged number** → template
-  `sent`→`delivered` in 1s, no error ⇒ templates deliver **outside the 24h window** (no coexistence/
-  sandbox bug). Real cause = patients **reply in text, don't tap** the button (577 inbound, 0 taps
-  ever; one typed "Ya te confirmo") + early confusion re Twilio-era reminders. No hardcoded number
-  (grep-verified; recipient is always `s.patient.telefono`). Send/reply path unchanged this session.
-  - **New:** `whatsapp_delivery_status` table + `whatsapp-cloud-webhook.mjs` records Meta's
-    `sent/delivered/read/failed` (+ err code, e.g. 131047) callbacks it used to discard. Mirror
-    `supabase/whatsapp-delivery-status.sql`. Confirmed Dualhook's override **does forward statuses**.
-    **GOTCHA:** a table made via raw `apply_migration` does NOT inherit Supabase default GRANTs →
-    service-role writer silently hit `42501 permission denied` (logged, 200, no rows). Fix = explicit
-    `grant … to service_role/authenticated`. QA dummies (Prueba/2/3) deleted + verified gone.
-  - **BUILD GOTCHA (cost 3 failed deploys):** a `git add -A` accidentally committed the untracked
-    `.claude/settings.local.json.bak-20260922`, whose Twilio Content SID tripped Netlify's **secret
-    scanner** → every build failed at the "Building" stage (`exit code 2`), no publish (prod stayed on
-    last-good deploy). Diagnosed via the Netlify deploy log in Chrome (plan is **Pro**, 2172 credits —
-    NOT a limit). Fix: untracked the file + gitignored `.claude/settings.local.json` and `.bak-*`
-    (commit `85dde30`). **NEVER `git add -A` in this repo** — stray `.bak`/local-settings files carry
-    secrets. Content SID remains in public git history (commits `b33e98a`/`eaeec71`/`abd6f28`); low
-    severity (identifier, not a credential) and **mooted by cancelling Twilio** (Nicolás's call 09-23).
 > **Older completed work (2026-09-22 and earlier) lives in `CHANGELOG.md`.**
 > It is deliberately not loaded into session context. Read it on demand.
 
@@ -457,6 +434,13 @@ of truth; open items as of 2026-08-03:
       if therapists want to record a diagnosis at registration (minor).
 
 ### Immediate — next session
+- [ ] **Lead funnel polish (surfaced 2026-09-26, all non-blocking — bot is LIVE).**
+      (a) `classifyFreeText` in `leadBot.mjs` returned null for free text — the `claude-haiku-4-5` model id
+      on APIMart is likely wrong/unavailable; pick a working id (see `proofOcr.mjs` uses `claude-opus-4-8`).
+      Falls back gracefully today (re-shows menu → escalates to Nicolás), so leads aren't stranded.
+      (b) Chase Meta approval for `resultado_llamada` / `rebook_llamada` / `primera_sesion` (the follow-up
+      sends stay dormant until approved; `recordatorio_llamada` already APPROVED). (c) Optional: a per-lead
+      "pausar bot" toggle in Marketing → Embudo (the echo pause covers manual takeover, so this is nice-to-have).
 - [ ] **Cancel the Twilio paid subscription — Nicolás cancelling (decided 2026-09-23).** Reminders +
       delivery all run on Dualhook, re-verified working 09-23. Cancelling also **moots the Content-SID
       exposure** in git history. After cancel, optionally delete `TWILIO_*` Netlify env vars +

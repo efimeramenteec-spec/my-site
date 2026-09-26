@@ -5,6 +5,28 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+- [x] **Reminder delivery-status tracking + out-of-window delivery CONFIRMED** (2026-09-23, Opus 4.8).
+  Nicolás reported "no confirmations from patients in a day." Conclusion: **system works, NOT a bug.**
+  Full loop re-verified on **3 phones** incl. a **cold, never-messaged number** → template
+  `sent`→`delivered` in 1s, no error ⇒ templates deliver **outside the 24h window** (no coexistence/
+  sandbox bug). Real cause = patients **reply in text, don't tap** the button (577 inbound, 0 taps
+  ever; one typed "Ya te confirmo") + early confusion re Twilio-era reminders. No hardcoded number
+  (grep-verified; recipient is always `s.patient.telefono`). Send/reply path unchanged this session.
+  - **New:** `whatsapp_delivery_status` table + `whatsapp-cloud-webhook.mjs` records Meta's
+    `sent/delivered/read/failed` (+ err code, e.g. 131047) callbacks it used to discard. Mirror
+    `supabase/whatsapp-delivery-status.sql`. Confirmed Dualhook's override **does forward statuses**.
+    **GOTCHA:** a table made via raw `apply_migration` does NOT inherit Supabase default GRANTs →
+    service-role writer silently hit `42501 permission denied` (logged, 200, no rows). Fix = explicit
+    `grant … to service_role/authenticated`. QA dummies (Prueba/2/3) deleted + verified gone.
+  - **BUILD GOTCHA (cost 3 failed deploys):** a `git add -A` accidentally committed the untracked
+    `.claude/settings.local.json.bak-20260922`, whose Twilio Content SID tripped Netlify's **secret
+    scanner** → every build failed at the "Building" stage (`exit code 2`), no publish (prod stayed on
+    last-good deploy). Diagnosed via the Netlify deploy log in Chrome (plan is **Pro**, 2172 credits —
+    NOT a limit). Fix: untracked the file + gitignored `.claude/settings.local.json` and `.bak-*`
+    (commit `85dde30`). **NEVER `git add -A` in this repo** — stray `.bak`/local-settings files carry
+    secrets. Content SID remains in public git history (commits `b33e98a`/`eaeec71`/`abd6f28`); low
+    severity (identifier, not a credential) and **mooted by cancelling Twilio** (Nicolás's call 09-23).
+
 - [x] **Appointment reminders CUT OVER from Twilio → Dualhook (Cloud API) — full loop verified**
   (2026-09-22, Opus 4.8). Retires Twilio for the 24h appointment reminder. **Both halves moved
   together** (outbound send + inbound Confirmo/Cancelar reply).
