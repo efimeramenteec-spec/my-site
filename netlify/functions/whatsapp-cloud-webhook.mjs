@@ -170,7 +170,7 @@ export default async (req) => {
       if (!Array.isArray(messages) || messages.length === 0) continue // no messages + no statuses
 
       if (!patients) {
-        const { data, error } = await supabase.from('patients').select('id, telefono, nombre, apellido')
+        const { data, error } = await supabase.from('patients').select('id, telefono, nombre, apellido, es_lead')
         if (error) { console.error('[wa-cloud] patients fetch:', error.message); patients = [] }
         else patients = data || []
       }
