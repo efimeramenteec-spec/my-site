@@ -119,9 +119,13 @@ for each row execute function public.consume_saldo_on_confirm();
 -- join public.sessions s on s.id = x.anchor_session_id
 -- join public.patients p on p.id = s.patient_id;
 
--- ── FOLLOW-UP (next, in order) ────────────────────────────────────────────────
---   1. proofReconcile: $140 comprobante → package lote; matched-sender overpayment
---      surplus → 'overpayment' lote; match against amount-net-of-credit + consume.
---   2. paymentReminders: ask amount net of credit (only matters once odd lotes exist).
---   3. Retire package_anchor: DROP COLUMN sessions.package_anchor (DESTRUCTIVE —
---      needs explicit approval) once the ★ display + packages.js are repointed to lotes.
+-- ── FOLLOW-UP — ALL SHIPPED 2026-09-25 (commit 5ee272e + drop migration) ───────
+--   1. ✅ proofReconcile: $140 comprobante → package lote (then settles pooled credit);
+--      matched-sender overpayment surplus → 'overpayment' lote; no-debt → 'prepay' lote;
+--      matches against amount-net-of-credit + consumes credit on match.
+--   2. ✅ paymentReminders: asks amount net of credit; fully-covered patients not reminded.
+--   3. ✅ package_anchor DROPPED — see supabase/drop-sessions-package-anchor.sql.
+-- NOTE: the confirm trigger + proofReconcile settle are POOL-based (they draw the
+-- session's monto from total remaining credit); price_per_session is nominal accounting,
+-- not a per-session cap. So a $140 package pool covers ~$140 of sessions at their real
+-- monto, not necessarily exactly 4 sessions when tarifa ≠ $35.
