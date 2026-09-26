@@ -20,8 +20,7 @@
 // table — see supabase/public-booking.sql) + strict input validation.
 
 import { getSupabaseAdmin, normalizePhone } from '../lib/whatsapp.mjs'
-import { getCalendarClient, queryFreebusy } from '../lib/calendar.mjs'
-import { notifyTherapist } from '../lib/push.mjs'
+import { computeSlots, createBooking, KINDS, HHMM, ISO_DATE } from '../lib/booking.mjs'
 
 const ALLOWED_ORIGINS = [
   'https://efimeramente-panel.netlify.app',
@@ -29,43 +28,11 @@ const ALLOWED_ORIGINS = [
   'http://localhost:5173',
 ]
 
-// Global booking config (v1) — promote to per-therapist columns if ever needed.
-const SLOT_STEP_MIN = 30       // candidate start times every 30 min
-const CALL_MIN = 10            // llamada length
-const SESSION_MIN = 60         // individual session — keep in sync with DURACION_MIN.individual
-// Per-kind booking parameters. `kind` travels as ?kind= on slots and in the
-// POST body on book; anything unknown falls back to llamada.
-const KINDS = {
-  llamada: { durMin: CALL_MIN, tipo: 'llamada' },
-  sesion: { durMin: SESSION_MIN, tipo: 'individual' },
-}
-const MIN_NOTICE_H = 12        // no bookings sooner than this
-const HORIZON_DAYS = 14        // no bookings further out than this
-// Only 3 physical consultorios: at most 3 PRESENCIAL sessions may overlap at
-// once across ALL therapists. Keep in sync with conflicts.js CONSULTORIOS and
-// the DB trigger enforce_presencial_room_cap (supabase/presencial-room-cap-trigger.sql).
-const CONSULTORIOS = 3
-const TZ = 'America/Guayaquil'
-const TZ_OFFSET = '-05:00'     // Ecuador, no DST
+// The slot engine, room cap, patient upsert, Calendar sync and therapist push
+// all live in ../lib/booking.mjs now (shared with the lead bot). This file keeps
+// only the public HTTP shell: CORS, honeypot, rate limits and input validation.
 const MAX_PER_PHONE_PER_DAY = 2
 const MAX_PER_IP_PER_HOUR = 5
-
-// booking_availability keys, indexed by Date#getUTCDay() of the calendar date.
-const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
-
-const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
-const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
-const toHHMM = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
-const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
-
-// Today's date in Ecuador (UTC-5, no DST).
-const ecTodayStr = (now) => new Date(now.getTime() - 5 * 3600e3).toISOString().slice(0, 10)
-const addDaysStr = (dateStr, n) => {
-  const d = new Date(`${dateStr}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + n)
-  return d.toISOString().slice(0, 10)
-}
 
 function corsHeaders(origin) {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
@@ -74,60 +41,6 @@ function corsHeaders(origin) {
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   }
-}
-
-// Free start times ("HH:MM", Ecuador local) for one therapist on one date.
-// Used by ?action=slots AND re-run at book time to verify the slot still holds.
-// Throws when availability can't be determined (Supabase/freebusy failure).
-async function computeSlots(supabase, therapist, date, durMin = CALL_MIN) {
-  const now = new Date()
-  const today = ecTodayStr(now)
-  if (date < today || date > addDaysStr(today, HORIZON_DAYS)) return []
-
-  const dayKey = DAY_KEYS[new Date(`${date}T00:00:00Z`).getUTCDay()]
-  const windows = (therapist.booking_availability || {})[dayKey] || []
-  if (!Array.isArray(windows) || windows.length === 0) return []
-
-  // Existing sessions that day (any tipo) block their whole span.
-  const { data: sessions, error: sErr } = await supabase
-    .from('sessions')
-    .select('hora_inicio, hora_fin, estado')
-    .eq('terapeuta_id', therapist.id)
-    .eq('fecha', date)
-  if (sErr) throw new Error(`sessions query failed: ${sErr.message}`)
-  const busy = (sessions || [])
-    .filter((s) => s.estado !== 'cancelada' && s.estado !== 'no_show')
-    .map((s) => [toMin(String(s.hora_inicio).slice(0, 5)), toMin(String(s.hora_fin).slice(0, 5))])
-
-  // Google Calendar busy periods, as minutes since Ecuador midnight of `date`.
-  const dayStartMs = new Date(`${date}T00:00:00${TZ_OFFSET}`).getTime()
-  if (therapist.calendar_email) {
-    const calendar = getCalendarClient()
-    const gBusy = await queryFreebusy(
-      calendar, therapist.calendar_email,
-      `${date}T00:00:00${TZ_OFFSET}`, `${date}T23:59:59${TZ_OFFSET}`,
-    )
-    for (const b of gBusy) {
-      busy.push([
-        (new Date(b.start).getTime() - dayStartMs) / 60000,
-        (new Date(b.end).getTime() - dayStartMs) / 60000,
-      ])
-    }
-  }
-
-  const minStartMs = now.getTime() + MIN_NOTICE_H * 3600e3
-  const slots = []
-  for (const w of windows) {
-    const [ws, we] = Array.isArray(w) ? w : []
-    if (!HHMM.test(ws || '') || !HHMM.test(we || '')) continue
-    for (let s = toMin(ws); s + durMin <= toMin(we); s += SLOT_STEP_MIN) {
-      const e = s + durMin
-      if (busy.some(([bs, be]) => s < be && e > bs)) continue
-      if (dayStartMs + s * 60000 < minStartMs) continue
-      slots.push(toHHMM(s))
-    }
-  }
-  return [...new Set(slots)].sort()
 }
 
 export default async (req) => {
@@ -194,7 +107,6 @@ export default async (req) => {
     try { body = await req.json() } catch { return json({ error: 'bad_request' }, 400) }
     const { therapist_id: therapistId, date, start_time: startTime, patient, website } = body || {}
     const kindKey = KINDS[body?.kind] ? body.kind : 'llamada'
-    const kind = KINDS[kindKey]
     // Sessions carry a patient-chosen modalidad; llamadas are always en línea.
     const modalidad = kindKey === 'sesion' && body?.modalidad === 'presencial' ? 'presencial' : 'en_linea'
 
@@ -238,142 +150,22 @@ export default async (req) => {
       .single()
     if (tErr || !t || !t.booking_enabled || !t.activo) return json({ error: 'not_bookable' }, 404)
 
-    // Re-verify the exact slot is still free (covers concurrent bookings and any
-    // calendar changes since the browser fetched slots).
-    let slots
-    try {
-      slots = await computeSlots(supabase, t, date, kind.durMin)
-    } catch (e) {
-      console.error('[public-booking] verify failed:', e.message)
-      return json({ error: 'unavailable' }, 500)
-    }
-    if (!slots.includes(startTime)) return json({ error: 'slot_taken' }, 409)
-
-    // Room cap: a presencial booking needs one of the 3 consultorios free for
-    // its whole window (across ALL therapists — computeSlots only knows THIS
-    // therapist's calendar). The DB trigger is the hard backstop; this gives the
-    // patient a clean 409 instead of a raw DB error. En línea needs no room.
-    const bkStart = toMin(startTime)
-    const bkEnd = bkStart + kind.durMin
-    if (modalidad === 'presencial') {
-      const { data: dayRows, error: rErr } = await supabase
-        .from('sessions')
-        .select('hora_inicio, hora_fin, estado')
-        .eq('fecha', date)
-        .eq('modalidad', 'presencial')
-      if (rErr) {
-        console.error('[public-booking] room check query:', rErr.message)
-        return json({ error: 'booking_failed' }, 500)
-      }
-      const roomsTaken = (dayRows || []).filter((s) => {
-        if (s.estado === 'cancelada' || s.estado === 'no_show') return false
-        const ss = toMin(String(s.hora_inicio).slice(0, 5))
-        const se = toMin(String(s.hora_fin).slice(0, 5))
-        return bkStart < se && ss < bkEnd
-      }).length
-      if (roomsTaken >= CONSULTORIOS) return json({ error: 'rooms_full' }, 409)
-    }
-
-    // Upsert patient by phone: reuse an existing record (never overwrite it) —
-    // same matching as the Twilio webhook (normalized E.164 or last 9 digits).
-    const { data: patients, error: pErr } = await supabase.from('patients').select('id, telefono, tarifa, fuente')
-    if (pErr) {
-      console.error('[public-booking] patients query:', pErr.message)
-      return json({ error: 'booking_failed' }, 500)
-    }
-    const existing = (patients || []).find(
-      (p) => normalizePhone(p.telefono) === phone || last9(p.telefono) === last9(phone),
-    )
-    let patientId = existing?.id
-    if (!patientId) {
-      // A free llamada booking creates a LEAD (not a patient yet); a /reservar
-      // real-session booking creates an actual patient. Leads are promoted to
-      // patients on their first real session or when marked "Convirtió".
-      const newPatient = {
-        nombre, apellido, telefono: phone, terapeuta_id: t.id,
-        es_lead: kindKey === 'llamada',
-      }
-      if (email) newPatient.email = email
-      if (motivo) newPatient.motivo_consulta = motivo
-      const res = await supabase.from('patients').insert(newPatient).select('id').single()
-      if (res.error) {
-        console.error('[public-booking] patient insert:', res.error.message)
-        return json({ error: 'booking_failed' }, 500)
-      }
-      patientId = res.data.id
-    }
-
-    // Llamadas are free; sessions bill the patient's tarifa (39 = DB default for
-    // new patients — keep in sync with constants.js TARIFA_DEFAULT).
-    const monto = kindKey === 'sesion' ? (existing?.tarifa ?? 39) : 0
-    const endTime = toHHMM(toMin(startTime) + kind.durMin)
-    const { data: session, error: sErr } = await supabase
-      .from('sessions')
-      .insert({
-        patient_id: patientId,
-        terapeuta_id: t.id,
-        fecha: date,
-        hora_inicio: `${startTime}:00`,
-        hora_fin: `${endTime}:00`,
-        tipo: kind.tipo,
-        modalidad,
-        estado: 'programada',
-        monto,
-        pagado: false,
-      })
-      .select('id')
-      .single()
-    if (sErr) {
-      console.error('[public-booking] session insert:', sErr.message)
-      return json({ error: 'booking_failed' }, 500)
-    }
-
-    // A /reservar real session promotes an existing lead to a patient (no-op if
-    // they already are one). Best-effort — never blocks the booking response.
-    if (kindKey === 'sesion') {
-      await supabase.from('patients').update({ es_lead: false })
-        .eq('id', patientId).eq('es_lead', true)
-    }
-
-    // Push-notify the therapist about her new booking (best-effort — never throws).
-    {
-      const [, mm, dd] = date.split('-')
-      await notifyTherapist(supabase, t.id, {
-        title: kindKey === 'sesion' ? 'Nueva sesión agendada 📅' : 'Nueva llamada agendada 📞',
-        body: `${nombre} ${apellido} — ${dd}/${mm} ${startTime} (${kind.durMin} min)`,
-        url: '/sesiones',
-      })
-    }
-
-    // Google Calendar event — best-effort, NEVER blocks the booking. Llamadas get
-    // no WhatsApp reminder (send-reminders excludes tipo='llamada'); sessions DO
-    // enter the normal 24h reminder flow. Session title matches the internal
-    // format from queries.js#buildCalendarEvent.
-    if (t.calendar_email) {
-      try {
-        const summary = kindKey === 'sesion'
-          ? `Sesión — ${nombre} ${apellido} · ${modalidad === 'presencial' ? 'Presencial' : 'En línea'}`
-          : `Llamada — ${nombre} ${apellido} · 10 min`
-        const calendar = getCalendarClient()
-        const ev = await calendar.events.insert({
-          calendarId: t.calendar_email,
-          requestBody: {
-            summary,
-            description: [`Tel: ${phone}`, motivo && `Motivo: ${motivo}`].filter(Boolean).join('\n'),
-            start: { dateTime: `${date}T${startTime}:00`, timeZone: TZ },
-            end: { dateTime: `${date}T${endTime}:00`, timeZone: TZ },
-          },
-        })
-        if (ev.data.id) {
-          await supabase.from('sessions').update({ google_event_id: ev.data.id }).eq('id', session.id)
-        }
-      } catch (e) {
-        console.warn('[public-booking] calendar create failed (non-blocking):', e.message)
-      }
+    // Delegate the core (re-verify slot → room cap → upsert patient → session →
+    // Calendar + push) to the shared engine. A free llamada creates a LEAD; a
+    // /reservar real session creates/promotes a patient — createBooking's es_lead
+    // default (kind==='llamada') already encodes that.
+    const result = await createBooking(supabase, {
+      therapist: t, date, startTime, kindKey, modalidad,
+      patient: { nombre, apellido, telefono: phone, email: email || undefined, motivo: motivo || undefined },
+    })
+    if (!result.ok) {
+      const status = result.error === 'slot_taken' || result.error === 'rooms_full' ? 409
+        : result.error === 'unavailable' ? 500 : 500
+      return json({ error: result.error }, status)
     }
 
     // Confirmation echo only — no ids, no PII beyond what the booker typed.
-    return json({ ok: true, therapist_name: `${t.nombre} ${t.apellido}`, date, start_time: startTime })
+    return json({ ok: true, therapist_name: result.therapistName, date, start_time: startTime })
   }
 
   return json({ error: 'bad_request' }, 400)

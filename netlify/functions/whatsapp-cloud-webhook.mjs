@@ -27,7 +27,7 @@
 import crypto from 'crypto'
 import { getSupabaseAdmin, normalizePhone, resolveReplyEstado, applyInboundReplyEstado } from '../lib/whatsapp.mjs'
 import { notifyTherapist } from '../lib/push.mjs'
-import { isTherapistOrPayer, recordLead, handleEchoes } from '../lib/leadBot.mjs'
+import { isTherapistOrPayer, recordLead, handleEchoes, runBot } from '../lib/leadBot.mjs'
 
 const text = (body, status = 200) => new Response(body, { status, headers: { 'Content-Type': 'text/plain' } })
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
@@ -203,15 +203,17 @@ export default async (req) => {
 
         // ── Lead funnel (#4 + #20) ──────────────────────────────────────────
         // A message from a phone that isn't a patient/therapist/payer is a lead.
-        // Record it (measurement is always on, regardless of LEAD_BOT_LIVE). The
-        // bot's replies + stage advancement (Phase B) hang off this same point.
+        // Record it (measurement is always on, regardless of LEAD_BOT_LIVE), then
+        // let the bot advance the flow (runBot self-gates on LEAD_BOT_LIVE + pause).
         if (!patient) {
           try {
             if (!(await isTherapistOrPayer(supabase, msg.from))) {
-              await recordLead(supabase, { msg, contact: value.contacts?.[0] || null })
+              const contact = value.contacts?.[0] || null
+              const rec = await recordLead(supabase, { msg, contact })
+              if (rec) await runBot(supabase, { lead: rec.lead, isNew: rec.isNew, msg })
             }
           } catch (e) {
-            console.warn('[wa-cloud] lead record failed (non-blocking):', e.message)
+            console.warn('[wa-cloud] lead handling failed (non-blocking):', e.message)
           }
         }
       }
