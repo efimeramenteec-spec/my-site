@@ -46,8 +46,9 @@ export const TEMPLATES = [
     category: 'UTILITY',
     components: [
       { type: 'BODY',
-        // Trailing static text is required — Meta rejects a variable at the end.
-        text: 'Hola {{1}} 🌿 ¿Cómo fue la llamada con {{2}} de las {{3}}? Cuéntanos 👇',
+        // Trailing static text is required — Meta rejects a variable at the end,
+        // and a trailing emoji doesn't count as text, so end with real words.
+        text: 'Hola {{1}} 🌿 ¿Cómo fue la llamada con {{2}} de las {{3}}? Cuéntanos cómo te fue.',
         example: { body_text: [['Francisco', 'María', '10:00']] } },
       { type: 'BUTTONS', buttons: [
         { type: 'QUICK_REPLY', text: 'Se hizo' },
