@@ -9,7 +9,8 @@ import { Badge } from '../components/Badge/Badge.jsx'
 import { Button } from '../components/Button/Button.jsx'
 import { Select } from '../components/Select/Select.jsx'
 
-import { getMarketingData, updateCampaign, importCampaignWeeks } from '../lib/queries.js'
+import { getMarketingData, updateCampaign, importCampaignWeeks, getFunnelData, updateFunnelCategoria, updateTherapistFunnel } from '../lib/queries.js'
+import { FunnelDashboard, FunnelConfig } from './MarketingFunnel.jsx'
 import { parseMetaCsv } from '../lib/metaCsv.js'
 import { computeMarketing, computeFlags, campaignOn } from '../lib/marketing.js'
 import { groupSessionsByPatient } from '../lib/conversion.js'
@@ -383,6 +384,8 @@ function SkeletonCard({ className = '' }) {
 
 export default function Marketing() {
   const ctx = useOutletContext()
+  const [view, setView] = useState('embudo') // embudo | campanas | config
+  const [funnel, setFunnel] = useState(null)
   const [data, setData] = useState(null)
   const [period, setPeriod] = useState('todo')
   const [custom, setCustom] = useState({ from: '', to: '' })
@@ -407,9 +410,21 @@ export default function Marketing() {
       setData(d)
       ctx?.setDataSource?.(d.source)
     })
+    getFunnelData().then((f) => { if (alive) setFunnel(f) })
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const saveCategoria = async (id, patch) => {
+    const res = await updateFunnelCategoria(id, patch)
+    if (res.ok) setFunnel((f) => ({ ...f, categorias: f.categorias.map((c) => (c.id === id ? res.data : c)) }))
+    return res
+  }
+  const saveTherapistFunnel = async (id, patch) => {
+    const res = await updateTherapistFunnel(id, patch)
+    if (res.ok) setFunnel((f) => ({ ...f, therapists: f.therapists.map((t) => (t.id === id ? { ...t, ...res.data } : t)) }))
+    return res
+  }
 
   const now = new Date()
   const today = dateKey(now)
@@ -501,26 +516,58 @@ export default function Marketing() {
     }
   }
 
-  if (!data || !m) {
-    return (
-      <div className="space-y-6 pt-2">
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} className="h-32" />)}
-        </div>
-        <SkeletonCard className="h-64" />
-      </div>
-    )
-  }
+  const ready = data && m
+  const activeCampaign = ready
+    ? (data.campaigns.find((c) => c.id === campaignId) || campaignOn(data.campaigns, today, today))
+    : null
+  const campaignOptions = data
+    ? [{ value: '', label: 'Todas las campañas' }, ...data.campaigns.map((c) => ({ value: c.id, label: c.nombre }))]
+    : []
 
-  const activeCampaign = data.campaigns.find((c) => c.id === campaignId) ||
-    campaignOn(data.campaigns, today, today)
-  const campaignOptions = [
-    { value: '', label: 'Todas las campañas' },
-    ...data.campaigns.map((c) => ({ value: c.id, label: c.nombre })),
+  const TABS = [
+    { value: 'embudo', label: 'Embudo' },
+    { value: 'campanas', label: 'Campañas' },
+    { value: 'config', label: 'Configuración' },
   ]
 
   return (
     <div className="space-y-6 pt-2">
+      {/* Lead-bot funnel (default) · legacy campaign spend view · config editors */}
+      <div className="flex flex-wrap gap-2">
+        {TABS.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            onClick={() => setView(t.value)}
+            className={[
+              'rounded-full px-4 py-1.5 font-heading text-sm font-bold transition-colors',
+              view === t.value ? 'bg-brand-lavender text-white' : 'bg-surface-warm text-content-secondary hover:text-content-primary',
+            ].join(' ')}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'embudo' && (funnel
+        ? <FunnelDashboard data={funnel} />
+        : <SkeletonCard className="h-64" />)}
+
+      {view === 'config' && (funnel
+        ? <FunnelConfig data={funnel} onSaveCategoria={saveCategoria} onSaveTherapist={saveTherapistFunnel} />
+        : <SkeletonCard className="h-64" />)}
+
+      {view === 'campanas' && !ready && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} className="h-32" />)}
+          </div>
+          <SkeletonCard className="h-64" />
+        </div>
+      )}
+
+      {view === 'campanas' && ready && (
+      <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-2xl font-bold text-content-primary">
@@ -708,6 +755,8 @@ export default function Marketing() {
         <CohortCard cohorts={m.cohorts} />
         <OrphanCalls orphans={m.orphans} />
       </div>
+      </div>
+      )}
     </div>
   )
 }

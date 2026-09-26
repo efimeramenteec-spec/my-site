@@ -801,6 +801,74 @@ export async function importCampaignWeeks(parsedWeeks) {
   }
 }
 
+// ─── Lead funnel (owner-only; #4 + #20) ──────────────────────────────────────
+// The lead-bot funnel dashboard + editors. `leads` is owner-only via RLS; funnel
+// math lives in src/lib/funnel.js. Each lead carries `convirtio` from its llamada
+// session so "paciente" can be derived without a second round-trip in the page.
+const FUNNEL_LEAD_SELECT =
+  'id,phone,wa_name,first_at,source,ad_source_id,ad_headline,stage,toco_at,eligio_terapeuta_at,agendo_at,llamada_hecha_at,no_contesto_at,paciente_at,frio_at,categoria,therapist_id,session_id,patient_id,bot_paused,created_at'
+const FUNNEL_CAT_COLUMNS = ['etiqueta', 'orden', 'terapeutas', 'especial', 'activo']
+const THERAPIST_FUNNEL_COLUMNS = ['recibe_nuevos', 'funnel_caption', 'funnel_card_url']
+const pickCols = (cols, obj) => Object.fromEntries(cols.filter((k) => k in obj).map((k) => [k, obj[k]]))
+
+export async function getFunnelData() {
+  if (isSupabaseConfigured) {
+    try {
+      const [lRes, cRes, tRes] = await Promise.all([
+        supabase.from('leads').select(FUNNEL_LEAD_SELECT).order('first_at', { ascending: false }),
+        supabase.from('funnel_categorias')
+          .select('id,clave,etiqueta,orden,terapeutas,especial,activo').order('orden', { ascending: true }),
+        supabase.from('therapists')
+          .select('id,nombre,apellido,recibe_nuevos,funnel_caption,funnel_card_url,activo,booking_enabled')
+          .order('nombre', { ascending: true }),
+      ])
+      if (lRes.error) throw lRes.error
+      if (cRes.error) throw cRes.error
+      if (tRes.error) throw tRes.error
+      const leads = lRes.data || []
+      // Attach convirtio from each lead's llamada session (paciente signal).
+      const sessionIds = [...new Set(leads.map((l) => l.session_id).filter(Boolean))]
+      if (sessionIds.length) {
+        const sRes = await supabase.from('sessions').select('id,convirtio').in('id', sessionIds)
+        if (!sRes.error) {
+          const conv = new Map((sRes.data || []).map((s) => [s.id, s.convirtio]))
+          for (const l of leads) l.convirtio = l.session_id ? (conv.get(l.session_id) ?? null) : null
+        }
+      }
+      return { source: 'live', leads, categorias: cRes.data || [], therapists: tRes.data || [] }
+    } catch (err) {
+      console.warn('[efimeramente] Supabase unavailable, showing demo data:', err?.message || err)
+    }
+  }
+  return { source: 'demo', leads: [], categorias: [], therapists: [] }
+}
+
+export async function updateFunnelCategoria(id, patch) {
+  if (!isSupabaseConfigured) return { ok: false, error: 'Solo disponible con datos en vivo.' }
+  const data = { ...pickCols(FUNNEL_CAT_COLUMNS, patch), updated_at: new Date().toISOString() }
+  try {
+    const res = await supabase.from('funnel_categorias').update(data).eq('id', id)
+      .select('id,clave,etiqueta,orden,terapeutas,especial,activo').single()
+    if (res.error) throw res.error
+    return { ok: true, data: res.data }
+  } catch (err) {
+    return { ok: false, error: err?.message || 'No se pudo guardar la categoría.' }
+  }
+}
+
+export async function updateTherapistFunnel(id, patch) {
+  if (!isSupabaseConfigured) return { ok: false, error: 'Solo disponible con datos en vivo.' }
+  const data = pickCols(THERAPIST_FUNNEL_COLUMNS, patch)
+  try {
+    const res = await supabase.from('therapists').update(data).eq('id', id)
+      .select('id,nombre,apellido,recibe_nuevos,funnel_caption,funnel_card_url,activo,booking_enabled').single()
+    if (res.error) throw res.error
+    return { ok: true, data: res.data }
+  } catch (err) {
+    return { ok: false, error: err?.message || 'No se pudo guardar el terapeuta.' }
+  }
+}
+
 export async function checkFreebusy(calendarEmail, fecha, horaInicio, horaFin) {
   if (!calendarEmail) return []
   // Google freebusy needs full RFC3339 timestamps — ensure HH:MM:SS. The DB
