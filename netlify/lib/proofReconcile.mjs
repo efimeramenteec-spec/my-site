@@ -4,9 +4,10 @@
 // only extracts. For each recent inbound payment proof: OCR it (if not read yet),
 // evaluate the warning criteria, and — when clean — mark the covered session(s)
 // paid + reconcile the proof automatically. Any warning → leave it pending so it
-// stays in the Comprobantes card for Nicolás. NEVER marks more than the payment
-// covers. Shared by the scheduled processor (process-proofs.mjs) and the guarded
-// manual trigger (proofs-run.mjs).
+// stays in the Comprobantes card for Nicolás AND fire a one-time WhatsApp alert to
+// him (template `comprobante_sin_identificar`, spec #2 additions) so a held proof
+// isn't silent. NEVER marks more than the payment covers. Shared by the scheduled
+// processor (process-proofs.mjs) and the guarded manual trigger (proofs-run.mjs).
 //
 // Criteria (all must hold to auto-mark):
 //   • matched to a patient · extraction 'ok' · confidence not 'low'
@@ -20,9 +21,37 @@
 //       anything else (partial/mismatch)  → HOLD
 
 import { ocrProofRow } from './proofOcr.mjs'
+import { sendDualhookComprobanteAlert } from './whatsapp.mjs'
 
 const EPS = 0.5
 const GYE_OFFSET_H = -5
+
+// withhold reason → Spanish motivo for the "comprobante sin identificar" alert to
+// Nicolás (spec #2 additions: alert on mismatch / ambiguity / suspicion). Every
+// withhold reason maps to one — a held proof always means a human is needed.
+const MOTIVO = {
+  unmatched: 'remitente no identificado',
+  recipient_mismatch: 'el destinatario no es Mariana',
+  no_unpaid_sessions: 'no hay sesiones pendientes que coincidan',
+  amount_no_match: 'el monto no coincide con ninguna sesión',
+  overpayment: 'el pago es mayor al saldo pendiente',
+  reused_reference: 'comprobante repetido (referencia ya usada)',
+  not_payment_proof: 'la imagen no parece un comprobante',
+  low_confidence: 'lectura poco confiable',
+  no_amount: 'no se pudo leer el monto',
+}
+function motivoFor(reason) {
+  if (!reason) return 'requiere revisión'
+  if (reason.startsWith('extraction_')) return 'no se pudo leer la imagen'
+  return MOTIVO[reason] || 'requiere revisión'
+}
+
+// Best display name for the alert's {{1}} = who sent it: matched patient, else the
+// OCR'd sender, else the raw WhatsApp phone, else "desconocido".
+function alertSender(proof, ex) {
+  return patientName(proof.patient) || ex?.sender_name ||
+    proof.raw_payload?.message?.from || 'desconocido'
+}
 
 function gyeToday(now) {
   return new Date(now.getTime() + GYE_OFFSET_H * 3600e3).toISOString().slice(0, 10)
@@ -113,7 +142,7 @@ export async function runProofAutomation(supabase, { now = new Date(), live = fa
 
   const { data: rows, error } = await supabase
     .from('whatsapp_messages')
-    .select('id, patient_id, received_at, reconciled_at, raw_payload, extracted, extraction_status,' +
+    .select('id, patient_id, received_at, reconciled_at, alerted_at, raw_payload, extracted, extraction_status,' +
       ' patient:patients(id,nombre,apellido,metodo_pago)')
     .eq('direccion', 'inbound')
     .is('reconciled_at', null)
@@ -141,7 +170,7 @@ export async function runProofAutomation(supabase, { now = new Date(), live = fa
     for (const s of sess || []) (byPatient[s.patient_id] ||= []).push(s)
   }
 
-  const report = { today, live: !!live, marked: 0, withheld: 0, failed: 0, items: [] }
+  const report = { today, live: !!live, marked: 0, withheld: 0, alerted: 0, failed: 0, items: [] }
   for (const proof of proofs) {
     // Ensure extraction — OCR only if never attempted (don't re-burn failed/needs_review).
     let status = proof.extraction_status
@@ -173,6 +202,29 @@ export async function runProofAutomation(supabase, { now = new Date(), live = fa
       } else { report.marked++ } // would-mark (dry)
     } else if (action === 'withhold') {
       report.withheld++
+      // Alert Nicolás ONCE per held proof (spec #2 additions). alerted_at throttles
+      // the every-10-min re-evaluation; dry runs preview without sending. Best-effort
+      // — a failed alert never crashes the batch and leaves alerted_at unset to retry.
+      item.motivo = motivoFor(reason)
+      if (!proof.alerted_at) {
+        item.alert = live ? 'sending' : 'would-alert'
+        if (live) {
+          try {
+            await sendDualhookComprobanteAlert({
+              sender: alertSender(proof, ex), amount: ex?.amount ?? '?', motivo: item.motivo,
+            })
+            const { error: aErr } = await supabase
+              .from('whatsapp_messages').update({ alerted_at: now.toISOString() }).eq('id', proof.id)
+            if (aErr) { console.error('[proof-auto] alert-stamp failed:', aErr.message); item.alert = 'sent_stamp_failed' }
+            else { item.alert = 'sent'; report.alerted++ }
+          } catch (e) {
+            console.error(`[proof-auto] alert failed for proof ${proof.id}:`, e.message)
+            item.alert = 'failed'
+          }
+        }
+      } else {
+        item.alert = 'already_alerted'
+      }
     }
     report.items.push(item)
   }

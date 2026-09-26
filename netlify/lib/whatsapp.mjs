@@ -153,6 +153,51 @@ export async function sendDualhookPaymentReminder({ toE164, name, monto, sesione
   return res.json()
 }
 
+// ── Owner alert: unidentified comprobante (Dualhook, template `comprobante_sin_identificar`) ──
+// Fires to Nicolás's personal WhatsApp when the auto-processor CAN'T decide a
+// payment proof (spec #2 additions): unknown sender, amount matches nothing,
+// ambiguity, or suspicion (reused reference / unreadable image). Confident matches
+// mark silently and never alert. APPROVED template (id 1595464335377117, UTILITY, es):
+//   "Hola Nicolás 🌿 Comprobante sin identificar de {{1}} por ${{2}}.
+//    Motivo: {{3}}. Revísalo en la app."
+//   {{1}} = sender (patient/OCR name or phone) · {{2}} = amount · {{3}} = motivo (es).
+// Recipient = env OWNER_WHATSAPP (falls back to Nicolás's number). Throws on failure
+// so the caller can log-and-continue (best-effort, never blocks the batch).
+const COMPROBANTE_ALERT_TEMPLATE = 'comprobante_sin_identificar'
+const COMPROBANTE_ALERT_LANG = 'es'
+const DEFAULT_OWNER_WHATSAPP = '+593968029896' // Nicolás, per memory nicolas-test-whatsapp
+
+export function ownerWhatsApp() {
+  return normalizePhone(process.env.OWNER_WHATSAPP || DEFAULT_OWNER_WHATSAPP)
+}
+
+export async function sendDualhookComprobanteAlert({ sender, amount, motivo }) {
+  const apiKey = process.env.WA_DUALHOOK_API_KEY
+  if (!apiKey) throw new Error('WA_DUALHOOK_API_KEY missing — no send performed')
+  const toE164 = ownerWhatsApp()
+  if (!toE164) throw new Error('OWNER_WHATSAPP un-normalizable — no send performed')
+  const to = String(toE164).replace(/^\+/, '') // Cloud API wants digits, no '+'
+  // Meta rejects empty template variables — coerce every param to a non-empty string.
+  const p = (v) => ({ type: 'text', text: (v == null || String(v).trim() === '') ? '—' : String(v).trim() })
+  const body = {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'template',
+    template: {
+      name: COMPROBANTE_ALERT_TEMPLATE,
+      language: { code: COMPROBANTE_ALERT_LANG },
+      components: [{ type: 'body', parameters: [p(sender), p(amount), p(motivo)] }],
+    },
+  }
+  const res = await fetch(DUALHOOK_SEND_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`Dualhook ${res.status}: ${await res.text()}`)
+  return res.json()
+}
+
 // ── Twilio (legacy fallback, REMINDERS_PROVIDER=twilio) ──────────────────────
 // Send one WhatsApp reminder via Twilio's Content API (approved quick-reply
 // template; ONE variable {{1}} = patient name). Throws on any failure so the
