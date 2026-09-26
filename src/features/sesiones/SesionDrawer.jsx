@@ -6,7 +6,6 @@ import { dateKey, addDays, addMinutesToTime, formatTime, fullName } from '../../
 import { TIPO_FORM, TIPO_PACIENTE, MODALIDAD, DURACION_MIN, TARIFA_DEFAULT, toOptions } from '../../lib/constants.js'
 import { findConflict, roomsFull, CONSULTORIOS } from '../../lib/conflicts.js'
 import { checkFreebusy } from '../../lib/queries.js'
-import { remainingPackSlots } from '../../lib/packages.js'
 import { isAttended } from '../../lib/adherence.js'
 import { AllianceCheckin } from './AllianceCheckin.jsx'
 
@@ -63,11 +62,11 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
   const [npErrors, setNpErrors] = useState({})
   const [npSaving, setNpSaving] = useState(false)
   const [npError, setNpError] = useState('')
-  // #4 packages: whether THIS session starts a 4-pack (edit, owner-only), and
-  // whether a new session is prepaid because the patient's current pack still
-  // has open slots (create; user can override the pre-checked default).
+  // #4/#19: whether THIS session starts a 4-pack (edit, owner-only) — now just the
+  // ★ marker. Prepaid packs are tracked as saldo a favor (#19): the credit is drawn
+  // automatically by the DB trigger when a session is confirmed, so there's no
+  // schedule-time prepay checkbox any more (that would double-count the credit).
   const [packageAnchor, setPackageAnchor] = useState(false)
-  const [prepaid, setPrepaid] = useState(false)
   // "¿Es primera sesión?" — when on, the patient picker lists unconverted LEADS
   // (people who booked a free llamada) instead of patients, so a converting lead
   // can be scheduled without re-registering them. Creating a real session for a
@@ -79,11 +78,6 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
   const patientsOnly = useMemo(() => patients.filter((p) => !p.es_lead), [patients])
   const leadsOnly = useMemo(() => patients.filter((p) => p.es_lead), [patients])
   const pickerPatients = mode === 'edit' ? patients : (firstSession ? leadsOnly : patientsOnly)
-
-  const packRemaining = useMemo(
-    () => remainingPackSlots(sessions.filter((s) => s.patient_id === form.patient_id)),
-    [sessions, form.patient_id],
-  )
 
   useEffect(() => {
     if (!open) return
@@ -110,13 +104,6 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     setNpError('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode, initial])
-
-  // New sessions default to prepaid when the patient's current pack still has
-  // open slots. Re-evaluated whenever the chosen patient (and thus packRemaining)
-  // changes; the user can still override the checkbox before saving.
-  useEffect(() => {
-    if (mode !== 'edit') setPrepaid(packRemaining > 0)
-  }, [mode, packRemaining, open])
 
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }))
   const setNp = (key, val) => setNewPatient((p) => ({ ...p, [key]: val }))
@@ -281,7 +268,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     const payload =
       mode === 'edit' && initial
         ? { ...base, estado: initial.estado, pagado: initial.pagado, metodo_pago: initial.metodo_pago, package_anchor: packageAnchor }
-        : { ...base, estado: 'programada', pagado: prepaid, metodo_pago: patient?.metodo_pago || 'transferencia' }
+        : { ...base, estado: 'programada', pagado: false, metodo_pago: patient?.metodo_pago || 'transferencia' }
 
     const res = await onSubmit(payload)
     setSaving(false)
@@ -416,29 +403,19 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
             </Field>
           </div>
 
-          {/* #4: new session prepaid because the patient's pack has open slots */}
-          {mode !== 'edit' && packRemaining > 0 && (
-            <label className="flex items-start gap-2.5 rounded-card border border-amber-200 bg-amber-50 px-4 py-3">
-              <input type="checkbox" checked={prepaid} onChange={(e) => setPrepaid(e.target.checked)} className="mt-0.5 h-4 w-4 accent-amber-500" />
-              <span className="font-caption text-xs text-amber-800">
-                <span className="font-bold">★ Cubierta por paquete.</span> Al paciente le {packRemaining === 1 ? 'queda 1 sesión prepagada' : `quedan ${packRemaining} sesiones prepagadas`}; se marcará como pagada.
-              </span>
-            </label>
-          )}
-
-          {/* #4: owner marks THIS session as the start of a 4-pack */}
+          {/* #4/#19: owner marks THIS session as the start of a 4-pack (★ marker) */}
           {mode === 'edit' && fullAccess && (
             <label className="flex items-start gap-2.5 rounded-card border border-stroke/50 px-4 py-3">
               <input type="checkbox" checked={packageAnchor} onChange={(e) => setPackageAnchor(e.target.checked)} className="mt-0.5 h-4 w-4 accent-amber-500" />
               <span className="font-caption text-xs text-content-secondary">
-                <span className="font-bold">★ Inicio de paquete de 4.</span> Marca esta sesión como la primera de un paquete prepagado; las siguientes 3 sesiones del paciente se agendarán como pagadas por defecto.
+                <span className="font-bold">★ Inicio de paquete de 4.</span> Marca esta sesión como la primera de un paquete. El prepago se lleva como saldo a favor y se descuenta solo al confirmar cada sesión.
               </span>
             </label>
           )}
 
-          {mode !== 'edit' && !prepaid && (
+          {mode !== 'edit' && (
             <p className="font-caption text-xs text-content-muted">
-              Se agenda como <span className="font-bold text-content-secondary">pendiente de confirmación</span> y sin pagar. La confirmación y el pago se gestionan en la vista de Lista.
+              Se agenda como <span className="font-bold text-content-secondary">pendiente de confirmación</span> y sin pagar. Si el paciente tiene saldo a favor, se descuenta automáticamente al confirmar. La confirmación y el pago se gestionan en la vista de Lista.
             </p>
           )}
 

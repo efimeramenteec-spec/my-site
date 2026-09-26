@@ -1,14 +1,21 @@
 -- saldo-lotes.sql
 --
--- #19 Saldo a favor — credit "lotes" (batches). Replaces the package_anchor checkbox.
--- Covers: 4-session packages, paying 2–3 sessions upfront, prepaying one session, and
--- odd overpayments. Every payment that leaves credit creates a lote; consumption is
--- FIFO (oldest lote first) at the LOTE's price_per_session (not the patient's tarifa).
--- A package is always $140 for 4 → a lote at $35/session (netlify/lib/saldo.mjs).
+-- #19 Saldo a favor — credit "lotes" (batches) + FIFO consumption. Replaces the
+-- package_anchor prepay checkbox. Covers 4-session packages, paying 2–3 sessions
+-- upfront, prepaying one session, and (later) odd overpayments. Every payment that
+-- leaves credit creates a lote; consumption is FIFO (oldest lote first) at the
+-- LOTE's price_per_session (not the patient's tarifa). Shared math in
+-- netlify/lib/saldo.mjs.
 --
--- STATUS: **NOT YET APPLIED.** The CREATE TABLE is additive/safe; the BACKFILL creates
--- financial rows, so it waits on Nicolás's review of the dry-run (2026-09-26). Apply
--- the table + the confirmed backfill together via the Supabase connector once approved.
+-- APPLIED 2026-09-26 via the Supabase connector:
+--   • migration `saldo_lotes_table_and_trigger` (table + trigger below)
+--   • backfill insert (7 live-credit lotes, $433 — the INSERT at the bottom)
+--
+-- NOT done (deliberately): comprobante→lote creation ($140 package / overpayment
+-- surplus) and comprobante/reminder net-of-credit — only needed once non-package
+-- (odd-amount) lotes exist; package lotes are whole multiples so the trigger fully
+-- covers them. And the destructive DROP of sessions.package_anchor stays pending
+-- explicit approval (the column + ★ display are still read elsewhere).
 --
 -- Depends on: payers (payers-and-patient-billing.sql) + is_owner() (auth-setup.sql).
 
@@ -16,9 +23,9 @@
 create table if not exists public.saldo_lotes (
   id                uuid primary key default gen_random_uuid(),
   patient_id        uuid not null references public.patients(id) on delete cascade,
-  payer_id          uuid references public.payers(id) on delete set null,  -- denormalized owner at creation (= patients.payer_id); credit follows the payer's group
+  payer_id          uuid references public.payers(id) on delete set null,  -- denormalized owner (= patients.payer_id) for future payer-group scoping
   amount            numeric(10,2) not null,           -- total credit this payment created
-  price_per_session numeric(10,2) not null,           -- consumption rate ($35 for a package)
+  price_per_session numeric(10,2) not null,           -- consumption rate ($35 for a standard package)
   remaining         numeric(10,2) not null,           -- credit left; FIFO oldest-first; 0 = spent
   origin            text not null default 'package'
                       check (origin in ('package','overpayment','prepay','manual')),
@@ -28,67 +35,93 @@ create table if not exists public.saldo_lotes (
   created_at        timestamptz not null default now()
 );
 
--- Open lotes for an owner, oldest-first (the FIFO consumption lookup).
 create index if not exists saldo_lotes_open_idx
-  on public.saldo_lotes (patient_id, created_at)
-  where remaining > 0;
+  on public.saldo_lotes (patient_id, created_at) where remaining > 0;
 
 alter table public.saldo_lotes enable row level security;
-
--- Owner-only, mirrors the payers table (billing is owner scope).
 drop policy if exists saldo_lotes_owner on public.saldo_lotes;
 create policy saldo_lotes_owner on public.saldo_lotes for all
   using (public.is_owner()) with check (public.is_owner());
-
--- Explicit GRANTs — a table created via apply_migration does NOT inherit the default
--- role grants (the whatsapp-delivery-status gotcha: the service-role writer hit
--- 42501 permission denied). The server processor writes with service_role.
+-- Explicit GRANTs — a table made via apply_migration does NOT inherit the default
+-- role grants (the whatsapp-delivery-status gotcha: service-role hit 42501).
 grant select, insert, update, delete on public.saldo_lotes to service_role, authenticated;
 
--- ── BACKFILL — REVIEWED WITH NICOLÁS 2026-09-26 (still pending apply) ──────────
--- One lote per package_anchor pack that still has UNCONSUMED credit, i.e. fewer than
--- 4 PAID pack sessions so far. remaining = price_per_session × (4 − paid pack sessions).
--- Fully-paid packs (historical) get NO lote. Standard package rate $35; per-patient
--- exceptions carried explicitly below.
+-- ── Consumption trigger ──────────────────────────────────────────────────────
+-- On a confirmada + unpaid + billable session, draw the patient's credit FIFO
+-- (oldest lote first). FULL-COVERAGE ONLY: package lotes always cover whole
+-- sessions, so partial draws never happen; if credit can't cover the whole session
+-- it's left unpaid for the reminder/comprobante flow. Fires from every write path
+-- (app, webhook, SQL). Reversible: flip pagado + restore remaining.
+create or replace function public.consume_saldo_on_confirm()
+returns trigger language plpgsql as $$
+declare
+  v_need numeric(10,2);
+  v_credit numeric(10,2);
+  r record;
+  v_take numeric(10,2);
+begin
+  if new.estado is distinct from 'confirmada'
+     or coalesce(new.pagado, false)
+     or new.tipo = 'llamada'
+     or coalesce(new.monto, 0) <= 0 then
+    return new;
+  end if;
+
+  select coalesce(sum(remaining), 0) into v_credit
+  from public.saldo_lotes
+  where patient_id = new.patient_id and remaining > 0;
+
+  v_need := new.monto;
+  if v_credit + 0.005 < v_need then
+    return new;
+  end if;
+
+  for r in
+    select id, remaining from public.saldo_lotes
+    where patient_id = new.patient_id and remaining > 0
+    order by created_at, id
+    for update
+  loop
+    exit when v_need <= 0.005;
+    v_take := least(r.remaining, v_need);
+    update public.saldo_lotes set remaining = round(remaining - v_take, 2) where id = r.id;
+    v_need := round(v_need - v_take, 2);
+  end loop;
+
+  new.pagado := true;
+  new.paid_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists consume_saldo_on_confirm on public.sessions;
+create trigger consume_saldo_on_confirm
+before insert or update on public.sessions
+for each row execute function public.consume_saldo_on_confirm();
+
+-- ── Backfill (applied 2026-09-26; reviewed with Nicolás) ──────────────────────
+-- One lote per package_anchor pack with UNCONSUMED credit (< 4 PAID pack sessions).
+-- remaining = price_per_session × (4 − paid pack sessions). Fully-paid packs get no
+-- lote. Standard rate $35; Samantha Aldaz at her real special $24 (pack 4×$24=$96).
+-- Micaela Castro dropped (balance $0; since re-typed as a menor). 7 lotes, $433.
 --
--- Flags resolved by Nicolás:
---   • Samantha Aldaz — the $24 is a real special discount → her pack is 4×$24=$96 at
---     $24/session (remaining 2 × $24 = $48), NOT the standard $140/$35.
---   • Micaela Castro — DROPPED. She just had her 4th session; balance is $0 (no credit,
---     no debt). She's since been re-typed as a menor (tutor added). No lote.
---   • Isabel Garcés — confirmed 4-session paquete, 2 taken / 2 pre-paid remaining
---     (Nicolás marked the 2nd session paid manually). Standard $35 → remaining $70.
---   • Loose pricing on later sessions ($39/$32) is fine and NOT corrected here — the
---     live-credit math keys off the count of PAID pack sessions, not their montos. Going
---     forward, a mismatched comprobante simply withholds (warning) until Nicolás fixes
---     the tarifa in Pacientes — the existing comprobante behaviour, unchanged.
---
--- 7 live-credit lotes ($433 total; payer_id filled from patients.payer_id at apply time):
---   Daniel Granja      2026-08-20  3/4 paid  →  1 × $35  = $35
---   Emily Rivera       2026-08-15  3/4 paid  →  1 × $35  = $35
---   Isabel Garcés      2026-09-09  2/4 paid  →  2 × $35  = $70
---   Ramesvary Henao    2026-08-31  1/4 paid  →  3 × $35  = $105
---   Samantha Aldaz     2026-08-26  2/4 paid  →  2 × $24  = $48   (special $24 rate)
---   Shyam Yelpi        2026-09-22  1/4 paid  →  3 × $35  = $105
---   Thomas Quevedo     2026-08-14  3/4 paid  →  1 × $35  = $35   (payer-billed)
---
--- INSERT (uncomment + run once Nicolás green-lights; source_session_id = the anchor):
 -- insert into public.saldo_lotes (patient_id, payer_id, amount, price_per_session, remaining, origin, source_session_id, note)
 -- select s.patient_id, p.payer_id, x.amount, x.rate, x.remaining, 'package', x.anchor_session_id, x.note
 -- from (values
---   ('ca569ad7-7fc8-4c8c-85bd-6abe1f8819ff'::uuid, 140, 35, 35,  'Backfill package_anchor — 3/4 pagadas al 2026-09-26'),
---   ('a0c67c60-4811-49a2-b1db-06f5194b6075'::uuid, 140, 35, 35,  'Backfill package_anchor — 3/4 pagadas al 2026-09-26'),
---   ('60011384-e17b-4e2b-8e06-05772bcecd89'::uuid, 140, 35, 70,  'Backfill package_anchor — 2/4 pagadas al 2026-09-26'),
---   ('4c68ebdc-10ce-43da-a742-73ae16a17376'::uuid, 140, 35, 105, 'Backfill package_anchor — 1/4 pagadas al 2026-09-26'),
---   ('20351855-bafe-4a3f-b7e7-b21b74490992'::uuid, 96,  24, 48,  'Backfill package_anchor — 2/4 pagadas al 2026-09-26 (tarifa especial $24)'),
---   ('c94ea66d-5328-4655-b298-3126357bb007'::uuid, 140, 35, 105, 'Backfill package_anchor — 1/4 pagadas al 2026-09-26'),
---   ('56625b85-8d9b-4b02-b44a-23f499dcd9c2'::uuid, 140, 35, 35,  'Backfill package_anchor — 3/4 pagadas al 2026-09-26')
+--   ('ca569ad7-7fc8-4c8c-85bd-6abe1f8819ff'::uuid, 140::numeric, 35::numeric, 35::numeric,  'Backfill package_anchor — 3/4 pagadas al 2026-09-26'),   -- Daniel Granja
+--   ('a0c67c60-4811-49a2-b1db-06f5194b6075'::uuid, 140, 35, 35,  'Backfill package_anchor — 3/4 pagadas al 2026-09-26'),   -- Emily Rivera
+--   ('60011384-e17b-4e2b-8e06-05772bcecd89'::uuid, 140, 35, 70,  'Backfill package_anchor — 2/4 pagadas al 2026-09-26'),   -- Isabel Garcés
+--   ('4c68ebdc-10ce-43da-a742-73ae16a17376'::uuid, 140, 35, 105, 'Backfill package_anchor — 1/4 pagadas al 2026-09-26'),   -- Ramesvary Henao
+--   ('20351855-bafe-4a3f-b7e7-b21b74490992'::uuid, 96,  24, 48,  'Backfill package_anchor — 2/4 pagadas al 2026-09-26 (tarifa especial $24)'), -- Samantha Aldaz
+--   ('c94ea66d-5328-4655-b298-3126357bb007'::uuid, 140, 35, 105, 'Backfill package_anchor — 1/4 pagadas al 2026-09-26'),   -- Shyam Yelpi
+--   ('56625b85-8d9b-4b02-b44a-23f499dcd9c2'::uuid, 140, 35, 35,  'Backfill package_anchor — 3/4 pagadas al 2026-09-26')    -- Thomas Quevedo (menor)
 -- ) as x(anchor_session_id, amount, rate, remaining, note)
 -- join public.sessions s on s.id = x.anchor_session_id
 -- join public.patients p on p.id = s.patient_id;
 
--- ── FOLLOW-UP (separate, after backfill is confirmed live) ────────────────────
---   • Remove the package_anchor path: drop the auto-prepaid-at-scheduling logic
---     (src/lib/packages.js) + the drawer control, then DROP COLUMN sessions.package_anchor
---     (DESTRUCTIVE — needs explicit approval). Until then the two systems must not
---     double-pay: do not go live on lote consumption while package_anchor still prepays.
+-- ── FOLLOW-UP (next, in order) ────────────────────────────────────────────────
+--   1. proofReconcile: $140 comprobante → package lote; matched-sender overpayment
+--      surplus → 'overpayment' lote; match against amount-net-of-credit + consume.
+--   2. paymentReminders: ask amount net of credit (only matters once odd lotes exist).
+--   3. Retire package_anchor: DROP COLUMN sessions.package_anchor (DESTRUCTIVE —
+--      needs explicit approval) once the ★ display + packages.js are repointed to lotes.
