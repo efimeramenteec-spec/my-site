@@ -102,11 +102,12 @@ export async function listTemplates() {
 // name with a clear error, which we report rather than treat as fatal. Backs off
 // on Dualhook's 429 circuit breaker (retries each create up to 3x). Returns a
 // per-template result array.
-export async function submitTemplates() {
+export async function submitTemplates(onlyNames = null) {
   const apiKey = process.env.WA_DUALHOOK_API_KEY
   if (!apiKey) throw new Error('WA_DUALHOOK_API_KEY missing — no submit performed')
   const results = []
-  for (const t of TEMPLATES) {
+  const pick = onlyNames ? TEMPLATES.filter((t) => onlyNames.includes(t.name)) : TEMPLATES
+  for (const t of pick) {
     const body = {
       name: t.name, language: t.language, category: t.category,
       allow_category_change: true, components: t.components,

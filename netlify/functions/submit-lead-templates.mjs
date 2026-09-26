@@ -29,7 +29,10 @@ export default async (req) => {
     }
   }
   try {
-    const results = await submitTemplates()
+    // ?name=<template> submits just one (fast response — avoids the proxy timeout
+    // that eats the full 4-template batch, so per-template Meta errors are visible).
+    const only = url.searchParams.get('name')
+    const results = await submitTemplates(only ? [only] : null)
     return new Response(JSON.stringify({ ok: true, results }, null, 2),
       { status: 200, headers: { 'Content-Type': 'application/json' } })
   } catch (e) {
