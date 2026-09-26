@@ -6,7 +6,7 @@ import { Select } from '../components/Select/Select.jsx'
 import { getSessionsData, createSession, updateSession, deleteSession, createPatient, notifySessionEstado } from '../lib/queries.js'
 import { WeekView, MonthView, ListView } from '../features/sesiones/views.jsx'
 import { SesionDrawer } from '../features/sesiones/SesionDrawer.jsx'
-import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName, patientLabel, formatTime } from '../lib/format.js'
+import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName, patientLabel, patientSearchText, formatTime } from '../lib/format.js'
 import { CONFIRMACION } from '../lib/constants.js'
 import { findConflict, roomsFull, CONSULTORIOS } from '../lib/conflicts.js'
 import { groupSessionsByPatient } from '../lib/conversion.js'
@@ -89,10 +89,9 @@ export default function Sesiones() {
       ? sessions.filter((s) => {
           if (filters.desde && s.fecha < filters.desde) return false
           if (filters.hasta && s.fecha > filters.hasta) return false
-          if (q) {
-            const name = `${s.patient?.nombre || ''} ${s.patient?.apellido || ''}`.toLowerCase()
-            if (!name.includes(q)) return false
-          }
+          // Search both people (tutor + minor / both partners) so either name finds
+          // the appointment — patientSearchText covers nombre_2/apellido_2 too.
+          if (q && !patientSearchText(s.patient).includes(q)) return false
           return true
         })
       : sessions
