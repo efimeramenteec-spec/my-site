@@ -27,7 +27,7 @@
 import crypto from 'crypto'
 import { getSupabaseAdmin, normalizePhone, resolveReplyEstado, applyInboundReplyEstado } from '../lib/whatsapp.mjs'
 import { notifyTherapist } from '../lib/push.mjs'
-import { isTherapistOrPayer, recordLead, handleEchoes, runBot } from '../lib/leadBot.mjs'
+import { isTherapistOrPayer, recordLead, handleEchoes, runBot, handleTherapistResult } from '../lib/leadBot.mjs'
 
 const text = (body, status = 200) => new Response(body, { status, headers: { 'Content-Type': 'text/plain' } })
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
@@ -144,7 +144,7 @@ export default async (req) => {
       // whatsapp_delivery_status for per-reminder ground truth.
       if (Array.isArray(value?.statuses) && value.statuses.length) {
         if (!patients) {
-          const { data, error } = await supabase.from('patients').select('id, telefono, nombre, apellido')
+          const { data, error } = await supabase.from('patients').select('id, telefono, nombre, apellido, es_lead')
           if (error) { console.error('[wa-cloud] patients fetch:', error.message); patients = [] }
           else patients = data || []
         }
@@ -201,11 +201,22 @@ export default async (req) => {
           }
         }
 
+        // ── Therapist tapped Se hizo / No contestó on a resultado_llamada ────
+        // These come from a therapist's phone (a known contact, so the lead block
+        // below would skip them). Handle first; if it consumed the message, done.
+        let handledResult = false
+        try {
+          handledResult = await handleTherapistResult(supabase, msg)
+        } catch (e) {
+          console.warn('[wa-cloud] therapist result failed (non-blocking):', e.message)
+        }
+
         // ── Lead funnel (#4 + #20) ──────────────────────────────────────────
-        // A message from a phone that isn't a patient/therapist/payer is a lead.
-        // Record it (measurement is always on, regardless of LEAD_BOT_LIVE), then
-        // let the bot advance the flow (runBot self-gates on LEAD_BOT_LIVE + pause).
-        if (!patient) {
+        // Route to the bot when the sender is NOT a real (non-lead) patient, a
+        // therapist or a payer. A booked lead has an es_lead=true patient row, so
+        // matching a patient does NOT exclude them — only es_lead=false does.
+        // Measurement (recordLead) always runs; runBot self-gates on LEAD_BOT_LIVE.
+        if (!handledResult && (!patient || patient.es_lead)) {
           try {
             if (!(await isTherapistOrPayer(supabase, msg.from))) {
               const contact = value.contacts?.[0] || null

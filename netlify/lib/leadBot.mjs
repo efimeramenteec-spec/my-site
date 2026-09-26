@@ -16,6 +16,7 @@ import { normalizePhone } from './whatsapp.mjs'
 import { sendText, sendButtons, sendList, sendImageCard } from './waSend.mjs'
 import { nextSlots, createBooking } from './booking.mjs'
 import { notifyTherapist } from './push.mjs'
+import { sendCallReminder, sendCallResult, sendRebook, sendFirstSessionNudge } from './leadTemplates.mjs'
 
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
 
@@ -162,13 +163,18 @@ const STAGE_TS = {
   toco: 'toco_at', eligio_terapeuta: 'eligio_terapeuta_at', agendo: 'agendo_at',
   llamada_hecha: 'llamada_hecha_at', no_contesto: 'no_contesto_at', paciente: 'paciente_at', frio: 'frio_at',
 }
-// Advance the funnel stage, stamping its timestamp once. Never moves backward.
-const STAGE_ORDER = ['nuevo', 'toco', 'eligio_terapeuta', 'agendo', 'llamada_hecha', 'no_contesto', 'paciente', 'frio']
+// Advance the funnel stage, stamping its timestamp once. Among the PRE-booking
+// core stages (nuevo→toco→eligio_terapeuta→agendo) it never moves backward. Every
+// other transition always applies: the post-call branches (llamada_hecha /
+// no_contesto), re-engagement from no_contesto/frio back to agendo, and the frio
+// off-ramp. `paciente` is derived from `convirtio` elsewhere — the bot never sets it.
+const CORE = { nuevo: 0, toco: 1, eligio_terapeuta: 2, agendo: 3 }
 async function advanceStage(supabase, lead, stage) {
-  const cur = STAGE_ORDER.indexOf(lead.stage)
-  const next = STAGE_ORDER.indexOf(stage)
   const patch = {}
-  if (next > cur) patch.stage = stage
+  const cur = CORE[lead.stage]
+  const next = CORE[stage]
+  if (cur != null && next != null) { if (next > cur) patch.stage = stage }
+  else patch.stage = stage
   const ts = STAGE_TS[stage]
   if (ts && !lead[ts]) patch[ts] = new Date().toISOString()
   if (Object.keys(patch).length) await patchLead(supabase, lead, patch)
@@ -453,7 +459,35 @@ async function handleTap(supabase, lead, tap) {
   if (id.startsWith('slot:')) return bookSlot(supabase, lead, id.slice(5))
   if (id.startsWith('vermas:')) return sendMoreLink(supabase, lead, id.slice(7))
   if (id.startsWith('faq:')) return answerFaq(supabase, lead, id.slice(4))
+  // Follow-up template quick-replies (payload = the button text)
+  if (id === 'Confirmo') { await sendText(lead.phone, '¡Perfecto! Te esperamos 🌿'); return }
+  if (id === 'Cambiar hora' || id === 'Sí, reagendar') return rebookFromButton(supabase, lead)
+  if (id === 'Sí, quiero agendar') return firstSessionInterest(supabase, lead)
   return renderStep(supabase, lead)
+}
+
+// A lead asking for a new time (from the call reminder's "Cambiar hora" or the
+// rebook template's "Sí, reagendar") → fresh slots for the same therapist.
+async function rebookFromButton(supabase, lead) {
+  if (!lead.therapist_id) return renderStep(supabase, lead)
+  const { data: t } = await supabase.from('therapists')
+    .select('id, nombre, apellido, booking_availability, calendar_email').eq('id', lead.therapist_id).maybeSingle()
+  if (!t) return renderStep(supabase, lead)
+  await sendText(lead.phone, '¡Claro! Estos son los horarios disponibles 👇')
+  return showSlots(supabase, lead, t)
+}
+
+// A lead tapping "Sí, quiero agendar" on the 48h first-session nudge → hand off to
+// Nicolás + the therapist to schedule the paid session (spec: they coordinate it).
+async function firstSessionInterest(supabase, lead) {
+  await sendText(lead.phone, '¡Genial! 🌿 Un momento, coordinamos tu primera sesión por aquí.')
+  try {
+    await notifyTherapist(supabase, lead.therapist_id || null, {
+      title: 'Lead quiere primera sesión 🌿',
+      body: `${lead.wa_name || lead.phone} quiere agendar su primera sesión`,
+      url: '/marketing',
+    })
+  } catch (e) { console.warn('[bot] first-session push failed:', e.message) }
 }
 
 // Entry point, called from the webhook after the lead row is recorded. Self-gates
@@ -463,6 +497,9 @@ export async function runBot(supabase, { lead, isNew, msg }) {
   if (!lead || lead.bot_paused) return
   try {
     const tap = extractTap(msg)
+    // Any inbound means the lead is active again — clear the nudge counter so a
+    // fresh silence can be re-nudged (and revive them from frio via the handlers).
+    if (!isNew && lead.nudges_sent > 0) await patchLead(supabase, lead, { nudges_sent: 0 })
     // First contact, or a lead who has never been sent Message 1 (e.g. they wrote
     // in while the bot was off): open with Message 1 rather than classifying.
     if (isNew || (!tap && !lead.step_actual)) return await showMessage1(supabase, lead)
@@ -473,4 +510,121 @@ export async function runBot(supabase, { lead, isNew, msg }) {
   } catch (e) {
     console.warn('[bot] runBot failed (non-blocking):', e.message)
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase C — follow-ups. Entry points called by the lead-followups cron (silent
+// nudges, call reminder, therapist result, 48h nudge) and by the webhook (the
+// therapist's Se hizo / No contestó reply). All best-effort; none throw.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const leadFirstName = (lead) => String(lead?.wa_name || '').trim().split(/\s+/)[0] || ''
+async function therapistShort(supabase, therapistId) {
+  if (!therapistId) return 'tu terapeuta'
+  const { data: t } = await supabase.from('therapists').select('nombre').eq('id', therapistId).maybeSingle()
+  return t ? shortName(t.nombre) : 'tu terapeuta'
+}
+
+// Silent mid-flow nudge (resumes at step_actual). 1st at +2h, 2nd at +22h; after
+// the 2nd → stage=frio. The cron owns the timing + quiet-hours gating; this owns
+// the send + counter. last_bot_at is re-anchored so the next threshold is measured
+// from this nudge.
+export async function nudgeLead(supabase, lead) {
+  if (lead.bot_paused) return 'skipped'
+  const n = (lead.nudges_sent || 0) + 1
+  const note = n === 1
+    ? '¿Seguimos con tu llamada gratuita de 10 minutos? 🌿'
+    : 'Seguimos aquí 🌿 Cuando quieras, agenda tu llamada gratuita de 10 minutos.'
+  try {
+    await renderStep(supabase, lead, { note })
+  } catch (e) { console.error('[followups] nudge failed:', e.message); return 'failed' }
+  const patch = { nudges_sent: n, last_bot_at: new Date().toISOString() }
+  if (n >= 2) { patch.stage = 'frio'; if (!lead.frio_at) patch.frio_at = new Date().toISOString() }
+  await patchLead(supabase, lead, patch)
+  return 'sent'
+}
+
+// Call reminder (recordatorio_llamada) — sent to the LEAD ~1h before the call.
+export async function sendReminderForLead(supabase, lead, therapist, hora) {
+  if (lead.bot_paused) return 'skipped'
+  const toE164 = normalizePhone(lead.phone)
+  if (!toE164) return 'skipped'
+  try {
+    await sendCallReminder(toE164, { name: leadFirstName(lead), therapist: shortName(therapist.nombre), hora })
+    await patchLead(supabase, lead, { recordatorio_llamada_at: new Date().toISOString() })
+    return 'sent'
+  } catch (e) { console.error('[followups] call reminder failed:', e.message); return 'failed' }
+}
+
+// Therapist result (resultado_llamada) — sent to the THERAPIST ~5 min after the
+// call ends. Stores the returned wamid so the therapist's reply maps back here.
+export async function sendResultForLead(supabase, lead, therapist, hora) {
+  const toE164 = normalizePhone(therapist.telefono)
+  if (!toE164) { console.warn(`[followups] therapist ${therapist.id} has no phone`); return 'skipped' }
+  try {
+    const wamid = await sendCallResult(toE164, { therapist: shortName(therapist.nombre), name: leadFirstName(lead), hora })
+    await patchLead(supabase, lead, { resultado_llamada_at: new Date().toISOString(), resultado_llamada_wamid: wamid })
+    return 'sent'
+  } catch (e) { console.error('[followups] result failed:', e.message); return 'failed' }
+}
+
+// 48h first-session nudge (primera_sesion) — sent to the LEAD.
+export async function sendFirstSessionForLead(supabase, lead, therapist) {
+  if (lead.bot_paused) return 'skipped'
+  const toE164 = normalizePhone(lead.phone)
+  if (!toE164) return 'skipped'
+  try {
+    await sendFirstSessionNudge(toE164, { name: leadFirstName(lead), therapist: shortName(therapist.nombre) })
+    await patchLead(supabase, lead, { nudge48_sent_at: new Date().toISOString() })
+    return 'sent'
+  } catch (e) { console.error('[followups] 48h nudge failed:', e.message); return 'failed' }
+}
+
+// The therapist tapped Se hizo / No contestó on a resultado_llamada template.
+// Returns true if this inbound was a therapist-result reply (handled), else false
+// so the webhook can keep routing. Matches the lead via the reply's context.id
+// (the stored wamid), falling back to the therapist's most recent pending result.
+export async function handleTherapistResult(supabase, msg) {
+  const tap = extractTap(msg)
+  const id = tap?.id
+  if (id !== 'Se hizo' && id !== 'No contestó') return false
+
+  let lead = null
+  const ctxId = msg?.context?.id
+  if (ctxId) {
+    const { data } = await supabase.from('leads').select('*').eq('resultado_llamada_wamid', ctxId).maybeSingle()
+    lead = data || null
+  }
+  if (!lead) {
+    const fromNorm = normalizePhone(msg.from); const f9 = last9(msg.from)
+    const { data: ths } = await supabase.from('therapists').select('id, telefono')
+    const th = (ths || []).find((t) => {
+      const n = normalizePhone(t.telefono)
+      return (fromNorm && n === fromNorm) || (f9 && last9(t.telefono) === f9)
+    })
+    if (th) {
+      const { data } = await supabase.from('leads').select('*')
+        .eq('therapist_id', th.id).not('resultado_llamada_at', 'is', null)
+        .is('llamada_hecha_at', null).is('no_contesto_at', null)
+        .order('resultado_llamada_at', { ascending: false }).limit(1)
+      lead = data?.[0] || null
+    }
+  }
+  if (!lead) { console.warn('[bot] therapist result: no matching lead'); return true }
+
+  if (id === 'Se hizo') {
+    await advanceStage(supabase, lead, 'llamada_hecha')
+    console.log(`[bot] lead ${lead.id} → llamada_hecha`)
+    return true
+  }
+  // No contestó → mark + one rebook message to the lead (template; window likely closed).
+  await advanceStage(supabase, lead, 'no_contesto')
+  if (!lead.rebook_sent_at && !lead.bot_paused) {
+    try {
+      await sendRebook(lead.phone, { name: leadFirstName(lead), therapist: await therapistShort(supabase, lead.therapist_id) })
+      await patchLead(supabase, lead, { rebook_sent_at: new Date().toISOString() })
+      console.log(`[bot] lead ${lead.id} rebook sent`)
+    } catch (e) { console.warn('[bot] rebook send failed:', e.message) }
+  }
+  return true
 }
