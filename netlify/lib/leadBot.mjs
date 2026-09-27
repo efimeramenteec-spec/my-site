@@ -57,11 +57,12 @@ export async function isTherapistOrPayer(supabase, fromRaw) {
   return phoneMatches(th.data, fromRaw) || phoneMatches(py.data, fromRaw)
 }
 
-// Click-to-WhatsApp ad referral → attribution fields.
+// Click-to-WhatsApp ad referral → attribution fields. ctwa_clid is the per-click
+// id Meta's Conversions API (#22) keys events on — present on ~all ad messages.
 export function referralOf(msg) {
   const r = msg?.referral
-  if (!r) return { source: 'whatsapp_organico', ad_source_id: null, ad_headline: null }
-  return { source: 'meta_ctwa', ad_source_id: r.source_id || null, ad_headline: r.headline || null }
+  if (!r) return { source: 'whatsapp_organico', ad_source_id: null, ad_headline: null, ctwa_clid: null }
+  return { source: 'meta_ctwa', ad_source_id: r.source_id || null, ad_headline: r.headline || null, ctwa_clid: r.ctwa_clid || null }
 }
 
 // A first-contact ORGANIC sender (no ad referral) who already has an inbound
@@ -79,22 +80,28 @@ export async function recordLead(supabase, { msg, contact }) {
   const phone = normalizePhone(msg.from)
   if (!phone) return null
 
+  const { source, ad_source_id, ad_headline, ctwa_clid } = referralOf(msg)
+
   const { data: existing } = await supabase.from('leads').select('*').eq('phone', phone).maybeSingle()
   if (existing) {
+    const patch = {}
     const waName = contact?.profile?.name
-    if (waName && !existing.wa_name) {
-      await supabase.from('leads').update({ wa_name: waName, updated_at: new Date().toISOString() }).eq('id', existing.id)
-      existing.wa_name = waName
+    if (waName && !existing.wa_name) patch.wa_name = waName
+    // A later ad click backfills the click id if the first contact was organic (#22).
+    if (ctwa_clid && !existing.ctwa_clid) patch.ctwa_clid = ctwa_clid
+    if (Object.keys(patch).length) {
+      patch.updated_at = new Date().toISOString()
+      await supabase.from('leads').update(patch).eq('id', existing.id)
+      Object.assign(existing, patch)
     }
     return { lead: existing, isNew: false }
   }
 
-  const { source, ad_source_id, ad_headline } = referralOf(msg)
   if (source === 'whatsapp_organico' && await hasEarlierInbound(supabase, msg.from)) {
     console.log(`[lead] skip — organic known contact phone=${phone}`)
     return null
   }
-  const row = { phone, wa_name: contact?.profile?.name || null, source, ad_source_id, ad_headline, stage: 'nuevo' }
+  const row = { phone, wa_name: contact?.profile?.name || null, source, ad_source_id, ad_headline, ctwa_clid, stage: 'nuevo' }
   const { data, error } = await supabase.from('leads').insert(row).select('*').single()
   if (error) {
     const { data: raced } = await supabase.from('leads').select('*').eq('phone', phone).maybeSingle()

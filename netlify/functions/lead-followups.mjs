@@ -8,6 +8,8 @@
 //   C. Call result   — resultado_llamada to the therapist ~5 min after it ends.
 //   D. 48h nudge     — primera_sesion to the lead if the call happened but they
 //                      haven't converted (session.convirtio still false) after 48h.
+//   E. CAPI sweep    — report Lead/Schedule/Purchase to Meta for ad leads (#22),
+//                      keyed on ctwa_clid, idempotent, gated on CAPI_LIVE/TEST_CODE.
 // The no-show rebook is INBOUND-triggered (therapist taps "No contestó" →
 // whatsapp-cloud-webhook → handleTherapistResult), not a cron job.
 //
@@ -20,6 +22,7 @@
 
 import { getSupabaseAdmin, TZ_OFFSET, formatHora } from '../lib/whatsapp.mjs'
 import { nudgeLead, sendReminderForLead, sendResultForLead, sendFirstSessionForLead, botAllowedForPhone } from '../lib/leadBot.mjs'
+import { sweepCapiEvents } from '../lib/capi.mjs'
 
 export const config = { schedule: '*/15 * * * *' }
 
@@ -134,7 +137,15 @@ export default async () => {
     }
   }
 
+  // ── E. Meta Conversions API (#22) ─────────────────────────────────────────────
+  // Report Lead / Schedule / Purchase for ad-sourced leads (keyed on ctwa_clid) so
+  // the campaign can optimize on Schedule. Idempotent (leads.capi_*_sent_at) and
+  // self-gated on CAPI_LIVE / CAPI_TEST_CODE. Never touches convirtio or the funnel.
+  let capi = null
+  try { capi = await sweepCapiEvents(supabase) }
+  catch (e) { console.error('[followups] capi sweep failed (non-blocking):', e.message) }
+
   const test = !!(process.env.LEAD_BOT_TEST_PHONES || '').trim()
   console.log(`[followups] live=${live} test=${test} ecHour=${ecHour} quiet=${quiet} ${JSON.stringify(counts)}`)
-  return json({ live, test, quiet, ...counts })
+  return json({ live, test, quiet, ...counts, capi })
 }
