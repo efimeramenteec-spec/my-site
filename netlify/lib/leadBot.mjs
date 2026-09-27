@@ -557,14 +557,33 @@ async function welcomeAndReasons(supabase, lead) {
   return showReasonList(supabase, lead)
 }
 
+// A BARE greeting is just "hola" / "buenas" with nothing substantive. A greeting
+// that carries a motive ("hola, es para mi hijo de 15") is NOT bare — it goes to
+// Claude so the reason gets detected. Strip greeting words + punctuation and check
+// what's left.
+function isBareGreeting(text) {
+  const t = String(text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const stripped = t
+    .replace(/buen[oa]s?\s*(d[ií]as|tardes|noches)?/g, '')
+    .replace(/hola|holaa+|ola|hey|hi|saludos|que tal|klk|buenas/g, '')
+    .replace(/[^a-z0-9]/g, '')
+  return stripped.length < 4
+}
+
 // T2 — free text. Greetings/thanks short-circuit; the diagnóstico/varios prompt
 // steps go to the matcher; everything else asks Claude, who answers from the fact
 // sheet or derives. Keyword canned answers are the fallback if the model is down.
 async function handleFreeText(supabase, lead, text, { firstTouch = false } = {}) {
   const kw = classifyKeywords(text)
   if (kw === 'gracias') { await sendText(lead.phone, 'Con gusto! 🌿'); return }
-  if (kw === 'saludo' && firstTouch) return welcomeAndReasons(supabase, lead)
-  if (kw === 'saludo') { await sendText(lead.phone, 'Hola! 🌿 Cuéntame, en qué te puedo ayudar'); return }
+  // A BARE greeting on first contact → welcome + reasons. A greeting carrying a
+  // motive ("hola, es para mi hijo de 15") is NOT bare — let Claude answer + detect
+  // the reason, so a later "Sí" can skip the list.
+  if (kw === 'saludo' && isBareGreeting(text)) {
+    if (firstTouch) return welcomeAndReasons(supabase, lead)
+    await sendText(lead.phone, 'Hola! 🌿 Cuéntame, en qué te puedo ayudar')
+    return
+  }
   if (lead.step_actual === 'diagnostico_prompt') return matchFlow(supabase, lead, text, 'diagnostico')
   if (lead.step_actual === 'varios_prompt') return matchFlow(supabase, lead, text, 'varios')
 
