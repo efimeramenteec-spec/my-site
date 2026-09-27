@@ -203,26 +203,80 @@ async function sendInvitationOnce(supabase, lead) {
   await patchLead(supabase, lead, { invitacion_enviada: true })
 }
 
-// ── Canned fallback copy (used only when the model is unavailable) ────────────
+// ── Verbatim answers (Nicolás's wording, #27) — the SOURCE OF TRUTH ───────────
+// Claude (leadBrain) only CLASSIFIES the intent; the code sends this exact copy,
+// one WhatsApp bubble per array item, so the wording can never drift. leadBrain's
+// few-shots mirror these for the model, but THIS is what is actually sent. `end`:
+//   'invite'        → after the bubbles, the one-time invitation buttons.
+//   'invite_custom' → the LAST bubble carries the [Sí][Tengo otra pregunta] buttons
+//                     (its own text is the question) — counts as the invitation.
+//   'cards'         → after the bubble, render `categoria`'s cards (no invitation).
+//   'handoff'       → after the bubble, escalate to Nicolás (he negotiates) + pause.
 const MAPS_LINK = 'https://maps.app.goo.gl/GZAFUpC1SAyW8GBT8'
-const ANSWER_COPY = {
-  precio: 'La sesión cuesta $39, o $35 c/u en paquete de 4.\n💳 Aceptamos tarjeta\n🧾 Muchos seguros privados reembolsan la terapia — te ayudamos con el trámite.',
-  ubicacion: '📍 Estamos en Cumbayá, a 3 minutos del Scala, con parqueadero privado y seguro.\n💻 También atendemos online.',
-  seguro: 'Muchos seguros privados reembolsan terapia psicológica según tu plan (Bupa y Humana, por ejemplo, hasta el 80%). Te damos la factura con el formato que piden y te ayudamos con el trámite.',
-  pago: '💳 Puedes pagar por transferencia o con tarjeta de crédito/débito (Payphone).\n📦 También hay un paquete de 4 sesiones por $140 ($35 c/u).',
+const CANNED = {
+  precio: { end: 'invite', bubbles: [
+    { text: 'Hola! La sesión cuesta $39, también tenemos paquetes de 4 sesiones por $35 c/u' },
+    { text: '💳 Aceptamos tarjeta' },
+    { text: '🧾 Muchos seguros privados reembolsan la terapia — Nosotros te ayudamos con el trámite' },
+  ] },
+  ubicacion: { end: 'invite', bubbles: [
+    { text: MAPS_LINK, preview: true },
+    { text: '📍 Estamos en Cumbayá, a 3 minutos del Scala' },
+    { text: '💻 También atendemos online.' },
+  ] },
+  saludsa: { end: 'invite', bubbles: [
+    { text: 'Sí, Saludsa te cubre por reembolso. Avísanos cuando hayas terminado tu primera sesión y te ayudamos con el trámite' },
+  ] },
+  seguros: { end: 'invite', bubbles: [
+    { text: 'Muchos seguros privados reembolsan la terapia según tu plan. Bupa y Humana reembolsan hasta el 80%, con un tope anual según tu plan. Saludsa y Ecuasanitas también cubren por reembolso. Te damos la factura con el formato que piden y te ayudamos con el trámite.' },
+  ] },
+  adolescentes: { end: 'invite_custom', categoria: 'hijo', bubbles: [
+    { text: 'Sí, tenemos varios psicólogos expertos en terapia juvenil. Deseas ver sus perfiles?' },
+  ] },
+  duracion: { end: 'invite', bubbles: [
+    { text: 'Las sesiones individuales duran una hora. La frecuencia puede ser cada 7 o cada 15 días, según tu preferencia y la recomendación del psicólogo después de tu primera sesión' },
+  ] },
+  horarios: { end: 'invite', bubbles: [
+    { text: 'Sí, trabajamos de Lunes a Sábado, de 8am a 8pm. Siempre en coordinación con tu terapeuta y con previa cita.' },
+  ] },
+  psiquiatra: { end: 'invite', bubbles: [
+    { text: 'No tenemos un psiquiatra propio del centro, pero trabajamos en conjunto con el Dr. Camino cuando el caso lo requiere. Se hace una valoración psicológica primero, y luego derivamos al Dr. Camino, si se recomienda medicación.' },
+  ] },
+  pareja: { end: 'cards', categoria: 'terapia_pareja', bubbles: [
+    { text: 'Sí, tenemos una psicóloga especialista, Carolina Almeida. Las sesiones de pareja duran una hora y media, y tienen un valor de $50. También puedes acceder a un paquete de 4 sesiones por $42 cada una' },
+  ] },
+  pago: { end: 'invite', bubbles: [
+    { text: 'Recibirás un recordatorio de pago 2 días *después de la sesión*, con los datos de pago. Aceptamos transferencias y pagos con tarjeta.' },
+  ] },
+  objecion_precio: { end: 'handoff', bubbles: [
+    { text: 'Te entiendo totalmente. Me podrías decir qué presupuesto tenías en mente?' },
+  ] },
 }
-const CONTENT = new Set(['precio', 'ubicacion', 'seguro', 'pago'])
 
-// Plain canned answer (fallback path). Ubicación sends the Maps link first so its
-// rich preview renders.
-async function sendAnswerText(to, intent) {
-  if (intent === 'ubicacion') {
-    await sendText(to, MAPS_LINK, { previewUrl: true })
-    await sendText(to, ANSWER_COPY.ubicacion)
-    return
+// Send a verbatim canned answer, one bubble per item, then run its tail behavior.
+async function sendCanned(supabase, lead, key) {
+  const c = CANNED[key]
+  if (!c) return
+  if (c.categoria) await patchLead(supabase, lead, { categoria: c.categoria })
+  const lastIdx = c.bubbles.length - 1
+  for (let i = 0; i < c.bubbles.length; i++) {
+    const b = c.bubbles[i]
+    if (i === lastIdx && c.end === 'invite_custom' && !lead.invitacion_enviada) {
+      await sendButtons(lead.phone, b.text, INVITATION_BUTTONS) // the question IS the invitation
+      await patchLead(supabase, lead, { invitacion_enviada: true })
+    } else {
+      await sendText(lead.phone, b.text, { previewUrl: !!b.preview })
+    }
   }
-  await sendText(to, ANSWER_COPY[intent] || ANSWER_COPY.precio)
+  const answered = () => patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0, last_bot_at: new Date().toISOString() })
+  if (c.end === 'invite') { await answered(); return sendInvitationOnce(supabase, lead) }
+  if (c.end === 'invite_custom') return answered()
+  if (c.end === 'cards') return showCards(supabase, lead, c.categoria) // e.g. pareja → Carolina, no invitation
+  if (c.end === 'handoff') return escalate(supabase, lead, 'objecion_precio') // line sent; Nicolás negotiates
 }
+
+// Keyword → CANNED key (fallback path only, when the Anthropic brain is down).
+const KW_TO_CANNED = { precio: 'precio', ubicacion: 'ubicacion', seguro: 'seguros', pago: 'pago' }
 
 // ── Keyword classification (deterministic, free) — greeting/thanks fast paths ─
 // + the fallback intent when the model is unavailable. "domicilio" is deliberately
@@ -601,17 +655,37 @@ async function handleFreeText(supabase, lead, text, { firstTouch = false } = {})
   return keywordFallback(supabase, lead, text, kw)
 }
 
-// Act on Claude's {accion, texto, motivo, categoria}. "responder" → send the answer
-// (alone), remember a detected categoria, and offer the invitation once. "derivar"
-// → urgent = containment (+911 on life risk) always sent; otherwise day/night handoff.
+// Act on Claude's {accion, intent, texto, motivo, categoria}. For a known intent
+// the code sends the VERBATIM canned copy (Claude's text is ignored); "libre" sends
+// Claude's own answer + the one-time invitation. "derivar": urgent = containment
+// (+911 on life risk) always sent; otherwise day/night silent handoff.
 async function applyDecision(supabase, lead, text, d) {
   if (d.accion === 'responder') {
-    const reply = d.texto || ANSWER_COPY.precio
-    await sendText(lead.phone, reply)
     if (d.categoria) await patchLead(supabase, lead, { categoria: d.categoria })
+    if (d.intent === 'saludo') {
+      // A greeting reaching Claude (non-bare). If the reason is already clear
+      // ("hola, es para mi hijo de 15") → warm line + the one-time invitation, so a
+      // "Sí" jumps straight to that reason's cards. Otherwise just a warm nudge.
+      if (d.categoria) {
+        await sendText(lead.phone, 'Hola! Qué gusto que nos escribas')
+        await patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0, last_bot_at: new Date().toISOString() })
+        await sendInvitationOnce(supabase, lead)
+      } else {
+        await sendText(lead.phone, 'Hola! 🌿 Cuéntame, en qué te puedo ayudar')
+      }
+      await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.intent, reply: null, model: d.model, latencyMs: d.latencyMs })
+      return
+    }
+    if (CANNED[d.intent]) {
+      await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.intent, reply: `[canned:${d.intent}]`, model: d.model, latencyMs: d.latencyMs })
+      return sendCanned(supabase, lead, d.intent)
+    }
+    // libre — Claude authored the answer from the fact sheet.
+    const reply = (d.texto || '').trim() || 'Con gusto te ayudo 🌿'
+    await sendText(lead.phone, reply)
     await patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0, last_bot_at: new Date().toISOString() })
     await sendInvitationOnce(supabase, lead)
-    await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.motivo, reply, model: d.model, latencyMs: d.latencyMs })
+    await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.intent, reply, model: d.model, latencyMs: d.latencyMs })
     return
   }
   // derivar
@@ -625,15 +699,14 @@ async function applyDecision(supabase, lead, text, d) {
   return handoff(supabase, lead, `derivar — ${d.motivo || 'otro'}`, { botQuestion: /bot/i.test(d.motivo || '') })
 }
 
-// Fallback when the model is unavailable: keyword canned answers + invitation, else handoff.
+// Fallback when the Anthropic brain is unavailable: map the keyword to the same
+// verbatim CANNED answer, else handoff. (No paraphrased copy — one source of truth.)
 async function keywordFallback(supabase, lead, text, kw) {
   const intent = kw || await classifyFreeText(text)
-  if (CONTENT.has(intent)) {
-    await sendAnswerText(lead.phone, intent)
-    await patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0, last_bot_at: new Date().toISOString() })
-    await sendInvitationOnce(supabase, lead)
-    await logDecision(supabase, lead, { text, accion: 'responder', motivo: intent, reply: ANSWER_COPY[intent], fallback: true })
-    return
+  const key = KW_TO_CANNED[intent]
+  if (key) {
+    await logDecision(supabase, lead, { text, accion: 'responder', motivo: intent, reply: `[canned:${key}]`, fallback: true })
+    return sendCanned(supabase, lead, key)
   }
   const motivo = intent === 'otro' ? 'clasificado_otro' : 'no_clasificado'
   await logDecision(supabase, lead, { text, accion: 'derivar', motivo, reply: null, fallback: true })

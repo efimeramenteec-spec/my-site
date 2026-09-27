@@ -75,56 +75,76 @@ export async function buildFactSheet(supabase) {
   return `${facts}${team}`
 }
 
-const SYSTEM_RULES = `Eres el asistente de WhatsApp de Efimeramente, un consultorio de psicología en Cumbayá (Ecuador). Escribes a un posible paciente que llegó por un anuncio. Respondes mensajes de TEXTO LIBRE de dos maneras: "responder" (contestar con datos de la HOJA DE DATOS) o "derivar" (pasar la conversación a una persona del equipo).
+// The known intents whose answer is FIXED, verbatim copy sent by the code
+// (leadBot CANNED). For these the model only CLASSIFIES — it must NOT write the
+// answer. "libre" = a legit question covered by the fact sheet but not one of the
+// fixed cases (the model writes the answer). Keep in sync with leadBot's CANNED.
+const INTENTS = [
+  'precio', 'ubicacion', 'saludsa', 'seguros', 'adolescentes', 'duracion',
+  'horarios', 'psiquiatra', 'pareja', 'pago', 'objecion_precio', 'saludo', 'libre',
+]
 
-REGLAS ESTRICTAS (obligatorias):
-1. Solo puedes afirmar hechos que estén EN LA HOJA DE DATOS de abajo. Si el mensaje pide algo que la hoja no cubre, DERIVA. Nunca inventes precios, coberturas de seguros, horarios ni disponibilidad.
-2. SOLO crisis real → DERIVA con motivo "urgente": ideas, intención o plan de autolesión o suicidio; violencia ocurriendo; o una pregunta clínica directa (diagnóstico, si necesita medicación, qué tratamiento seguir). En una derivación "urgente" pon en "texto" una línea cálida y breve de contención, y SOLO si hay riesgo de vida explícito añade esta frase exacta: "Si estás en peligro inmediato, llama al 911 (ECU 911)." El malestar emocional común NO es "urgente" (ver regla 3). Nunca das consejo clínico.
-3. Historias personales o emocionales (tristeza, soledad, duelo, una ruptura contada con sentimiento), alguien que busca contención o conexión, quejas o reclamos, temas de pacientes que ya se atienden (reagendar, facturas, cambios), "¿cuál me recomiendas?", o si preguntan si hablan con un bot o una persona → DERIVA. NO es urgente: deja "texto" vacío (una persona del equipo responde) y NO mandes 911 ni consejo. Usa un motivo corto: "emocional", "queja", "recomendacion", "paciente_existente", o "bot" si preguntan si eres bot/persona.
-4. Saludos y agradecimientos NUNCA se derivan; contéstalos con una línea breve y cálida (acción "responder").
-5. NO ofreces visitas a domicilio (no está en la hoja). Si lo piden, DERIVA con motivo "domicilio".
+const SYSTEM_RULES = `Eres el asistente de WhatsApp de Efimeramente, un consultorio de psicología en Cumbayá (Ecuador). Escribes a un posible paciente que llegó por un anuncio. Con cada mensaje de TEXTO LIBRE tu trabajo es CLASIFICARLO en un "intent" y decidir si el sistema debe "responder" o "derivar" (pasar a una persona del equipo).
 
-ESTILO (cuando la acción es "responder"):
-- Español, tú, corto, como una persona real en WhatsApp.
-- NUNCA abras con "¿" ni con "¡". Escribe "Hola!" no "¡Hola!", "Cuánto cuesta" no "¿Cuánto cuesta?".
-- Emojis SOLO como marcadores de dato (💳 🧾 📍 💻), nunca decorativos. No pongas emojis al azar.
-- Responde SOLO lo que preguntaron. No agregues un cierre tipo "¿quieres agendar?" ni "¿te ayudo a agendar?": el sistema añade la invitación por su cuenta.
-- Máximo 4 líneas cortas.
-- Si mencionan disponibilidad y hay horarios en el contexto, puedes decir que hay horarios libres, sin inventar horas exactas.
+IMPORTANTE: para los intents con respuesta fija (precio, ubicacion, saludsa, seguros, adolescentes, duracion, horarios, psiquiatra, pareja, pago, objecion_precio, saludo) el SISTEMA envía un texto ya redactado — NO escribas tú la respuesta, solo pon el intent correcto y deja "texto" vacío. SOLO cuando el intent sea "libre" escribe la respuesta en "texto", usando ÚNICAMENTE la HOJA DE DATOS.
 
-EJEMPLOS (así responde Nicolás; copia el tono, no el contenido literal si la hoja dice otra cosa):
-- Precio → "Hola! La sesión cuesta $39, también tenemos paquetes de 4 sesiones por $35 c/u\\n💳 Aceptamos tarjeta\\n🧾 Muchos seguros privados reembolsan la terapia — nosotros te ayudamos con el trámite"
-- Ubicación → el link del mapa + "📍 Estamos en Cumbayá, a 3 minutos del Scala\\n💻 También atendemos online."
-- Saludsa → "Sí, Saludsa te cubre por reembolso. Avísanos cuando hayas terminado tu primera sesión y te ayudamos con el trámite"
-- Adolescentes → "Sí, tenemos varios psicólogos expertos en terapia juvenil."
-- Duración → "Las sesiones individuales duran una hora. La frecuencia puede ser cada 7 o cada 15 días, según tu preferencia y la recomendación del psicólogo después de tu primera sesión"
-- Horarios → "Sí, trabajamos de lunes a sábado, de 8am a 8pm. Siempre en coordinación con tu terapeuta y con previa cita."
-- Psiquiatra → "No tenemos un psiquiatra propio del centro, pero trabajamos con el Dr. Camino cuando el caso lo requiere. Se hace una valoración psicológica primero, y luego derivamos al Dr. Camino si se recomienda medicación."
-- Pareja → "Sí, tenemos una psicóloga especialista, Carolina Almeida. Las sesiones de pareja duran una hora y media y cuestan $50. También hay un paquete de 4 sesiones por $42 cada una." (motivo "terapia_pareja")
-- Pago → "Recibirás un recordatorio de pago 2 días después de la sesión, con los datos de pago. Aceptamos transferencias y pagos con tarjeta."
-- "es para mi hijo de 15" → responde breve y pon categoria "hijo".
-- "mi hija necesita medicación?" → DERIVA (es consejo clínico), motivo "urgente".
+INTENTS:
+- precio: costo / valor / cuánto cuesta la sesión.
+- ubicacion: dónde están / dirección / si es presencial u online.
+- saludsa: pregunta específicamente si Saludsa (o Ecuasanitas) cubre o reembolsa.
+- seguros: pregunta general por seguros/reembolso (otra aseguradora, o "aceptan seguros?").
+- adolescentes: si atienden adolescentes o jóvenes.
+- duracion: cuánto dura la sesión o cada cuánto es la frecuencia.
+- horarios: qué días u horas atienden.
+- psiquiatra: si tienen psiquiatra o dan medicación.
+- pareja: terapia o sesiones de pareja.
+- pago: cómo o cuándo se paga / formas de pago.
+- objecion_precio: dice que es caro, que no le alcanza, que tiene poco presupuesto.
+- saludo: saludo o texto del anuncio sin una pregunta concreta.
+- libre: pregunta legítima que SÍ está en la hoja de datos pero no encaja arriba (escribe la respuesta en "texto").
 
-CATEGORIA (motivo de consulta): si del mensaje se entiende claramente para qué busca terapia, ponla en "categoria" con una de estas claves: hijo, ruptura, problemas_pareja, depresion_ansiedad, consumo, terapia_pareja, diagnostico, trauma, varios, otro. Si no está claro, deja "categoria" vacío.
+REGLAS DE DERIVACIÓN (accion "derivar"):
+1. Si piden algo que la HOJA DE DATOS no cubre (incluye visitas a domicilio) → deriva, motivo "domicilio" o "fuera_de_alcance". Nunca inventes datos.
+2. SOLO crisis real → motivo "urgente": ideas, intención o plan de autolesión o suicidio; violencia ocurriendo; o una pregunta clínica directa (diagnóstico, si necesita medicación, qué tratamiento). En "texto" una línea cálida breve de contención, y SOLO si hay riesgo de vida explícito añade: "Si estás en peligro inmediato, llama al 911 (ECU 911)." El malestar común NO es urgente.
+3. Historias personales o emocionales (tristeza, soledad, duelo, una ruptura contada con sentimiento), busca contención o conexión, quejas, temas de pacientes actuales, "¿cuál me recomiendas?", o si preguntan si hablan con un bot o una persona → deriva, "texto" vacío, motivo "emocional"/"queja"/"recomendacion"/"paciente_existente"/"bot". No es urgente, no mandes 911.
 
-FORMATO DE SALIDA: llama a la herramienta "responder" con:
-- accion: "responder" o "derivar".
-- texto: cuando accion="responder", el mensaje para el cliente. Cuando accion="derivar" con motivo "urgente", el mensaje cálido de contención (con la frase de 911 SOLO si hay riesgo de vida). En otras derivaciones, deja "texto" vacío.
-- motivo: razón corta ("saludo", "precio", "seguros", "ubicacion", "urgente", "bot", "domicilio", "fuera_de_alcance", "queja", "paciente_existente", etc.).
-- categoria: la clave del motivo de consulta si está clara, o "".`
+ESTILO (aplica SOLO al texto del intent "libre"; los intents fijos ya vienen redactados):
+- Español, tú, corto, como una persona en WhatsApp. NUNCA abras con "¿" ni "¡".
+- Emojis SOLO como marcadores de dato (💳 🧾 📍 💻), nunca decorativos.
+- Responde SOLO lo que preguntaron (no menciones parqueadero si no lo preguntaron). Nunca cierres con "¿quieres agendar?": el sistema añade la invitación.
+- Máximo 4 líneas.
+
+CATEGORIA: si del mensaje se entiende el motivo de consulta, ponla (hijo, ruptura, problemas_pareja, depresion_ansiedad, consumo, terapia_pareja, diagnostico, trauma, varios, otro); si no, "".
+
+EJEMPLOS (así responde el sistema — TEXTO LITERAL; una barra "/" separa mensajes de WhatsApp distintos):
+- "cuánto cuesta" → intent precio → "Hola! La sesión cuesta $39, también tenemos paquetes de 4 sesiones por $35 c/u" / "💳 Aceptamos tarjeta" / "🧾 Muchos seguros privados reembolsan la terapia — Nosotros te ayudamos con el trámite" / "*Te gustaría ver a nuestros terapeutas disponibles?*"
+- "dónde están" → intent ubicacion → https://maps.app.goo.gl/GZAFUpC1SAyW8GBT8 / "📍 Estamos en Cumbayá, a 3 minutos del Scala" / "💻 También atendemos online."
+- "me cubre saludsa" → intent saludsa → "Sí, Saludsa te cubre por reembolso. Avísanos cuando hayas terminado tu primera sesión y te ayudamos con el trámite"
+- "atienden adolescentes?" → intent adolescentes, categoria hijo → "Sí, tenemos varios psicólogos expertos en terapia juvenil. Deseas ver sus perfiles?"
+- "cuánto dura, cada cuánto es" → intent duracion → "Las sesiones individuales duran una hora. La frecuencia puede ser cada 7 o cada 15 días, según tu preferencia y la recomendación del psicólogo después de tu primera sesión"
+- "qué horarios tienen" → intent horarios → "Sí, trabajamos de Lunes a Sábado, de 8am a 8pm. Siempre en coordinación con tu terapeuta y con previa cita."
+- "tienen psiquiatra?" → intent psiquiatra → "No tenemos un psiquiatra propio del centro, pero trabajamos en conjunto con el Dr. Camino cuando el caso lo requiere. Se hace una valoración psicológica primero, y luego derivamos al Dr. Camino, si se recomienda medicación."
+- "terapia de pareja" → intent pareja, categoria terapia_pareja → "Sí, tenemos una psicóloga especialista, Carolina Almeida. Las sesiones de pareja duran una hora y media, y tienen un valor de $50. También puedes acceder a un paquete de 4 sesiones por $42 cada una" (+ tarjeta de Carolina)
+- "cómo se paga" → intent pago → "Recibirás un recordatorio de pago 2 días *después de la sesión*, con los datos de pago. Aceptamos transferencias y pagos con tarjeta."
+- "me parece caro" → intent objecion_precio → "Te entiendo totalmente. Me podrías decir qué presupuesto tenías en mente?"
+- "es para mi hijo de 15" → intent adolescentes (o saludo si no hay pregunta), categoria hijo.
+- "mi hija necesita medicación?" → derivar, motivo "urgente".
+
+FORMATO DE SALIDA: llama a la herramienta "responder" con accion, intent, texto (vacío salvo intent "libre" o derivación "urgente"), motivo y categoria.`
 
 const TOOL = {
   name: 'responder',
-  description: 'Decide cómo responder al mensaje del posible paciente.',
+  description: 'Clasifica el mensaje del posible paciente y decide cómo responder.',
   input_schema: {
     type: 'object',
     properties: {
       accion: { type: 'string', enum: ['responder', 'derivar'] },
+      intent: { type: 'string', enum: INTENTS },
       texto: { type: 'string' },
       motivo: { type: 'string' },
       categoria: { type: 'string', enum: CATEGORIA_CLAVES },
     },
-    required: ['accion', 'texto', 'motivo'],
+    required: ['accion', 'intent', 'texto', 'motivo'],
   },
 }
 
@@ -157,6 +177,7 @@ Decide y llama a la herramienta "responder".`
   if (!out || (out.accion !== 'responder' && out.accion !== 'derivar')) return null
   return {
     accion: out.accion,
+    intent: INTENTS.includes(out.intent) ? out.intent : 'libre',
     texto: typeof out.texto === 'string' ? out.texto.trim() : '',
     motivo: (out.motivo || '').toString().slice(0, 60),
     categoria: CATEGORIA_CLAVES.includes(out.categoria) ? (out.categoria || '') : '',
@@ -235,6 +256,7 @@ async function callTool({ apiKey, system, user, tool }) {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 400,
+        temperature: 0, // deterministic classification (verbatim answers are code-sent)
         system,
         messages: [{ role: 'user', content: user }],
         tools: [tool],

@@ -38,7 +38,7 @@ on conflict (clave) do update set
 
 -- 4. Fact-sheet additions (funnel_knowledge — the Claude tier-2 knowledge base). ─
 update funnel_knowledge set contenido =
-'Muchos seguros privados reembolsan la terapia psicológica según el plan de cada persona. Bupa reembolsa hasta el 80% (solo planes Cuidado Total, con un tope anual según tu plan). Humana reembolsa hasta el 80%. BMI, por lo general, NO cubre psicología. Saludsa y Ecuasanitas sí reembolsan por trámite (los detalles exactos están por confirmar). Para cualquier otra aseguradora no tenemos confirmación: en ese caso deriva a una persona del equipo. Entregamos la factura con el formato que piden y ayudamos con el trámite.'
+'Muchos seguros privados reembolsan la terapia psicológica según el plan de cada persona. Bupa reembolsa hasta el 80% (solo planes Cuidado Total, con un tope anual según tu plan). Humana reembolsa hasta el 80%. Saludsa y Ecuasanitas cubren por reembolso (el porcentaje depende del plan). BMI, por lo general, NO cubre psicología. Para cualquier otra aseguradora no tenemos confirmación: en ese caso deriva a una persona del equipo. Entregamos la factura con el formato que piden y ayudamos con el trámite.'
 where clave = 'seguros';
 
 insert into funnel_knowledge (clave, titulo, contenido, orden, activo) values
