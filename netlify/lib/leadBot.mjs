@@ -61,9 +61,23 @@ export function referralOf(msg) {
   return { source: 'meta_ctwa', ad_source_id: r.source_id || null, ad_headline: r.headline || null }
 }
 
+// Rule (A2): a first-contact ORGANIC sender (no ad referral) who already has an
+// inbound message on record is a known contact — a therapist, a patient's relative,
+// someone we already talk to — NOT a lead. Only genuine first-touch organic (no
+// prior inbound) or an ad click (referral present ⇒ always a lead) creates a row.
+// The current inbound is logged AFTER lead handling in the webhook, so it's never
+// counted as its own "earlier" message here.
+async function hasEarlierInbound(supabase, from) {
+  const { data } = await supabase.from('whatsapp_messages')
+    .select('id').eq('direccion', 'inbound')
+    .eq('raw_payload->message->>from', String(from || '')).limit(1)
+  return !!(data && data.length)
+}
+
 // Create the lead row on first contact, or return the existing one. Captures the
 // WhatsApp profile name and CTWA attribution. Measurement only — sends nothing.
-// Returns { lead, isNew } or null when the phone can't be normalized.
+// Returns { lead, isNew } or null when the phone can't be normalized OR when the
+// sender is a known organic contact (see hasEarlierInbound).
 export async function recordLead(supabase, { msg, contact }) {
   const phone = normalizePhone(msg.from)
   if (!phone) return null
@@ -79,6 +93,11 @@ export async function recordLead(supabase, { msg, contact }) {
   }
 
   const { source, ad_source_id, ad_headline } = referralOf(msg)
+  // Organic + prior inbound ⇒ known contact, not a lead. Ad clicks skip this.
+  if (source === 'whatsapp_organico' && await hasEarlierInbound(supabase, msg.from)) {
+    console.log(`[lead] skip — organic known contact phone=${phone}`)
+    return null
+  }
   const row = { phone, wa_name: contact?.profile?.name || null, source, ad_source_id, ad_headline, stage: 'nuevo' }
   const { data, error } = await supabase.from('leads').insert(row).select('*').single()
   if (error) {
@@ -201,50 +220,91 @@ function extractTap(msg) {
   return null
 }
 
-// ── Canned FAQ answers (also reused for classified free text) ────────────────
-function faqText(kind) {
-  switch (kind === 'seguros' ? 'seguro' : kind) {
-    case 'ubicacion': return {
-      text: `https://maps.app.goo.gl/GZAFUpC1SAyW8GBT8
-📍 Estamos en Cumbayá, a 3 minutos del Scala. Tenemos parqueadero privado y seguro.
-💻 También atendemos online.`, preview: true,
-    }
-    case 'seguro': return {
-      text: 'Muchos seguros privados reembolsan terapia psicológica, según tu plan (Bupa y Humana, por ejemplo, reembolsan hasta el 80%). Te damos la factura con el formato que piden y te ayudamos con el trámite.',
-    }
-    case 'pago': return {
-      text: '💳 Puedes pagar por transferencia bancaria o con tarjeta de crédito/débito (Payphone).\n📦 También tenemos un paquete de 4 sesiones por $140 ($35 c/u).',
-    }
-    case 'precio': return {
-      text: 'La sesión cuesta $39, o $35 c/u si compras un paquete de 4 ($140). El primer paso es gratis: una llamada de 10 minutos con la persona que elijas.',
-    }
-    default: return { text: '' }
-  }
+// ── Canned answers ───────────────────────────────────────────────────────────
+// The two next-step buttons attached to every answer (B2). id 'elegir_terapeuta'
+// and 'pregunta' reuse the handleTap routes, so an answer flows straight back into
+// the funnel or the FAQ list.
+const ANSWER_BUTTONS = [
+  { id: 'elegir_terapeuta', title: 'Elegir terapeuta' },
+  { id: 'pregunta', title: 'Otra pregunta' },
+]
+const MAPS_LINK = 'https://maps.app.goo.gl/GZAFUpC1SAyW8GBT8'
+const ANSWER_COPY = {
+  precio: 'La primera sesión cuesta $39 (o $35 c/u en paquete de 4). Antes de eso, una llamada gratuita de 10 min con tu terapeuta.',
+  ubicacion: '📍 Estamos en Cumbayá, a 3 minutos del Scala, con parqueadero privado y seguro.\n💻 También atendemos online.',
+  seguro: 'Muchos seguros privados reembolsan terapia psicológica, según tu plan (Bupa y Humana, por ejemplo, reembolsan hasta el 80%). Te damos la factura con el formato que piden y te ayudamos con el trámite.',
+  pago: '💳 Puedes pagar por transferencia bancaria o con tarjeta de crédito/débito (Payphone).\n📦 También tenemos un paquete de 4 sesiones por $140 ($35 c/u).',
 }
-async function sendFaqAnswer(to, kind) {
-  const { text, preview } = faqText(kind)
-  if (text) await sendText(to, text, { previewUrl: !!preview })
+const CONTENT = new Set(['precio', 'ubicacion', 'seguro', 'pago'])
+
+// Answer a question as ONE interactive message: the canned copy is the body, the
+// two next-step buttons are attached (B2). The bot never re-prompts on its own
+// afterward. Ubicación is the one two-part send: the Maps link goes first as a
+// text so its rich preview renders, then the note carries the buttons.
+async function answerIntent(to, intent) {
+  if (intent === 'ubicacion') {
+    await sendText(to, MAPS_LINK, { previewUrl: true })
+    await sendButtons(to, ANSWER_COPY.ubicacion, ANSWER_BUTTONS)
+    return
+  }
+  await sendButtons(to, ANSWER_COPY[intent] || ANSWER_COPY.precio, ANSWER_BUTTONS)
 }
 
-// ── Free-text classification (classify-only; APIMart, cheap model) ───────────
-// Returns 'precio'|'ubicacion'|'seguro'|'pago'|'otro', or null on API error/empty
-// (the caller treats null as an unclassifiable miss).
+// Plain answer copy, no buttons — used on first contact, where Message 1 (sent
+// right after) carries the call-to-action buttons (B4).
+async function sendAnswerText(to, intent) {
+  if (intent === 'ubicacion') {
+    await sendText(to, MAPS_LINK, { previewUrl: true })
+    await sendText(to, ANSWER_COPY.ubicacion)
+    return
+  }
+  await sendText(to, ANSWER_COPY[intent] || ANSWER_COPY.precio)
+}
+
+// ── Classification: keyword/regex FIRST, LLM only as a fallback (B1) ──────────
+// Keyword match is deterministic, free, and instant. Content intents win over a
+// greeting so "hola, ¿dónde están?" answers the question. "domicilio" is
+// deliberately NOT a location keyword — home visits aren't offered, so it falls
+// through to a human handoff. Returns an intent or null (→ LLM fallback).
+function classifyKeywords(text) {
+  const t = ` ${String(text || '').toLowerCase()} `
+  const has = (re) => re.test(t)
+  if (has(/cu[aá]nto|cuesta|costo|valor|precio|tarifa|evaluaci[oó]n|consulta/)) return 'precio'
+  if (has(/d[oó]nde|ubica|direcci[oó]n|queda|local|presencial|online|virtual|parqueadero/)) return 'ubicacion'
+  if (has(/seguro|aseguradora|reembolso|cobertura/)) return 'seguro'
+  if (has(/tarjeta|transferencia|pagar|paquete/)) return 'pago'
+  if (has(/gracias|\bok\b|perfecto/)) return 'gracias'
+  if (has(/hola|buenas/)) return 'saludo'
+  return null
+}
+
+// Full classification: keyword first, LLM (APIMart, model proven working in
+// proofOcr) only when keywords miss. Returns 'precio'|'ubicacion'|'seguro'|'pago'|
+// 'gracias'|'saludo'|'otro'|null. 'otro'/null ⇒ the caller hands off to a human.
+async function classifyIntent(text) {
+  const kw = classifyKeywords(text)
+  if (kw) return kw
+  return await classifyFreeText(text)
+}
+
+// LLM fallback (classify-only; APIMart). Returns 'precio'|'ubicacion'|'seguro'|
+// 'pago'|'otro', or null on API error/empty (caller treats both as a handoff).
 async function classifyFreeText(text) {
   const apiKey = process.env.APIMART_API_KEY
   if (!apiKey) return null
   const prompt = `Eres un clasificador. Clasifica el mensaje de un posible paciente de una consulta psicológica en EXACTAMENTE una de estas categorías y responde SOLO con la palabra, sin nada más:
 precio — pregunta por costo, valor, cuánto cuesta.
-ubicacion — pregunta dónde están, dirección, si es presencial u online.
+ubicacion — pregunta dónde están, la dirección, o si atienden presencial u online.
 seguro — pregunta por seguros médicos, reembolso, o factura para el seguro.
 pago — pregunta cómo pagar (transferencia, tarjeta, paquetes).
-otro — cualquier otra cosa.
+otro — cualquier otra cosa, incluyendo visitas o atención a domicilio, disponibilidad de un terapeuta específico, o dudas que no encajan arriba.
 
 Mensaje: "${String(text).replace(/"/g, "'").slice(0, 500)}"`
   try {
     const res = await fetch('https://api.apimart.ai/v1/chat/completions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5', stream: false, max_tokens: 8, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: 'claude-opus-4-8', stream: false, max_tokens: 8, messages: [{ role: 'user', content: prompt }] }),
     })
     if (!res.ok) { console.error('[bot] classify APIMart', res.status); return null }
     const data = await res.json()
@@ -267,6 +327,14 @@ async function escalate(supabase, lead, reason) {
     })
   } catch (e) { console.warn('[bot] escalate push failed:', e.message) }
   console.log(`[bot] lead ${lead.id} escalated (${reason}) + paused`)
+}
+
+// Hand the conversation to a human: one canned line to the lead, then escalate
+// (push to Nicolás + pause the bot for this lead). Used for anything the bot can't
+// answer — never a self re-prompt (B6).
+async function handoff(supabase, lead, reason) {
+  await sendText(lead.phone, 'Te responde una persona del equipo en unos minutos 🌿')
+  await escalate(supabase, lead, reason)
 }
 
 // ── Steps ────────────────────────────────────────────────────────────────────
@@ -415,13 +483,9 @@ async function showFaqList(supabase, lead) {
 }
 
 async function answerFaq(supabase, lead, key) {
-  if (key === 'otra') {
-    await sendText(lead.phone, 'Con gusto 🌿 En un momento alguien del equipo te responde por aquí.')
-    return escalate(supabase, lead, 'otra_pregunta')
-  }
-  await sendFaqAnswer(lead.phone, key)
-  await sendButtons(lead.phone, '¿Quieres agendar tu llamada gratuita?', MENU_BUTTONS)
-  await patchLead(supabase, lead, { step_actual: 'msg1', last_bot_at: new Date().toISOString(), parse_misses: 0 })
+  if (key === 'otra') return handoff(supabase, lead, 'otra_pregunta')
+  await answerIntent(lead.phone, key === 'seguros' ? 'seguro' : key)
+  await patchLead(supabase, lead, { step_actual: 'answered', last_bot_at: new Date().toISOString(), parse_misses: 0 })
 }
 
 // Re-render whatever step the lead is on (after answering free text, or on an
@@ -441,23 +505,18 @@ async function renderStep(supabase, lead, { note } = {}) {
 }
 
 async function handleFreeText(supabase, lead, text) {
-  const label = await classifyFreeText(text)
-  if (label == null) {
-    const misses = (lead.parse_misses || 0) + 1
-    await patchLead(supabase, lead, { parse_misses: misses })
-    if (misses >= 2) {
-      await sendText(lead.phone, 'Déjame conectarte con alguien del equipo 🌿')
-      return escalate(supabase, lead, 'no_clasificado')
-    }
-    return renderStep(supabase, lead, { note: '¿Podrías elegir una de las opciones? 🙂' })
+  const intent = await classifyIntent(text)
+  // Thanks/greeting: one short warm line, no pitch, no handoff (B5/B6).
+  if (intent === 'gracias') { await sendText(lead.phone, '¡Con gusto! 🌿'); return }
+  if (intent === 'saludo') { await sendText(lead.phone, '¡Hola! 🌿'); return }
+  // A question we can answer: the canned answer + next-step buttons, one message.
+  if (CONTENT.has(intent)) {
+    await answerIntent(lead.phone, intent)
+    await patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0, last_bot_at: new Date().toISOString() })
+    return
   }
-  if (label === 'otro') {
-    await sendText(lead.phone, 'Con gusto te ayudo con eso 🌿 En un momento alguien del equipo te responde por aquí.')
-    return escalate(supabase, lead, 'clasificado_otro')
-  }
-  await sendFaqAnswer(lead.phone, label)
-  await patchLead(supabase, lead, { parse_misses: 0 })
-  return renderStep(supabase, lead, { note: '¿Seguimos? Elige una opción 👇' })
+  // 'otro' or unclassifiable → hand to a human (B6). The bot never re-prompts.
+  return handoff(supabase, lead, intent === 'otro' ? 'clasificado_otro' : 'no_clasificado')
 }
 
 async function handleTap(supabase, lead, tap) {
@@ -511,8 +570,16 @@ export async function runBot(supabase, { lead, isNew, msg }) {
     // fresh silence can be re-nudged (and revive them from frio via the handlers).
     if (!isNew && lead.nudges_sent > 0) await patchLead(supabase, lead, { nudges_sent: 0 })
     // First contact, or a lead who has never been sent Message 1 (e.g. they wrote
-    // in while the bot was off): open with Message 1 rather than classifying.
-    if (isNew || (!tap && !lead.step_actual)) return await showMessage1(supabase, lead)
+    // in while the bot was off). If that first message already asks something we can
+    // answer, answer it FIRST (plain, no buttons), then send Message 1 — whose
+    // buttons are the call to action (B4). A bare "hola" / the ad text just gets
+    // Message 1.
+    if (isNew || (!tap && !lead.step_actual)) {
+      const body = msg?.type === 'text' ? (msg.text?.body || '') : ''
+      const intent = body ? classifyKeywords(body) : null
+      if (CONTENT.has(intent)) await sendAnswerText(lead.phone, intent)
+      return await showMessage1(supabase, lead)
+    }
     if (tap) return await handleTap(supabase, lead, tap)
     if (msg?.type === 'text' && msg.text?.body) return await handleFreeText(supabase, lead, msg.text.body)
     // any other inbound (image/audio/etc) mid-flow → nudge back to the buttons
