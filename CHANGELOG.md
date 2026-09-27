@@ -5,6 +5,36 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+- [x] **/facturar REWRITTEN against the Contífico REST API — Chrome automation DELETED** (2026-09-23, Opus 4.8).
+  New engine `netlify/functions/facturar.mjs` (modern runtime, token-guarded). Modes: `recon`
+  (GET-only), `dry-run` (default — builds full payloads, **zero Contífico calls**), `emit-one`,
+  `emit-dummy`, `batch`. `.claude/commands/facturar.md` is now a thin API driver (browser protocol,
+  Consumidor Final, Registrar Persona, `facturacion_manual`/NEVER-INVOICE list all removed).
+  - **Emission (proven end-to-end):** `POST /documento/` → `PUT /documento/<id>/sri/` → mark
+    `facturada=true` immediately (emitted-but-unmarked is flagged CRITICAL — the duplicate guard).
+    Auth `Authorization: <CONTIFICO_API_KEY>` (raw, no Bearer). Payload essentials nailed against a
+    real invoice + the docs: `electronico:true` (else cod_error 1005 wants a paper autorización);
+    **`documento` sequential must be supplied** (cod_error 1002 — this account does NOT auto-assign),
+    computed live as max on punto **001-001** + 1; producto `SESION INDIVIDUAL` = `O8bYEmDllFv68b7j`,
+    IVA 0%, `ice`/`servicio` 0, estado **P**, **no `cobros`** (mirrors all 291 existing invoices).
+  - **Verified** by a real **$1 dummy factura to Nicolás** (`001-001-000000291`, id `KVeZJG8noIwoGe8P`,
+    firmado + 49-digit autorización + RIDE/XML). Nicolás confirmed it looks right. (Left on the books;
+    anular later if desired.) ⚠️ Contífico strips accents in `referencia` but keeps them in `descripcion`
+    (the insurance field), so descripcion is clean.
+  - **descripcion (= Observaciones):** `Paciente {NOMBRE PACIENTE} | {CIE} {diagnóstico} | Sesión
+    {fecha en texto}` (pipe format, per Nicolás). Billing party = **payer if `payer_id` set, else
+    patient** (`billingIdentity()`), persona keyed by cédula/contifico_id; descripcion always names the
+    patient (for a `menor`, the child).
+  - **Eligibility:** `confirmada + pagado + NOT facturada + tipo<>llamada + facturacion_obligatoria +
+    fecha >= FACTURAR_SINCE`. **NON-retroactive** — `FACTURAR_SINCE=2026-09-24` is a hard floor; the
+    pre-go-live backlog (already invoiced manually) is never touched. Dry-run confirms 0 eligible today.
+  - **Backfill written** (recon values, confirmed by Nicolás): 6 diagnoses + 3 payer cédulas + Andrés
+    Gotta's cédula **1761043908** (verified in Contífico) + a missing `payers` service_role GRANT —
+    mirror `supabase/facturar-backfill-diagnoses-payer-cedulas.sql`. **Diagnosis is OPTIONAL** (Nicolás,
+    2026-09-23): patients without one (e.g. Valentina Andrade) are invoiced with a no-CIE descripcion
+    `Paciente {nombre} | Sesión {fecha}`. **All 20 obligatoria sessions now dry-run READY (0 blocked).**
+  - **Security:** guard token lives ONLY in Netlify secret env `CONTIFICO_FACTURAR_TOKEN`
+    (production/functions) + local `.env` — never in git. Function refuses all requests if unset.
 - [x] **Contífico REST API — read-only reconnaissance for the `/facturar` rewrite** (2026-09-23, Opus 4.8).
   Credentials arrived; probed the API **GET-only** (never POSTed a document) from a throwaway
   token-guarded Netlify function `netlify/functions/cf-probe.mjs` (same pattern as the deleted dh-probe;

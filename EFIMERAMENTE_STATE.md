@@ -99,6 +99,52 @@ spec #24 — DONE 2026-09-27 (Claude/Sonnet + fact sheet + derive; see top of Co
 answer flow is now only the fallback.** WhatsApp reply buttons are still single-use (grey out after one tap).
 
 ## Completed Features
+- [x] **Lead funnel v2 (#27) — "answer first, then offer" + VERBATIM canned answers** (2026-09-27,
+  Opus 4.8). Commits `8574b58` (v2) `115063f` (greeting/handoff fixes) `80025d6` (verbatim/classifier).
+  Migration `funnel_v2_schema` + data reseed, mirror `supabase/lead-funnel-05-v2.sql`. Spec:
+  `PERMANENT TO-DO.md` → "#27 Funnel v2". Supersedes the opening (Message 1) of the #4/#24 entries below.
+  - **Opening:** Message 1 (price + "Elegir terapeuta") REMOVED. A **bare** greeting/ad text (`isBareGreeting`
+    in leadBot) → "Hola! Qué gusto que nos escribas" + the 10-reason list. A real question → Claude answers,
+    then the **one-time** invitation `*Te gustaría ver a nuestros terapeutas disponibles?*` [Sí][Tengo otra
+    pregunta] (`leads.invitacion_enviada`, `sendInvitationOnce`). "Sí" (`inv_si`) skips the list when a reason
+    was detected from the conversation (Claude sets `categoria`); "Tengo otra pregunta" (`inv_otra`) → "Claro, dime".
+  - **VERBATIM answers — the key fix:** Claude no longer WRITES the common answers (it drifted). It only
+    **classifies an `intent`**; code sends the exact copy. Source of truth = **`CANNED` map in
+    `leadBot.mjs`** (`sendCanned`), one WhatsApp bubble per array item. Tails: `invite` (one-time invitation) /
+    `invite_custom` (adolescentes: the question itself carries the [Sí][Tengo otra pregunta] buttons) / `cards`
+    (pareja → Carolina card, no invitation) / `handoff` (objeción de precio → the line + `escalate`, bot never
+    negotiates). `leadBrain.mjs` tool returns `intent` (precio/ubicacion/saludsa/seguros/adolescentes/duracion/
+    horarios/psiquiatra/pareja/pago/objecion_precio/saludo/libre) + literal few-shots + style rules; **temperature 0**.
+    Only `intent==='libre'` lets Claude author (from the fact sheet). Keyword fallback maps to the same CANNED
+    (`KW_TO_CANNED`) — no second paraphrased copy anywhere (the two copies are leadBrain few-shots [for the model]
+    and leadBot CANNED [what's sent]; **CANNED always wins**).
+  - **10-reason list** (`funnel_categorias` reseeded, `descripcion` column added, old 8 deactivated=recoverable):
+    hijo/ruptura/problemas_pareja/depresion_ansiedad/consumo/terapia_pareja/diagnostico/trauma/varios/otro.
+    Provisional routing (unchanged from spec). `especial`: `hijo` (kids line), `diagnostico`/`varios` (free-text
+    prompt → `matchFlow` → `matchTherapistsForText` in leadBrain picks ≤3 from the roster or derives on
+    audio/no-fit/eating-disorder/psychosis/bipolar/self-harm), `otro` (handoff). Reason 6 (terapia_pareja) = Carolina only.
+  - **Cards:** caption with the "Enfoque …" clause stripped (`captionSansEnfoque`) + bold `*Puedes agendar una
+    llamada gratuita para conocerl{o/a}*` + gendered button `Quiero conocerl{o/a}` (`therapists.genero`, M=Francisco).
+    Pick (`pick:`) → gendered call-explanation (`chooseTherapist`, + the kids line only when `categoria==='hijo'`)
+    + [Ver horarios] (`horarios:`) → `showSlots` → booking (unchanged).
+  - **Handoff window (`isNightGYE`, GYE=UTC-5):** 07:00–23:00 → NO bot text, just push + `bot_paused` (`handoff`
+    only sends a line at night). 23:00–07:00 → one line (bot-question vs general variant). URGENTE + ECU 911 ONLY
+    on explicit life-risk; ordinary emotional disclosure now derives as `motivo:"emocional"` = **silent daytime
+    handoff** (leadBrain rules 2/3 split urgent from emotional). Neutral nudges: "Seguimos aquí si tienes alguna otra pregunta".
+  - **20s delay + typing:** webhook 200s Meta immediately; for a lead's **text** it marks-read + shows the typing
+    indicator (`waSend.sendReadReceipt(msgId,{typing:true})`) and defers the reply to **`netlify/functions/
+    lead-reply-background.mjs`** (fixed 20s sleep → `runBot`), gated by an `x-lead-verify` header = `WA_CLOUD_VERIFY_TOKEN`.
+    Button **taps** run inline in the webhook (immediate). `isTap(msg)` exported from leadBot.
+  - **Fact sheet (`funnel_knowledge`) additions:** couples (Carolina 90min $50, pack 4×$42), package upfront,
+    Dr. Camino, Mon–Sat 8–20, 60min/7–15d, Saludsa/Ecuasanitas cubren por reembolso (según plan), Bupa tope anual
+    según plan, others→handoff, no home visits.
+  - **LIVE test 2026-09-27** (real phone `593968029896`): 4 questions → all classified correctly (precio/ubicacion/
+    saludsa/psiquiatra), `[canned:*]` fired, `used_fallback=false`, sonnet 2.5–4.5s. Timing verified: text ~25s
+    (20s + latency), tap instant. Typing indicator accepted by Dualhook (no fallback). Audit in Marketing → Embudo.
+  - **Known follow-ups (not blocking):** (1) felt delay ~25s not 20s because the sleep is BEFORE the Claude call —
+    classify-then-wait-remainder would tighten it. (2) Latent pre-existing bug: `recentInbound` selects a
+    non-existent `created_at` (table has `received_at`) → Claude gets no prior-message history; harmless for
+    single-question turns, worth a one-word fix for multi-turn context.
 - [x] **Lead bot #24 — three-tier free-text handling: Claude (Anthropic Sonnet) + fact sheet + derive**
   (2026-09-27, Opus 4.8). Commit `fdf9f67`. Migration `lead_funnel_04_knowledge_and_ai_log`
   (`supabase/lead-funnel-04-knowledge.sql`). Supersedes section B of the 2026-09-26 entry below.
@@ -269,79 +315,41 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   - **Gotcha:** Netlify function env changes (`PAYMENT_REMINDERS_LIVE`, `COMPROBANTES_AUTO_LIVE`,
     `PAYPHONE_LINK_SUFFIX`) only reach the running functions on the NEXT deploy — each needed an
     empty-commit redeploy. And a GitHub→Netlify webhook miss once skipped two commits; an empty nudge fixed it.
-- [x] **/facturar REWRITTEN against the Contífico REST API — Chrome automation DELETED** (2026-09-23, Opus 4.8).
-  New engine `netlify/functions/facturar.mjs` (modern runtime, token-guarded). Modes: `recon`
-  (GET-only), `dry-run` (default — builds full payloads, **zero Contífico calls**), `emit-one`,
-  `emit-dummy`, `batch`. `.claude/commands/facturar.md` is now a thin API driver (browser protocol,
-  Consumidor Final, Registrar Persona, `facturacion_manual`/NEVER-INVOICE list all removed).
-  - **Emission (proven end-to-end):** `POST /documento/` → `PUT /documento/<id>/sri/` → mark
-    `facturada=true` immediately (emitted-but-unmarked is flagged CRITICAL — the duplicate guard).
-    Auth `Authorization: <CONTIFICO_API_KEY>` (raw, no Bearer). Payload essentials nailed against a
-    real invoice + the docs: `electronico:true` (else cod_error 1005 wants a paper autorización);
-    **`documento` sequential must be supplied** (cod_error 1002 — this account does NOT auto-assign),
-    computed live as max on punto **001-001** + 1; producto `SESION INDIVIDUAL` = `O8bYEmDllFv68b7j`,
-    IVA 0%, `ice`/`servicio` 0, estado **P**, **no `cobros`** (mirrors all 291 existing invoices).
-  - **Verified** by a real **$1 dummy factura to Nicolás** (`001-001-000000291`, id `KVeZJG8noIwoGe8P`,
-    firmado + 49-digit autorización + RIDE/XML). Nicolás confirmed it looks right. (Left on the books;
-    anular later if desired.) ⚠️ Contífico strips accents in `referencia` but keeps them in `descripcion`
-    (the insurance field), so descripcion is clean.
-  - **descripcion (= Observaciones):** `Paciente {NOMBRE PACIENTE} | {CIE} {diagnóstico} | Sesión
-    {fecha en texto}` (pipe format, per Nicolás). Billing party = **payer if `payer_id` set, else
-    patient** (`billingIdentity()`), persona keyed by cédula/contifico_id; descripcion always names the
-    patient (for a `menor`, the child).
-  - **Eligibility:** `confirmada + pagado + NOT facturada + tipo<>llamada + facturacion_obligatoria +
-    fecha >= FACTURAR_SINCE`. **NON-retroactive** — `FACTURAR_SINCE=2026-09-24` is a hard floor; the
-    pre-go-live backlog (already invoiced manually) is never touched. Dry-run confirms 0 eligible today.
-  - **Backfill written** (recon values, confirmed by Nicolás): 6 diagnoses + 3 payer cédulas + Andrés
-    Gotta's cédula **1761043908** (verified in Contífico) + a missing `payers` service_role GRANT —
-    mirror `supabase/facturar-backfill-diagnoses-payer-cedulas.sql`. **Diagnosis is OPTIONAL** (Nicolás,
-    2026-09-23): patients without one (e.g. Valentina Andrade) are invoiced with a no-CIE descripcion
-    `Paciente {nombre} | Sesión {fecha}`. **All 20 obligatoria sessions now dry-run READY (0 blocked).**
-  - **Security:** guard token lives ONLY in Netlify secret env `CONTIFICO_FACTURAR_TOKEN`
-    (production/functions) + local `.env` — never in git. Function refuses all requests if unset.
+- [x] **/facturar REWRITTEN against the Contífico REST API — Chrome automation DELETED** (2026-09-23) —
+  moved to `CHANGELOG.md` on 2026-09-27 to keep this file under 600 lines. `/facturar` runs entirely
+  through `netlify/functions/facturar.mjs` (dry-run default, non-retroactive `FACTURAR_SINCE=2026-09-24`,
+  token-guarded); full write-up in the changelog. The backlog summary still lives under "✅ DONE 2026-09-23" below.
 > **Older completed work (2026-09-22 and earlier) lives in `CHANGELOG.md`.**
 > It is deliberately not loaded into session context. Read it on demand.
 
 ## Pending / Backlog
 
-### Lead bot — surfaced 2026-09-26
-- [x] ~~**#24 replaces section B**~~ — **DONE 2026-09-27** (commit `fdf9f67`, see top of Completed
-      Features). T2 free text now goes to Claude (Anthropic Sonnet) with the `funnel_knowledge` fact sheet;
-      the old canned/keyword path is the fallback. Tested live end-to-end.
-- [ ] **#24 follow-ups (surfaced 2026-09-27):**
-  - Confirm the `sendButtons` answer path renders the `[Elegir terapeuta] [Otra pregunta]` buttons on a
-    real phone (log stores only the text). Watch the first live leads.
-  - The fact sheet includes `seguros` with Bupa/Humana specifics but marks other insurers "no confirmado →
-    derivar" — enrich once #14 (insurer catalogue) advances.
-  - `slotsForLead` only feeds slots when a therapist is already chosen; fine for now, revisit if leads ask
-    about availability before picking a therapist.
-  - Cost: each free-text message = 1 Sonnet call (~1–4s, few hundred tokens). Fine at current volume; if it
-    spikes, consider Haiku for the classify-only cases.
-- [ ] **Get real phone numbers for the 4 therapists still `telefono IS NULL`:** Camila Maya, Daniela
-      Espinosa, Maria Gracia Villalba, Sophia Vergara. Without a phone the therapist-result reply
-      (`resultado_llamada` Se hizo / No contestó) can't route to them (`sendResultForLead` skips NULL).
+### Lead bot — surfaced 2026-09-26/27
+- [x] ~~**#24 replaces section B**~~ — DONE 2026-09-27 (`fdf9f67`). Then **#27 funnel v2 DONE 2026-09-27**
+      (`8574b58`/`115063f`/`80025d6`, see top of Completed Features): answer-first opening, verbatim CANNED
+      answers (Claude only classifies), 10-reason list, gendered cards + call-explanation, day/night handoff,
+      20s delay + typing. Tested live on `593968029896` — 4/4 correct.
+- [x] ~~Get real phone numbers for the 4 therapists still `telefono IS NULL`~~ — **DONE** (#26, 2026-09-27):
+      Camila, Daniela, Ma. Gracia, Sophia numbers saved in `therapists.telefono`. All 7 now have a number.
+- [ ] **#27 follow-ups (surfaced 2026-09-27, none blocking):**
+  - Tighten the felt delay: the fixed 20s sleep in `lead-reply-background.mjs` runs BEFORE the Claude call,
+    so total is ~25s. Classify-then-wait-remainder would land it at ~20s.
+  - Fix latent bug: `recentInbound` (leadBot) selects `created_at`, but `whatsapp_messages` has `received_at`
+    → the query fails silently and Claude gets NO prior-message history. One-word fix; improves multi-turn.
+  - Routing (`funnel_categorias`) is PROVISIONAL — replace when the "Mapa de casos" survey answers arrive on
+    9933 (messages starting "MAPA DE CASOS"). Filter stays recibe_nuevos + first 3 + Francisco never bumped.
+  - Enrich the `seguros` fact sheet as #14 (insurer catalogue) advances; Saludsa/Ecuasanitas % still "según plan".
+  - Cost: each free-text msg = 1 Sonnet call (temp 0, ~2.5–4.5s). Fine at volume; consider Haiku if it spikes.
+- [ ] **14-day funnel check — Sat 10 Oct 2026:** lead→call vs the 8% baseline, target ≥25% (exclude test
+      phone `593968029896`). If the answer-first opening moved it, keep; else revisit copy/routing.
 
 ### ✅ DONE 2026-09-23 — /facturar REWRITTEN against the Contífico REST API
-- **The Chrome-automation protocol is DELETED.** `/facturar` now runs entirely through the
-  `facturar` Netlify function (`netlify/functions/facturar.mjs`); the command
-  (`.claude/commands/facturar.md`) is a thin API driver. Full write-up in Completed Features.
-- **Flow proven end-to-end:** `POST /documento/` (`electronico:true`, next `001-001` sequential
-  computed live — the account requires it, cod_error 1002 without it) → `PUT /documento/<id>/sri/`
-  → SRI authorizes async (seconds). Verified by a real **$1 dummy factura to Nicolás**
-  (`001-001-000000291`, firmado, authorized). Auth = `Authorization: <CONTIFICO_API_KEY>` (raw key).
-- **Eligibility (new rules):** `confirmada + pagado + NOT facturada + tipo<>llamada +
-  facturacion_obligatoria=true + fecha >= FACTURAR_SINCE (2026-09-24)`. **NON-retroactive** — the
-  historical backlog is never touched (all already invoiced manually). The old `facturacion_manual`
-  exemption and the named NEVER-INVOICE list are **gone** — the API produces the insurance format.
-- **Observaciones = `descripcion`**, format `Paciente {nombre} | {CIE} {dx} | Sesión {fecha texto}`.
-  Billing party = payer if `payer_id` set, else patient; persona keyed by cédula/contifico_id.
-  (⚠️ Contífico strips accents in the mirrored `referencia` but keeps them in `descripcion`.)
-- **Guard token** moved OUT of git → Netlify secret env `CONTIFICO_FACTURAR_TOKEN`
-  (production/functions) + local `.env`. Backfill applied (6 diagnoses + 3 payer cédulas), mirrored
-  in `supabase/facturar-backfill-diagnoses-payer-cedulas.sql` (also fixes a missing `payers` GRANT).
-- **No obligatoria patient is blocked anymore:** Andrés Gotta's cédula (1761043908) was added and
-  diagnosis is now optional, so Valentina Andrade invoices fine without one. Dry-run (?all=1) shows all
-  20 obligatoria sessions READY; the normal floor keeps them out until a session lands ≥ 2026-09-24.
+- Full write-up moved to `CHANGELOG.md` (2026-09-27). TL;DR: `/facturar` runs entirely through
+  `netlify/functions/facturar.mjs` (Chrome protocol deleted); emit = `POST /documento/` → `PUT /sri/`;
+  eligibility `confirmada + pagado + NOT facturada + tipo<>llamada + facturacion_obligatoria + fecha ≥
+  FACTURAR_SINCE (2026-09-24)`, **non-retroactive**; Observaciones = `descripcion` (`Paciente {nombre} |
+  {CIE} {dx} | Sesión {fecha}`); token in Netlify env `CONTIFICO_FACTURAR_TOKEN`; backfill applied. **Go-live
+  parked (#16) — Nicolás flips it on manually.** All 20 obligatoria sessions dry-run READY.
 - **DualHook send-scope + templates + CUTOVER — ALL DONE (cutover 2026-09-22, see Completed
   Features).** Send scope confirmed; `recordatorio_cita` **APPROVED**; **`deliverReminder` now POSTs
   Dualhook and reminders send live via Dualhook.** Twilio is retired-but-dormant behind
