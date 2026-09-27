@@ -71,6 +71,18 @@ export function sendList(to, body, buttonLabel, rows, { header, footer, sectionT
   return sendCloud({ to: digits(to), type: 'interactive', interactive })
 }
 
+// Mark an inbound message as read, optionally showing the "escribiendo…" typing
+// indicator (Cloud API). The typing indicator auto-clears after ~25s or when the
+// next message is sent — perfect cover for the fixed 20s reply delay (#27). Meta's
+// shape: POST /messages { status:'read', message_id, typing_indicator:{type:'text'} }.
+// Best-effort: throws on a non-2xx so the caller can log + fall back to a plain
+// delay if Dualhook rejects typing_indicator.
+export function sendReadReceipt(messageId, { typing = false } = {}) {
+  const payload = { status: 'read', message_id: messageId }
+  if (typing) payload.typing_indicator = { type: 'text' }
+  return sendCloud(payload)
+}
+
 // Card: image header (public HTTPS link) + caption body + one reply button.
 // Falls back to a text header (name) when imageLink is absent so the flow still
 // works before the card images are hosted.

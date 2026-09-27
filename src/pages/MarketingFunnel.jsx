@@ -246,16 +246,21 @@ function CategoriaEditor({ cat, therapists, onSave }) {
   const dirty = JSON.stringify(ids) !== JSON.stringify(cat.terapeutas || [])
   const save = async () => { setBusy(true); await onSave(cat.id, { terapeutas: ids }); setBusy(false) }
 
-  if (cat.especial === 'no_seguro') {
+  // Special reasons don't use a fixed ordered list — they route automatically.
+  const especialNota = {
+    no_seguro: '3 terapeutas con horario más cercano (recibe nuevos); Francisco siempre incluido.',
+    diagnostico: 'Pide el diagnóstico por texto; Claude elige al terapeuta que mejor encaja (o deriva a Nicolás).',
+    varios: 'Pide el motivo por texto; Claude cruza las situaciones y recomienda 2–3 terapeutas (o deriva).',
+    otro: 'Va directo a Nicolás (no muestra tarjetas).',
+  }
+  if (cat.especial && especialNota[cat.especial]) {
     return (
       <Card className="p-4">
         <div className="flex items-center justify-between">
           <span className="font-heading font-bold text-content-primary">{cat.etiqueta}</span>
-          <Badge variant="neutral">automático</Badge>
+          <Badge variant="neutral">{cat.especial === 'otro' ? 'deriva' : 'automático'}</Badge>
         </div>
-        <p className="mt-1 font-body text-xs text-content-secondary">
-          3 terapeutas con horario más cercano (recibe nuevos); Francisco siempre incluido.
-        </p>
+        <p className="mt-1 font-body text-xs text-content-secondary">{especialNota[cat.especial]}</p>
       </Card>
     )
   }

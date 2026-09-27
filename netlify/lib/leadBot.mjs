@@ -1,23 +1,28 @@
 // netlify/lib/leadBot.mjs
 //
-// Lead-funnel brain (#4 + #20). Phase A = measurement: classify an inbound
-// sender, create the `leads` row on first contact, and honour the manual-reply
-// pause signal (smb_message_echoes). Phase B layers the button bot on top of
-// these helpers; Phase C the follow-ups. Everything the bot SENDS is gated by
-// LEAD_BOT_LIVE — but recording leads is measurement and always runs, so the
-// funnel numbers start filling the moment this deploys, before the bot is live.
+// Lead-funnel brain — funnel v2 (#27), "answer first, then offer".
 //
-// A lead is any phone that messages the central number and is NOT already a
-// patient, therapist or payer. Matching is the same fuzzy phone match used by the
-// reminder loop (normalized E.164 OR last-9-digits) so number formatting can't
-// misclassify a known contact as a lead.
+// Phase A = measurement: classify an inbound sender, create the `leads` row on
+// first contact, honour the manual-reply pause (smb_message_echoes). Phase B is
+// the conversation: Claude (leadBrain) answers real questions FIRST; the bot then
+// offers to show therapists ONCE; a reason list → gendered therapist cards → a
+// call explanation → live slots → booking. Phase C = the time-based follow-ups.
+// Everything the bot SENDS is gated by LEAD_BOT_LIVE (or the test allow-list);
+// recording leads is measurement and always runs.
+//
+// v2 opening (Message 1 with price + "Elegir terapeuta" is GONE):
+//   • bare greeting / ad text → welcome + reason list.
+//   • a real question        → Claude answers, then the one-time invitation
+//                              "*Te gustaría ver a nuestros terapeutas?*".
+// Free text is delayed 20 s with a typing indicator (in the webhook + a background
+// function); button taps are immediate.
 
 import { normalizePhone } from './whatsapp.mjs'
 import { sendText, sendButtons, sendList, sendImageCard } from './waSend.mjs'
 import { nextSlots, createBooking } from './booking.mjs'
 import { notifyTherapist } from './push.mjs'
 import { sendCallReminder, sendCallResult, sendRebook, sendFirstSessionNudge } from './leadTemplates.mjs'
-import { buildFactSheet, decideFreeText } from './leadBrain.mjs'
+import { buildFactSheet, decideFreeText, matchTherapistsForText } from './leadBrain.mjs'
 
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
 
@@ -26,7 +31,6 @@ const APP_BASE = process.env.URL || 'https://efimeramente-panel.netlify.app'
 
 // The bot may SEND to a lead when it's globally live OR when that lead's phone is
 // in the test allow-list (LEAD_BOT_TEST_PHONES, comma-separated, last-9 match).
-// Test mode keeps real leads dark while one number drives the flow end-to-end.
 export function botAllowedForPhone(phone) {
   if (process.env.LEAD_BOT_LIVE === 'true') return true
   const list = (process.env.LEAD_BOT_TEST_PHONES || '')
@@ -44,8 +48,7 @@ function phoneMatches(rows, fromRaw) {
 }
 
 // True when the phone belongs to a therapist or payer. Patients are checked by
-// the webhook's own patient cache before this is called, so we only need the two
-// smaller tables here.
+// the webhook's own patient cache before this is called.
 export async function isTherapistOrPayer(supabase, fromRaw) {
   const [th, py] = await Promise.all([
     supabase.from('therapists').select('telefono'),
@@ -54,20 +57,15 @@ export async function isTherapistOrPayer(supabase, fromRaw) {
   return phoneMatches(th.data, fromRaw) || phoneMatches(py.data, fromRaw)
 }
 
-// Click-to-WhatsApp ad referral → attribution fields. A CTWA entry carries a
-// `referral` block on the FIRST message of the conversation; organic chats don't.
+// Click-to-WhatsApp ad referral → attribution fields.
 export function referralOf(msg) {
   const r = msg?.referral
   if (!r) return { source: 'whatsapp_organico', ad_source_id: null, ad_headline: null }
   return { source: 'meta_ctwa', ad_source_id: r.source_id || null, ad_headline: r.headline || null }
 }
 
-// Rule (A2): a first-contact ORGANIC sender (no ad referral) who already has an
-// inbound message on record is a known contact — a therapist, a patient's relative,
-// someone we already talk to — NOT a lead. Only genuine first-touch organic (no
-// prior inbound) or an ad click (referral present ⇒ always a lead) creates a row.
-// The current inbound is logged AFTER lead handling in the webhook, so it's never
-// counted as its own "earlier" message here.
+// A first-contact ORGANIC sender (no ad referral) who already has an inbound
+// message on record is a known contact, NOT a lead. Ad clicks always create a row.
 async function hasEarlierInbound(supabase, from) {
   const { data } = await supabase.from('whatsapp_messages')
     .select('id').eq('direccion', 'inbound')
@@ -75,10 +73,8 @@ async function hasEarlierInbound(supabase, from) {
   return !!(data && data.length)
 }
 
-// Create the lead row on first contact, or return the existing one. Captures the
-// WhatsApp profile name and CTWA attribution. Measurement only — sends nothing.
-// Returns { lead, isNew } or null when the phone can't be normalized OR when the
-// sender is a known organic contact (see hasEarlierInbound).
+// Create the lead row on first contact, or return the existing one. Measurement
+// only — sends nothing. Returns { lead, isNew } or null.
 export async function recordLead(supabase, { msg, contact }) {
   const phone = normalizePhone(msg.from)
   if (!phone) return null
@@ -94,7 +90,6 @@ export async function recordLead(supabase, { msg, contact }) {
   }
 
   const { source, ad_source_id, ad_headline } = referralOf(msg)
-  // Organic + prior inbound ⇒ known contact, not a lead. Ad clicks skip this.
   if (source === 'whatsapp_organico' && await hasEarlierInbound(supabase, msg.from)) {
     console.log(`[lead] skip — organic known contact phone=${phone}`)
     return null
@@ -102,8 +97,6 @@ export async function recordLead(supabase, { msg, contact }) {
   const row = { phone, wa_name: contact?.profile?.name || null, source, ad_source_id, ad_headline, stage: 'nuevo' }
   const { data, error } = await supabase.from('leads').insert(row).select('*').single()
   if (error) {
-    // Two messages racing the first insert both violate the unique phone — take
-    // whichever row won.
     const { data: raced } = await supabase.from('leads').select('*').eq('phone', phone).maybeSingle()
     if (raced) return { lead: raced, isNew: false }
     console.error('[lead] insert failed:', error.message)
@@ -113,17 +106,14 @@ export async function recordLead(supabase, { msg, contact }) {
   return { lead: data, isNew: true }
 }
 
-// smb_message_echoes: an echo is a message the business number sent MANUALLY
-// (Nicolás typing in WhatsApp, not an API send). For a lead that's the hard pause
-// signal — the bot goes silent for that lead forever. This handler is also the
-// Phase-A litmus test that Dualhook forwards echoes at all: every echo logs a
-// distinctive marker so a single manual test message proves the pipe.
+// smb_message_echoes: a manual send from the business number → hard pause for that
+// lead forever. Also the litmus test that Dualhook forwards echoes at all.
 export async function handleEchoes(supabase, value) {
   const echoes = value?.message_echoes
   if (!Array.isArray(echoes) || echoes.length === 0) return 0
   let paused = 0
   for (const e of echoes) {
-    const to = normalizePhone(e.to) // business → customer, so the lead is `to`
+    const to = normalizePhone(e.to)
     console.log(`[wa-cloud] SMB ECHO forwarded by Dualhook — to=${e.to} type=${e.type}`)
     if (!to) continue
     const { data: lead } = await supabase.from('leads').select('id, bot_paused').eq('phone', to).maybeSingle()
@@ -137,53 +127,35 @@ export async function handleEchoes(supabase, value) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase B — the button bot. No free-form model output ever reaches a lead: the
-// LLM only CLASSIFIES free text; every message the lead sees is code-authored
-// copy or a canned answer. Runs only when LEAD_BOT_LIVE==='true' and the lead
-// isn't paused. All sends are best-effort — a send failure never crashes the
-// webhook's 200 to Meta.
+// Phase B — the conversation. Runs only when botAllowedForPhone && !bot_paused.
+// All sends are best-effort; a send failure never crashes the webhook's 200.
 // ─────────────────────────────────────────────────────────────────────────────
-
-const MSG1 = `Hola 🌿 Somos Efimeramente, un equipo de psicólogos en Cumbayá.
-
-La sesión cuesta $39, o $35 c/u si compras un paquete de 4.
-📍 Presencial en Cumbayá (con parqueadero privado) u online
-💳 Aceptamos tarjeta
-🧾 Muchos seguros privados reembolsan la terapia — te ayudamos con el trámite
-
-El primer paso es gratis: una llamada de 10 minutos con el/la terapeuta que tú elijas.`
-
-const MENU_BUTTONS = [
-  { id: 'elegir_terapeuta', title: 'Elegir terapeuta' },
-  { id: 'pregunta', title: 'Tengo una pregunta' },
-]
 
 const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']
 const DIAS_FULL = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
 const MESES_ABBR = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 const MESES_FULL = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 
-// "lun 29 sep · 10:00" (list row title, ≤24 chars)
 function humanSlot(date, time) {
   const d = new Date(`${date}T00:00:00Z`)
   return `${DIAS[d.getUTCDay()]} ${d.getUTCDate()} ${MESES_ABBR[d.getUTCMonth()]} · ${time}`
 }
-// "lunes 29 de septiembre a las 10:00" (confirmation copy)
 function humanDateLong(date, time) {
   const d = new Date(`${date}T00:00:00Z`)
   return `${DIAS_FULL[d.getUTCDay()]} ${d.getUTCDate()} de ${MESES_FULL[d.getUTCMonth()]} a las ${time}`
 }
 
-// Spec calls María Gracia "Ma. Gracia"; everyone else is a single first name —
-// keeps "Elegir a {name}" within the 20-char button limit.
 function shortName(nombre) {
   if (nombre === 'Maria Gracia') return 'Ma. Gracia'
   return String(nombre || '').split(/\s+/)[0]
 }
 const freeCallLink = (therapistId) => `${APP_BASE}/agendar?terapeuta=${therapistId}`
 
-// Persist a patch and mirror it onto the in-memory lead so a single webhook turn
-// can advance several steps consistently.
+// Ecuador is UTC-5, no DST. Nicolás's hours: 07:00–23:00. Outside that = night.
+function ecHourNow() { return (new Date().getUTCHours() + 24 - 5) % 24 }
+function isNightGYE() { const h = ecHourNow(); return h >= 23 || h < 7 }
+
+// Persist a patch and mirror it onto the in-memory lead.
 async function patchLead(supabase, lead, patch) {
   patch.updated_at = new Date().toISOString()
   await supabase.from('leads').update(patch).eq('id', lead.id)
@@ -193,11 +165,6 @@ const STAGE_TS = {
   toco: 'toco_at', eligio_terapeuta: 'eligio_terapeuta_at', agendo: 'agendo_at',
   llamada_hecha: 'llamada_hecha_at', no_contesto: 'no_contesto_at', paciente: 'paciente_at', frio: 'frio_at',
 }
-// Advance the funnel stage, stamping its timestamp once. Among the PRE-booking
-// core stages (nuevo→toco→eligio_terapeuta→agendo) it never moves backward. Every
-// other transition always applies: the post-call branches (llamada_hecha /
-// no_contesto), re-engagement from no_contesto/frio back to agendo, and the frio
-// off-ramp. `paciente` is derived from `convirtio` elsewhere — the bot never sets it.
 const CORE = { nuevo: 0, toco: 1, eligio_terapeuta: 2, agendo: 3 }
 async function advanceStage(supabase, lead, stage) {
   const patch = {}
@@ -220,39 +187,34 @@ function extractTap(msg) {
   if (msg?.type === 'button' && msg.button?.payload) return { id: msg.button.payload, title: msg.button.text }
   return null
 }
+// The webhook uses this to decide immediate (tap) vs 20s-delayed (text) handling.
+export function isTap(msg) { return !!extractTap(msg) }
 
-// ── Canned answers ───────────────────────────────────────────────────────────
-// The two next-step buttons attached to every answer (B2). id 'elegir_terapeuta'
-// and 'pregunta' reuse the handleTap routes, so an answer flows straight back into
-// the funnel or the FAQ list.
-const ANSWER_BUTTONS = [
-  { id: 'elegir_terapeuta', title: 'Elegir terapeuta' },
-  { id: 'pregunta', title: 'Otra pregunta' },
+// ── The one-time invitation ("answer first, then offer") ─────────────────────
+const INVITATION = '*Te gustaría ver a nuestros terapeutas disponibles?*'
+const INVITATION_BUTTONS = [
+  { id: 'inv_si', title: 'Sí' },
+  { id: 'inv_otra', title: 'Tengo otra pregunta' },
 ]
+// Offer to show therapists — but only ONCE per lead (spec). No-op if already sent.
+async function sendInvitationOnce(supabase, lead) {
+  if (lead.invitacion_enviada) return
+  await sendButtons(lead.phone, INVITATION, INVITATION_BUTTONS)
+  await patchLead(supabase, lead, { invitacion_enviada: true })
+}
+
+// ── Canned fallback copy (used only when the model is unavailable) ────────────
 const MAPS_LINK = 'https://maps.app.goo.gl/GZAFUpC1SAyW8GBT8'
 const ANSWER_COPY = {
-  precio: 'La primera sesión cuesta $39 (o $35 c/u en paquete de 4). Antes de eso, una llamada gratuita de 10 min con tu terapeuta.',
+  precio: 'La sesión cuesta $39, o $35 c/u en paquete de 4.\n💳 Aceptamos tarjeta\n🧾 Muchos seguros privados reembolsan la terapia — te ayudamos con el trámite.',
   ubicacion: '📍 Estamos en Cumbayá, a 3 minutos del Scala, con parqueadero privado y seguro.\n💻 También atendemos online.',
-  seguro: 'Muchos seguros privados reembolsan terapia psicológica, según tu plan (Bupa y Humana, por ejemplo, reembolsan hasta el 80%). Te damos la factura con el formato que piden y te ayudamos con el trámite.',
-  pago: '💳 Puedes pagar por transferencia bancaria o con tarjeta de crédito/débito (Payphone).\n📦 También tenemos un paquete de 4 sesiones por $140 ($35 c/u).',
+  seguro: 'Muchos seguros privados reembolsan terapia psicológica según tu plan (Bupa y Humana, por ejemplo, hasta el 80%). Te damos la factura con el formato que piden y te ayudamos con el trámite.',
+  pago: '💳 Puedes pagar por transferencia o con tarjeta de crédito/débito (Payphone).\n📦 También hay un paquete de 4 sesiones por $140 ($35 c/u).',
 }
 const CONTENT = new Set(['precio', 'ubicacion', 'seguro', 'pago'])
 
-// Answer a question as ONE interactive message: the canned copy is the body, the
-// two next-step buttons are attached (B2). The bot never re-prompts on its own
-// afterward. Ubicación is the one two-part send: the Maps link goes first as a
-// text so its rich preview renders, then the note carries the buttons.
-async function answerIntent(to, intent) {
-  if (intent === 'ubicacion') {
-    await sendText(to, MAPS_LINK, { previewUrl: true })
-    await sendButtons(to, ANSWER_COPY.ubicacion, ANSWER_BUTTONS)
-    return
-  }
-  await sendButtons(to, ANSWER_COPY[intent] || ANSWER_COPY.precio, ANSWER_BUTTONS)
-}
-
-// Plain answer copy, no buttons — used on first contact, where Message 1 (sent
-// right after) carries the call-to-action buttons (B4).
+// Plain canned answer (fallback path). Ubicación sends the Maps link first so its
+// rich preview renders.
 async function sendAnswerText(to, intent) {
   if (intent === 'ubicacion') {
     await sendText(to, MAPS_LINK, { previewUrl: true })
@@ -262,44 +224,28 @@ async function sendAnswerText(to, intent) {
   await sendText(to, ANSWER_COPY[intent] || ANSWER_COPY.precio)
 }
 
-// ── Classification: keyword/regex FIRST, LLM only as a fallback (B1) ──────────
-// Keyword match is deterministic, free, and instant. Content intents win over a
-// greeting so "hola, ¿dónde están?" answers the question. "domicilio" is
-// deliberately NOT a location keyword — home visits aren't offered, so it falls
-// through to a human handoff. Returns an intent or null (→ LLM fallback).
+// ── Keyword classification (deterministic, free) — greeting/thanks fast paths ─
+// + the fallback intent when the model is unavailable. "domicilio" is deliberately
+// NOT a location keyword — home visits aren't offered, so they fall through to a
+// human handoff.
 function classifyKeywords(text) {
   const t = ` ${String(text || '').toLowerCase()} `
   const has = (re) => re.test(t)
-  if (has(/cu[aá]nto|cuesta|costo|valor|precio|tarifa|evaluaci[oó]n|consulta/)) return 'precio'
-  if (has(/d[oó]nde|ubica|direcci[oó]n|queda|local|presencial|online|virtual|parqueadero/)) return 'ubicacion'
+  if (has(/cu[aá]nto|cuesta|costo|valor|precio|tarifa|evaluaci[oó]n/)) return 'precio'
+  if (has(/d[oó]nde|ubica|direcci[oó]n|queda|presencial|online|virtual|parqueadero/)) return 'ubicacion'
   if (has(/seguro|aseguradora|reembolso|cobertura/)) return 'seguro'
   if (has(/tarjeta|transferencia|pagar|paquete/)) return 'pago'
   if (has(/gracias|\bok\b|perfecto/)) return 'gracias'
-  if (has(/hola|buenas/)) return 'saludo'
+  if (has(/hola|buenas|buenos d[ií]as|buenas tardes|buenas noches/)) return 'saludo'
   return null
 }
 
-// Full classification: keyword first, LLM (APIMart, model proven working in
-// proofOcr) only when keywords miss. Returns 'precio'|'ubicacion'|'seguro'|'pago'|
-// 'gracias'|'saludo'|'otro'|null. 'otro'/null ⇒ the caller hands off to a human.
-async function classifyIntent(text) {
-  const kw = classifyKeywords(text)
-  if (kw) return kw
-  return await classifyFreeText(text)
-}
-
-// LLM fallback (classify-only; APIMart). Returns 'precio'|'ubicacion'|'seguro'|
-// 'pago'|'otro', or null on API error/empty (caller treats both as a handoff).
+// LLM fallback classifier (APIMart) — used only when the Anthropic brain is down.
 async function classifyFreeText(text) {
   const apiKey = process.env.APIMART_API_KEY
   if (!apiKey) return null
-  const prompt = `Eres un clasificador. Clasifica el mensaje de un posible paciente de una consulta psicológica en EXACTAMENTE una de estas categorías y responde SOLO con la palabra, sin nada más:
-precio — pregunta por costo, valor, cuánto cuesta.
-ubicacion — pregunta dónde están, la dirección, o si atienden presencial u online.
-seguro — pregunta por seguros médicos, reembolso, o factura para el seguro.
-pago — pregunta cómo pagar (transferencia, tarjeta, paquetes).
-otro — cualquier otra cosa, incluyendo visitas o atención a domicilio, disponibilidad de un terapeuta específico, o dudas que no encajan arriba.
-
+  const prompt = `Clasifica el mensaje de un posible paciente de una consulta psicológica en EXACTAMENTE una categoría y responde SOLO con la palabra:
+precio, ubicacion, seguro, pago, otro.
 Mensaje: "${String(text).replace(/"/g, "'").slice(0, 500)}"`
   try {
     const res = await fetch('https://api.apimart.ai/v1/chat/completions', {
@@ -317,9 +263,8 @@ Mensaje: "${String(text).replace(/"/g, "'").slice(0, 500)}"`
   } catch (e) { console.error('[bot] classify failed:', e.message); return null }
 }
 
-// ── Escalate to Nicolás + pause the bot for this lead forever ────────────────
-// urgent=true marks a crisis/clinical handoff so the push reads URGENTE (the
-// lead may already have received a containment line with ECU 911).
+// ── Escalate + handoff ───────────────────────────────────────────────────────
+// escalate: push to Nicolás + pause the bot for this lead forever.
 async function escalate(supabase, lead, reason, { urgent = false } = {}) {
   await patchLead(supabase, lead, { bot_paused: true })
   try {
@@ -332,15 +277,16 @@ async function escalate(supabase, lead, reason, { urgent = false } = {}) {
   console.log(`[bot] lead ${lead.id} escalated (${reason})${urgent ? ' URGENTE' : ''} + paused`)
 }
 
-// Standard handoff copy (T3). Kept as a const so the AI-derive path can send the
-// same line and log it.
-const HANDOFF_LINE = 'Te escribe una persona del equipo en unos minutos 🌿'
-
-// Hand the conversation to a human: one canned line to the lead, then escalate
-// (push to Nicolás + pause the bot for this lead). Used for anything the bot can't
-// answer — never a self re-prompt (B6).
-async function handoff(supabase, lead, reason) {
-  await sendText(lead.phone, HANDOFF_LINE)
+// Non-urgent handoff to a human. Window rule (#27): 07:00–23:00 GYE → NO bot text
+// (Nicolás picks it up), just push + pause. 23:00–07:00 → one line, then pause.
+// botQuestion picks the "¿bot o persona?" night variant.
+async function handoff(supabase, lead, reason, { botQuestion = false } = {}) {
+  if (isNightGYE()) {
+    const line = botQuestion
+      ? 'Soy un sistema de respuestas inteligente. Nicolás, nuestro administrador, te escribirá personalmente a primera hora de la mañana.'
+      : 'Gracias por contarnos. Nicolás te escribirá personalmente a primera hora.'
+    await sendText(lead.phone, line)
+  }
   await escalate(supabase, lead, reason)
 }
 
@@ -362,81 +308,130 @@ async function logDecision(supabase, lead, { text, accion, motivo, reply, model,
   } catch (e) { console.warn('[bot] logDecision failed:', e.message) }
 }
 
-// ── Steps ────────────────────────────────────────────────────────────────────
-async function showMessage1(supabase, lead) {
-  await sendButtons(lead.phone, MSG1, MENU_BUTTONS)
-  await patchLead(supabase, lead, { step_actual: 'msg1', last_bot_at: new Date().toISOString(), parse_misses: 0 })
-}
-
-async function showCategoryList(supabase, lead) {
+// ── Reason list (10 rows) ─────────────────────────────────────────────────────
+async function showReasonList(supabase, lead, { body = 'Me dirías tu motivo de consulta?' } = {}) {
   await advanceStage(supabase, lead, 'toco')
   const { data: cats } = await supabase.from('funnel_categorias')
-    .select('clave, etiqueta, orden').eq('activo', true).order('orden')
-  const rows = (cats || []).map((c) => ({ id: `cat:${c.clave}`, title: c.etiqueta }))
-  await sendList(lead.phone, '¿Qué te gustaría trabajar?', 'Ver temas', rows, { sectionTitle: 'Temas' })
-  await patchLead(supabase, lead, { step_actual: 'categoria', last_bot_at: new Date().toISOString(), parse_misses: 0 })
+    .select('clave, etiqueta, descripcion, orden').eq('activo', true).order('orden')
+  const rows = (cats || []).map((c) => ({
+    id: `cat:${c.clave}`, title: c.etiqueta, ...(c.descripcion ? { description: c.descripcion } : {}),
+  }))
+  await sendList(lead.phone, body, 'Ver motivos', rows, { sectionTitle: 'Motivos' })
+  await patchLead(supabase, lead, { step_actual: 'reasons', last_bot_at: new Date().toISOString(), parse_misses: 0 })
 }
 
-// Resolve up to 3 therapist cards for a category: fixed ordered list filtered by
-// recibe_nuevos (so Daniela/off therapists drop and everyone moves up), or the
-// "No estoy seguro(a)" rule (3 soonest-available, Francisco always included).
+// The bookable therapist pool (recibe_nuevos + active), with the fields cards +
+// matching need.
+async function bookableRoster(supabase) {
+  const { data } = await supabase.from('therapists')
+    .select('id, nombre, apellido, genero, funnel_caption, funnel_card_url, booking_availability, calendar_email')
+    .eq('recibe_nuevos', true).eq('activo', true)
+  return data || []
+}
+
+// Fixed ordered routing for a category, filtered to the bookable pool (off
+// therapists drop, others move up), capped at 3, Francisco never bumped off.
 async function resolveCards(supabase, clave) {
   const { data: cat } = await supabase.from('funnel_categorias').select('*').eq('clave', clave).maybeSingle()
   if (!cat) return []
-  const { data: pool } = await supabase.from('therapists')
-    .select('id, nombre, apellido, funnel_caption, funnel_card_url, booking_availability, calendar_email')
-    .eq('recibe_nuevos', true).eq('activo', true)
-  const byId = new Map((pool || []).map((t) => [t.id, t]))
-
-  if (cat.especial === 'no_seguro') {
-    const scored = []
-    for (const t of pool || []) {
-      const s = await nextSlots(supabase, t, 'llamada', 1)
-      scored.push({ t, when: s[0] ? `${s[0].date} ${s[0].time}` : '9999-99-99 99:99' })
-    }
-    scored.sort((a, b) => (a.when < b.when ? -1 : a.when > b.when ? 1 : 0))
-    let ordered = scored.map((x) => x.t)
-    let chosen = ordered.slice(0, 3)
-    if (!chosen.some((t) => t.id === FRANCISCO_ID) && byId.get(FRANCISCO_ID)) {
-      chosen = [byId.get(FRANCISCO_ID), ...ordered.filter((t) => t.id !== FRANCISCO_ID)].slice(0, 3)
-    }
-    return chosen
-  }
-  return (cat.terapeutas || []).map((id) => byId.get(id)).filter(Boolean).slice(0, 3)
+  const pool = await bookableRoster(supabase)
+  const byId = new Map(pool.map((t) => [t.id, t]))
+  const ordered = (cat.terapeutas || []).map((id) => byId.get(id)).filter(Boolean)
+  const top = ordered.slice(0, 3)
+  const franIdx = ordered.findIndex((t) => t.id === FRANCISCO_ID)
+  if (franIdx >= 3 && !top.some((t) => t.id === FRANCISCO_ID)) top[2] = ordered[franIdx] // never bump Francisco
+  return top
 }
 
-async function showCards(supabase, lead, clave) {
-  const cards = await resolveCards(supabase, clave)
-  if (!cards.length) {
+// Caption for a card: drop the "Enfoque …" clinical clause (spec: cards show areas,
+// not the approach).
+function captionSansEnfoque(caption) {
+  const i = String(caption || '').search(/Enfoque/i)
+  return (i >= 0 ? String(caption).slice(0, i) : String(caption || '')).trim()
+}
+
+// Render the resolved therapist cards. Gendered caption line + button.
+async function renderCards(supabase, lead, therapists) {
+  if (!therapists.length) {
     await sendText(lead.phone, 'En este momento no tengo terapeutas disponibles para ese tema. Escríbenos y te ayudamos directamente 🌿')
     return escalate(supabase, lead, 'sin_terapeutas')
   }
-  await sendText(lead.phone, 'Estas son las personas que te recomiendo 👇')
-  for (const t of cards) {
-    const short = shortName(t.nombre)
+  await sendText(lead.phone, 'Aquí tienes a los profesionales especializados en tu motivo de consulta.')
+  for (const t of therapists) {
+    const g = t.genero === 'M'
+    const line = g ? '*Puedes agendar una llamada gratuita para conocerlo*' : '*Puedes agendar una llamada gratuita para conocerla*'
+    const caption = captionSansEnfoque(t.funnel_caption) || `${t.nombre} ${t.apellido}`
     await sendImageCard(lead.phone, {
       imageLink: t.funnel_card_url || null,
       headerText: `${t.nombre} ${t.apellido}`,
-      body: t.funnel_caption || `${t.nombre} ${t.apellido}`,
-      button: { id: `pick:${t.id}`, title: `Elegir a ${short}` },
+      body: `${caption}\n\n${line}`,
+      button: { id: `pick:${t.id}`, title: g ? 'Quiero conocerlo' : 'Quiero conocerla' },
     })
   }
   await patchLead(supabase, lead, { step_actual: 'cards', last_bot_at: new Date().toISOString(), parse_misses: 0 })
 }
 
-async function chooseCategory(supabase, lead, clave) {
-  await advanceStage(supabase, lead, 'toco')
-  await patchLead(supabase, lead, { categoria: clave })
-  await showCards(supabase, lead, clave)
+async function showCards(supabase, lead, clave) {
+  const cards = await resolveCards(supabase, clave)
+  return renderCards(supabase, lead, cards)
 }
 
+// A reason was chosen (tap or detected). Special reasons branch off; the rest show cards.
+async function chooseReason(supabase, lead, clave) {
+  const { data: cat } = await supabase.from('funnel_categorias').select('*').eq('clave', clave).eq('activo', true).maybeSingle()
+  if (!cat) return showReasonList(supabase, lead)
+  await advanceStage(supabase, lead, 'toco')
+  await patchLead(supabase, lead, { categoria: clave })
+  if (cat.especial === 'otro') return handoff(supabase, lead, 'motivo_otro')
+  if (cat.especial === 'diagnostico') {
+    await sendText(lead.phone, 'Cuéntame qué diagnóstico tienes o sospechas. Puedes escribirlo o mandar un audio.')
+    return patchLead(supabase, lead, { step_actual: 'diagnostico_prompt', last_bot_at: new Date().toISOString(), parse_misses: 0 })
+  }
+  if (cat.especial === 'varios') {
+    await sendText(lead.phone, 'Por favor cuéntame qué te trajo a terapia? Siéntete libre de enviar un audio si te resulta mejor.')
+    return patchLead(supabase, lead, { step_actual: 'varios_prompt', last_bot_at: new Date().toISOString(), parse_misses: 0 })
+  }
+  return showCards(supabase, lead, clave)
+}
+
+// Reasons 7/9: Claude matches the free-text description to the roster → cards, or
+// derives to Nicolás (no fit / eating disorder / psychosis / bipolar / self-harm /
+// long-emotional / unclear). Falls back to a handoff if the model is unavailable.
+async function matchFlow(supabase, lead, text, mode) {
+  const roster = await bookableRoster(supabase)
+  let res = null
+  try {
+    res = await matchTherapistsForText({ roster: roster.map((t) => ({ nombre: t.nombre, caption: t.funnel_caption })), text, mode })
+  } catch (e) { console.warn('[bot] matchFlow model failed:', e.message) }
+  if (!res) { // model down → hand to a person
+    await logDecision(supabase, lead, { text, accion: 'derivar', motivo: `match_${mode}_sinmodelo`, reply: null, fallback: true })
+    return handoff(supabase, lead, `match_${mode}_sinmodelo`)
+  }
+  if (res.accion === 'derivar') {
+    await logDecision(supabase, lead, { text, accion: 'derivar', motivo: `match_${mode}_${res.motivo}`, reply: null, model: res.model, latencyMs: res.latencyMs })
+    return handoff(supabase, lead, `match_${mode}_${res.motivo || 'derivar'}`)
+  }
+  const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().split(/\s+/)[0]
+  const chosen = []
+  for (const name of res.nombres) {
+    const t = roster.find((r) => norm(r.nombre) === norm(name) && !chosen.some((c) => c.id === r.id))
+    if (t) chosen.push(t)
+  }
+  if (!chosen.length) {
+    await logDecision(supabase, lead, { text, accion: 'derivar', motivo: `match_${mode}_sin_fit`, reply: null, model: res.model, latencyMs: res.latencyMs })
+    return handoff(supabase, lead, `match_${mode}_sin_fit`)
+  }
+  await logDecision(supabase, lead, { text, accion: 'cards', motivo: `match_${mode}: ${chosen.map((t) => t.nombre).join(', ')}`, reply: null, model: res.model, latencyMs: res.latencyMs })
+  return renderCards(supabase, lead, chosen.slice(0, 3))
+}
+
+// ── Slots + booking ───────────────────────────────────────────────────────────
 async function showSlots(supabase, lead, t) {
   const short = shortName(t.nombre)
   const slots = await nextSlots(supabase, t, 'llamada', 3)
   if (!slots.length) {
     await sendText(lead.phone, `Por ahora ${short} no tiene horarios abiertos. Puedes revisar más opciones aquí:\n${freeCallLink(t.id)}`)
-    await patchLead(supabase, lead, { step_actual: 'slots', last_bot_at: new Date().toISOString(), parse_misses: 0 })
-    return
+    return patchLead(supabase, lead, { step_actual: 'slots', last_bot_at: new Date().toISOString(), parse_misses: 0 })
   }
   const rows = slots.map((s) => ({ id: `slot:${t.id}|${s.date}|${s.time}`, title: humanSlot(s.date, s.time) }))
   rows.push({ id: `vermas:${t.id}`, title: 'Ver más horarios' })
@@ -446,16 +441,40 @@ async function showSlots(supabase, lead, t) {
   await patchLead(supabase, lead, { step_actual: 'slots', last_bot_at: new Date().toISOString(), parse_misses: 0 })
 }
 
-async function chooseTherapist(supabase, lead, therapistId) {
+async function showSlotsById(supabase, lead, therapistId) {
   const { data: t } = await supabase.from('therapists')
     .select('id, nombre, apellido, booking_availability, calendar_email, activo').eq('id', therapistId).maybeSingle()
+  if (!t || !t.activo) return renderStep(supabase, lead)
+  return showSlots(supabase, lead, t)
+}
+
+// A therapist card was chosen (the interest signal). Send the call explanation
+// (gendered, + the kids line for reason "hijo") and a [Ver horarios] button.
+async function chooseTherapist(supabase, lead, therapistId) {
+  const { data: t } = await supabase.from('therapists')
+    .select('id, nombre, apellido, genero, activo').eq('id', therapistId).maybeSingle()
   if (!t || !t.activo) {
     await sendText(lead.phone, 'Esa opción ya no está disponible. Elige otra, por favor 🙂')
     return renderStep(supabase, lead)
   }
   await advanceStage(supabase, lead, 'eligio_terapeuta')
   await patchLead(supabase, lead, { therapist_id: therapistId })
-  await showSlots(supabase, lead, t)
+  const g = t.genero === 'M'
+  const nombre = shortName(t.nombre)
+  const firstBullet = g
+    ? '🤝 Conocerlo y ver si te sientes bien con él'
+    : '🤝 Conocerla y ver si te sientes bien con ella'
+  let body = `Genial. La llamada gratuita con ${nombre} te sirve para:
+${firstBullet}
+💬 Contarle sobre tu caso
+🎯 Preguntarle cómo trabaja y qué resultados buscar con la terapia
+✨ Lo que tú quieras: es una conversación entre ustedes dos
+No tiene ningún compromiso, es para ayudarte a decidir. Si quieres conocer a más de un terapeuta, puedes agendar varias llamadas.`
+  if (lead.categoria === 'hijo') {
+    body += '\n\nSi la terapia es para tu hijo/a, puedes agendar 2 llamadas: una para que la conozcas tú y otra para tu hijo/a.'
+  }
+  await sendButtons(lead.phone, body, [{ id: `horarios:${t.id}`, title: 'Ver horarios' }])
+  await patchLead(supabase, lead, { step_actual: 'explicacion', last_bot_at: new Date().toISOString(), parse_misses: 0 })
 }
 
 async function bookSlot(supabase, lead, rest) {
@@ -495,44 +514,17 @@ async function sendMoreLink(supabase, lead, therapistId) {
   await patchLead(supabase, lead, { last_bot_at: new Date().toISOString() })
 }
 
-async function showFaqList(supabase, lead) {
-  await advanceStage(supabase, lead, 'toco')
-  const rows = [
-    { id: 'faq:ubicacion', title: 'Ubicación y modalidad' },
-    { id: 'faq:seguros', title: 'Seguros' },
-    { id: 'faq:pago', title: 'Formas de pago' },
-    { id: 'faq:otra', title: 'Otra pregunta' },
-  ]
-  await sendList(lead.phone, '¿Qué te gustaría saber?', 'Ver opciones', rows, { sectionTitle: 'Preguntas' })
-  await patchLead(supabase, lead, { step_actual: 'faq', last_bot_at: new Date().toISOString(), parse_misses: 0 })
-}
-
-async function answerFaq(supabase, lead, key) {
-  if (key === 'otra') return handoff(supabase, lead, 'otra_pregunta')
-  await answerIntent(lead.phone, key === 'seguros' ? 'seguro' : key)
-  await patchLead(supabase, lead, { step_actual: 'answered', last_bot_at: new Date().toISOString(), parse_misses: 0 })
-}
-
-// Re-render whatever step the lead is on (after answering free text, or on an
-// unrecognized tap). `note` is an optional one-liner sent before the re-render.
+// Re-render the current interactive step (after a stray tap / non-text media).
 async function renderStep(supabase, lead, { note } = {}) {
   if (note) await sendText(lead.phone, note)
-  const step = lead.step_actual || 'msg1'
-  if (step === 'categoria') return showCategoryList(supabase, lead)
+  const step = lead.step_actual
+  if (step === 'reasons') return showReasonList(supabase, lead)
   if (step === 'cards' && lead.categoria) return showCards(supabase, lead, lead.categoria)
-  if (step === 'slots' && lead.therapist_id) {
-    const { data: t } = await supabase.from('therapists')
-      .select('id, nombre, apellido, booking_availability, calendar_email').eq('id', lead.therapist_id).maybeSingle()
-    if (t) return showSlots(supabase, lead, t)
-  }
-  if (step === 'faq') return showFaqList(supabase, lead)
-  return sendButtons(lead.phone, '¿Quieres agendar tu llamada gratuita de 10 minutos?', MENU_BUTTONS)
+  if (step === 'slots' && lead.therapist_id) return showSlotsById(supabase, lead, lead.therapist_id)
+  if (!note) await sendText(lead.phone, 'Cuéntame, en qué te ayudo 🙂')
 }
 
 // Recent inbound lines from this chat (oldest first), for the T2 model context.
-// Only the lead's own messages are logged (outbound bot sends aren't), which is
-// still useful history. The CURRENT message isn't logged yet (the webhook logs
-// after runBot), so it's never double-counted. Media rows ("[imagen]"…) dropped.
 async function recentInbound(supabase, phone) {
   const digits = String(phone || '').replace(/\D/g, '')
   if (!digits) return []
@@ -547,8 +539,7 @@ async function recentInbound(supabase, phone) {
 }
 
 // The chosen therapist's next real free slots (human strings), so the model can
-// speak truthfully about availability without inventing times. Empty if no
-// therapist chosen yet.
+// speak truthfully about availability.
 async function slotsForLead(supabase, lead) {
   if (!lead.therapist_id) return []
   const { data: t } = await supabase.from('therapists')
@@ -560,13 +551,22 @@ async function slotsForLead(supabase, lead) {
   } catch { return [] }
 }
 
-// T2 — free text. Claude answers from the fact sheet or derives to a human; the
-// keyword path is the fallback only if the API is missing / fails / times out.
-async function handleFreeText(supabase, lead, text) {
-  // Greetings/thanks NEVER derive and never need the model (spec) — short-circuit.
+// Welcome + reason list (bare greeting / ad text on first contact).
+async function welcomeAndReasons(supabase, lead) {
+  await sendText(lead.phone, 'Hola! Qué gusto que nos escribas')
+  return showReasonList(supabase, lead)
+}
+
+// T2 — free text. Greetings/thanks short-circuit; the diagnóstico/varios prompt
+// steps go to the matcher; everything else asks Claude, who answers from the fact
+// sheet or derives. Keyword canned answers are the fallback if the model is down.
+async function handleFreeText(supabase, lead, text, { firstTouch = false } = {}) {
   const kw = classifyKeywords(text)
-  if (kw === 'gracias') { await sendText(lead.phone, '¡Con gusto! 🌿'); return }
-  if (kw === 'saludo') { await sendText(lead.phone, '¡Hola! 🌿 Cuéntame, ¿en qué te puedo ayudar?'); return }
+  if (kw === 'gracias') { await sendText(lead.phone, 'Con gusto! 🌿'); return }
+  if (kw === 'saludo' && firstTouch) return welcomeAndReasons(supabase, lead)
+  if (kw === 'saludo') { await sendText(lead.phone, 'Hola! 🌿 Cuéntame, en qué te puedo ayudar'); return }
+  if (lead.step_actual === 'diagnostico_prompt') return matchFlow(supabase, lead, text, 'diagnostico')
+  if (lead.step_actual === 'varios_prompt') return matchFlow(supabase, lead, text, 'varios')
 
   let decision = null
   try {
@@ -582,51 +582,54 @@ async function handleFreeText(supabase, lead, text) {
   return keywordFallback(supabase, lead, text, kw)
 }
 
-// Act on Claude's {accion, texto, motivo}. "responder" → send the answer with the
-// [Elegir terapeuta]/[Otra pregunta] buttons re-attached (never a bare pitch).
-// "derivar" → handoff; motivo "urgente" sends the model's containment line (with
-// ECU 911 when there's life risk) and pushes URGENTE to Nicolás.
+// Act on Claude's {accion, texto, motivo, categoria}. "responder" → send the answer
+// (alone), remember a detected categoria, and offer the invitation once. "derivar"
+// → urgent = containment (+911 on life risk) always sent; otherwise day/night handoff.
 async function applyDecision(supabase, lead, text, d) {
   if (d.accion === 'responder') {
     const reply = d.texto || ANSWER_COPY.precio
-    await sendButtons(lead.phone, reply, ANSWER_BUTTONS)
+    await sendText(lead.phone, reply)
+    if (d.categoria) await patchLead(supabase, lead, { categoria: d.categoria })
     await patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0, last_bot_at: new Date().toISOString() })
+    await sendInvitationOnce(supabase, lead)
     await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.motivo, reply, model: d.model, latencyMs: d.latencyMs })
     return
   }
   // derivar
-  const urgent = d.motivo === 'urgente'
-  const reply = urgent
-    ? (d.texto || 'Gracias por escribir 🌿 En un momento te contacta una persona del equipo.')
-    : HANDOFF_LINE
-  await sendText(lead.phone, reply)
-  await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.motivo, reply, model: d.model, latencyMs: d.latencyMs })
-  await escalate(supabase, lead, `${urgent ? 'URGENTE' : 'derivar'} — ${d.motivo || 'otro'}`, { urgent })
+  if (d.motivo === 'urgente') {
+    const reply = d.texto || 'Gracias por escribir 🌿 En un momento te contacta una persona del equipo.'
+    await sendText(lead.phone, reply)
+    await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.motivo, reply, model: d.model, latencyMs: d.latencyMs })
+    return escalate(supabase, lead, `URGENTE — ${d.motivo}`, { urgent: true })
+  }
+  await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.motivo, reply: null, model: d.model, latencyMs: d.latencyMs })
+  return handoff(supabase, lead, `derivar — ${d.motivo || 'otro'}`, { botQuestion: /bot/i.test(d.motivo || '') })
 }
 
-// Fallback when the model is unavailable: keyword/canned answers, else handoff.
+// Fallback when the model is unavailable: keyword canned answers + invitation, else handoff.
 async function keywordFallback(supabase, lead, text, kw) {
   const intent = kw || await classifyFreeText(text)
   if (CONTENT.has(intent)) {
-    await answerIntent(lead.phone, intent)
+    await sendAnswerText(lead.phone, intent)
     await patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0, last_bot_at: new Date().toISOString() })
+    await sendInvitationOnce(supabase, lead)
     await logDecision(supabase, lead, { text, accion: 'responder', motivo: intent, reply: ANSWER_COPY[intent], fallback: true })
     return
   }
   const motivo = intent === 'otro' ? 'clasificado_otro' : 'no_clasificado'
-  await logDecision(supabase, lead, { text, accion: 'derivar', motivo, reply: HANDOFF_LINE, fallback: true })
+  await logDecision(supabase, lead, { text, accion: 'derivar', motivo, reply: null, fallback: true })
   return handoff(supabase, lead, motivo)
 }
 
 async function handleTap(supabase, lead, tap) {
   const id = tap.id || ''
-  if (id === 'elegir_terapeuta') return showCategoryList(supabase, lead)
-  if (id === 'pregunta') return showFaqList(supabase, lead)
-  if (id.startsWith('cat:')) return chooseCategory(supabase, lead, id.slice(4))
+  if (id === 'inv_si') return invitationYes(supabase, lead)
+  if (id === 'inv_otra') { await sendText(lead.phone, 'Claro, dime'); return patchLead(supabase, lead, { step_actual: 'pregunta_abierta', last_bot_at: new Date().toISOString() }) }
+  if (id.startsWith('cat:')) return chooseReason(supabase, lead, id.slice(4))
   if (id.startsWith('pick:')) return chooseTherapist(supabase, lead, id.slice(5))
+  if (id.startsWith('horarios:')) return showSlotsById(supabase, lead, id.slice(9))
   if (id.startsWith('slot:')) return bookSlot(supabase, lead, id.slice(5))
   if (id.startsWith('vermas:')) return sendMoreLink(supabase, lead, id.slice(7))
-  if (id.startsWith('faq:')) return answerFaq(supabase, lead, id.slice(4))
   // Follow-up template quick-replies (payload = the button text)
   if (id === 'Confirmo') { await sendText(lead.phone, '¡Perfecto! Te esperamos 🌿'); return }
   if (id === 'Cambiar hora' || id === 'Sí, reagendar') return rebookFromButton(supabase, lead)
@@ -634,19 +637,19 @@ async function handleTap(supabase, lead, tap) {
   return renderStep(supabase, lead)
 }
 
-// A lead asking for a new time (from the call reminder's "Cambiar hora" or the
-// rebook template's "Sí, reagendar") → fresh slots for the same therapist.
-async function rebookFromButton(supabase, lead) {
-  if (!lead.therapist_id) return renderStep(supabase, lead)
-  const { data: t } = await supabase.from('therapists')
-    .select('id, nombre, apellido, booking_availability, calendar_email').eq('id', lead.therapist_id).maybeSingle()
-  if (!t) return renderStep(supabase, lead)
-  await sendText(lead.phone, '¡Claro! Estos son los horarios disponibles 👇')
-  return showSlots(supabase, lead, t)
+// The lead tapped "Sí" on the one-time invitation. If a reason was already detected
+// from the conversation, skip the list and go straight to it; else show the list.
+async function invitationYes(supabase, lead) {
+  if (lead.categoria) return chooseReason(supabase, lead, lead.categoria)
+  return showReasonList(supabase, lead)
 }
 
-// A lead tapping "Sí, quiero agendar" on the 48h first-session nudge → hand off to
-// Nicolás + the therapist to schedule the paid session (spec: they coordinate it).
+async function rebookFromButton(supabase, lead) {
+  if (!lead.therapist_id) return renderStep(supabase, lead)
+  await sendText(lead.phone, '¡Claro! Estos son los horarios disponibles 👇')
+  return showSlotsById(supabase, lead, lead.therapist_id)
+}
+
 async function firstSessionInterest(supabase, lead) {
   await sendText(lead.phone, '¡Genial! 🌿 Un momento, coordinamos tu primera sesión por aquí.')
   try {
@@ -658,40 +661,31 @@ async function firstSessionInterest(supabase, lead) {
   } catch (e) { console.warn('[bot] first-session push failed:', e.message) }
 }
 
-// Entry point, called from the webhook after the lead row is recorded. Self-gates
-// on LEAD_BOT_LIVE + bot_paused so callers don't have to. Never throws.
+// Entry point, called from the webhook (taps, inline) and the delayed background
+// function (free text / media). Self-gates on LEAD_BOT_LIVE + bot_paused. Never throws.
 export async function runBot(supabase, { lead, isNew, msg }) {
   if (!lead || lead.bot_paused) return
   if (!botAllowedForPhone(lead.phone)) return
   try {
     const tap = extractTap(msg)
-    // Any inbound means the lead is active again — clear the nudge counter so a
-    // fresh silence can be re-nudged (and revive them from frio via the handlers).
     if (!isNew && lead.nudges_sent > 0) await patchLead(supabase, lead, { nudges_sent: 0 })
-    // First contact, or a lead who has never been sent Message 1 (e.g. they wrote
-    // in while the bot was off). If that first message already asks something we can
-    // answer, answer it FIRST (plain, no buttons), then send Message 1 — whose
-    // buttons are the call to action (B4). A bare "hola" / the ad text just gets
-    // Message 1.
-    if (isNew || (!tap && !lead.step_actual)) {
-      const body = msg?.type === 'text' ? (msg.text?.body || '') : ''
-      const intent = body ? classifyKeywords(body) : null
-      if (CONTENT.has(intent)) await sendAnswerText(lead.phone, intent)
-      return await showMessage1(supabase, lead)
-    }
+    // Audio at ANY point → a person (spec).
+    if (msg?.type === 'audio') return await handoff(supabase, lead, 'audio')
     if (tap) return await handleTap(supabase, lead, tap)
-    if (msg?.type === 'text' && msg.text?.body) return await handleFreeText(supabase, lead, msg.text.body)
-    // any other inbound (image/audio/etc) mid-flow → nudge back to the buttons
-    return await renderStep(supabase, lead, { note: 'Cuéntame, ¿en qué te ayudo? Elige una opción 🙂' })
+    if (msg?.type === 'text' && msg.text?.body) {
+      const firstTouch = isNew || !lead.step_actual
+      return await handleFreeText(supabase, lead, msg.text.body, { firstTouch })
+    }
+    // Any other inbound (image/sticker/etc) → gentle nudge back to the current step.
+    return await renderStep(supabase, lead, { note: 'Cuéntame, en qué te ayudo 🙂' })
   } catch (e) {
     console.warn('[bot] runBot failed (non-blocking):', e.message)
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase C — follow-ups. Entry points called by the lead-followups cron (silent
-// nudges, call reminder, therapist result, 48h nudge) and by the webhook (the
-// therapist's Se hizo / No contestó reply). All best-effort; none throw.
+// Phase C — follow-ups (lead-followups cron + the therapist Se hizo/No contestó
+// reply). All best-effort; none throw.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const leadFirstName = (lead) => String(lead?.wa_name || '').trim().split(/\s+/)[0] || ''
@@ -701,18 +695,13 @@ async function therapistShort(supabase, therapistId) {
   return t ? shortName(t.nombre) : 'tu terapeuta'
 }
 
-// Silent mid-flow nudge (resumes at step_actual). 1st at +2h, 2nd at +22h; after
-// the 2nd → stage=frio. The cron owns the timing + quiet-hours gating; this owns
-// the send + counter. last_bot_at is re-anchored so the next threshold is measured
-// from this nudge.
+// Silent mid-flow nudge. 1st at +2h, 2nd at +22h; after the 2nd → stage=frio.
+// Neutral copy (#27): no call push, just "we're still here".
 export async function nudgeLead(supabase, lead) {
   if (lead.bot_paused) return 'skipped'
   const n = (lead.nudges_sent || 0) + 1
-  const note = n === 1
-    ? '¿Seguimos con tu llamada gratuita de 10 minutos? 🌿'
-    : 'Seguimos aquí 🌿 Cuando quieras, agenda tu llamada gratuita de 10 minutos.'
   try {
-    await renderStep(supabase, lead, { note })
+    await sendText(lead.phone, 'Seguimos aquí si tienes alguna otra pregunta')
   } catch (e) { console.error('[followups] nudge failed:', e.message); return 'failed' }
   const patch = { nudges_sent: n, last_bot_at: new Date().toISOString() }
   if (n >= 2) { patch.stage = 'frio'; if (!lead.frio_at) patch.frio_at = new Date().toISOString() }
@@ -720,7 +709,7 @@ export async function nudgeLead(supabase, lead) {
   return 'sent'
 }
 
-// Call reminder (recordatorio_llamada) — sent to the LEAD ~1h before the call.
+// Call reminder (recordatorio_llamada) — to the LEAD ~1h before the call.
 export async function sendReminderForLead(supabase, lead, therapist, hora) {
   if (lead.bot_paused) return 'skipped'
   const toE164 = normalizePhone(lead.phone)
@@ -732,8 +721,7 @@ export async function sendReminderForLead(supabase, lead, therapist, hora) {
   } catch (e) { console.error('[followups] call reminder failed:', e.message); return 'failed' }
 }
 
-// Therapist result (resultado_llamada) — sent to the THERAPIST ~5 min after the
-// call ends. Stores the returned wamid so the therapist's reply maps back here.
+// Therapist result (resultado_llamada) — to the THERAPIST ~5 min after the call ends.
 export async function sendResultForLead(supabase, lead, therapist, hora) {
   const toE164 = normalizePhone(therapist.telefono)
   if (!toE164) { console.warn(`[followups] therapist ${therapist.id} has no phone`); return 'skipped' }
@@ -744,7 +732,7 @@ export async function sendResultForLead(supabase, lead, therapist, hora) {
   } catch (e) { console.error('[followups] result failed:', e.message); return 'failed' }
 }
 
-// 48h first-session nudge (primera_sesion) — sent to the LEAD.
+// 48h first-session nudge (primera_sesion) — to the LEAD.
 export async function sendFirstSessionForLead(supabase, lead, therapist) {
   if (lead.bot_paused) return 'skipped'
   const toE164 = normalizePhone(lead.phone)
@@ -757,9 +745,6 @@ export async function sendFirstSessionForLead(supabase, lead, therapist) {
 }
 
 // The therapist tapped Se hizo / No contestó on a resultado_llamada template.
-// Returns true if this inbound was a therapist-result reply (handled), else false
-// so the webhook can keep routing. Matches the lead via the reply's context.id
-// (the stored wamid), falling back to the therapist's most recent pending result.
 export async function handleTherapistResult(supabase, msg) {
   const tap = extractTap(msg)
   const id = tap?.id
@@ -793,7 +778,6 @@ export async function handleTherapistResult(supabase, msg) {
     console.log(`[bot] lead ${lead.id} → llamada_hecha`)
     return true
   }
-  // No contestó → mark + one rebook message to the lead (template; window likely closed).
   await advanceStage(supabase, lead, 'no_contesto')
   if (!lead.rebook_sent_at && !lead.bot_paused && botAllowedForPhone(lead.phone)) {
     try {

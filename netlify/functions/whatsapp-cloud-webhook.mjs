@@ -27,7 +27,22 @@
 import crypto from 'crypto'
 import { getSupabaseAdmin, normalizePhone, resolveReplyEstado, applyInboundReplyEstado } from '../lib/whatsapp.mjs'
 import { notifyTherapist } from '../lib/push.mjs'
-import { isTherapistOrPayer, recordLead, handleEchoes, runBot, handleTherapistResult } from '../lib/leadBot.mjs'
+import { isTherapistOrPayer, recordLead, handleEchoes, runBot, handleTherapistResult, isTap, botAllowedForPhone } from '../lib/leadBot.mjs'
+import { sendReadReceipt } from '../lib/waSend.mjs'
+
+// Fire the delayed-reply background function (fixed 20s + typing) for a lead's
+// free text. Returns fast (Netlify 202s a background invocation). The shared
+// verify token gates it so the endpoint can't be abused to make the bot send.
+async function invokeLeadReplyBackground(payload) {
+  const base = process.env.URL || 'https://efimeramente-panel.netlify.app'
+  try {
+    await fetch(`${base}/.netlify/functions/lead-reply-background`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-lead-verify': process.env.WA_CLOUD_VERIFY_TOKEN || '' },
+      body: JSON.stringify(payload),
+    })
+  } catch (e) { console.warn('[wa-cloud] background invoke failed (non-blocking):', e.message) }
+}
 
 const text = (body, status = 200) => new Response(body, { status, headers: { 'Content-Type': 'text/plain' } })
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
@@ -230,7 +245,23 @@ export default async (req) => {
             if (!(await isTherapistOrPayer(supabase, msg.from))) {
               const contact = value.contacts?.[0] || null
               const rec = await recordLead(supabase, { msg, contact })
-              if (rec) await runBot(supabase, { lead: rec.lead, isNew: rec.isNew, msg })
+              if (rec) {
+                const lead = rec.lead
+                if (isTap(msg)) {
+                  // Button taps → immediate reply, inline (no delay).
+                  await runBot(supabase, { lead, isNew: rec.isNew, msg })
+                } else if (!lead.bot_paused && botAllowedForPhone(lead.phone)) {
+                  // Free text / media → reply after a FIXED 20s with a typing
+                  // indicator (#27). Show "escribiendo…" now (text only), then let
+                  // the background function wait + reply, so we can 200 Meta fast.
+                  if (msg.type === 'text' && msg.id) {
+                    try { await sendReadReceipt(msg.id, { typing: true }) }
+                    catch (e) { console.warn('[wa-cloud] typing indicator failed (non-blocking):', e.message) }
+                  }
+                  await invokeLeadReplyBackground({ phone: lead.phone, msg, isNew: rec.isNew })
+                }
+                // else: dark lead (measurement recorded) — nothing to send.
+              }
             }
           } catch (e) {
             console.warn('[wa-cloud] lead handling failed (non-blocking):', e.message)
