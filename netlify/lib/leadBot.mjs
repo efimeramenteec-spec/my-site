@@ -583,9 +583,9 @@ async function recentInbound(supabase, phone) {
   const digits = String(phone || '').replace(/\D/g, '')
   if (!digits) return []
   const { data } = await supabase.from('whatsapp_messages')
-    .select('cuerpo, created_at').eq('direccion', 'inbound')
+    .select('cuerpo, received_at').eq('direccion', 'inbound')
     .eq('raw_payload->message->>from', digits)
-    .order('created_at', { ascending: false }).limit(12)
+    .order('received_at', { ascending: false }).limit(12)
   return (data || [])
     .map((r) => (r.cuerpo || '').trim())
     .filter((c) => c && !c.startsWith('['))
