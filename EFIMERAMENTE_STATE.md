@@ -94,11 +94,43 @@ after booking `patient.es_lead` was undefined → `(!patient || patient.es_lead)
 for ALL post-booking messages. Now includes es_lead; verified runBot runs post-booking.
 **Next-session polish — RESOLVED 2026-09-26 (commit `436cb66`, see top of Completed Features):** the
 `claude-haiku-4-5` classify-null bug is fixed (keyword-first + `claude-opus-4-8` fallback); the whole answer
-flow was reworked (answer-before-asking) and the known-organic-contact guard added. **B is now superseded by
-spec #24 — see Pending / Backlog.** WhatsApp reply buttons are still single-use (grey out after one tap) —
-returning leads send free text, which the classifier now answers directly (no re-show-menu re-prompt).
+flow was reworked (answer-before-asking) and the known-organic-contact guard added. **B was superseded by
+spec #24 — DONE 2026-09-27 (Claude/Sonnet + fact sheet + derive; see top of Completed Features); the old
+answer flow is now only the fallback.** WhatsApp reply buttons are still single-use (grey out after one tap).
 
 ## Completed Features
+- [x] **Lead bot #24 — three-tier free-text handling: Claude (Anthropic Sonnet) + fact sheet + derive**
+  (2026-09-27, Opus 4.8). Commit `fdf9f67`. Migration `lead_funnel_04_knowledge_and_ai_log`
+  (`supabase/lead-funnel-04-knowledge.sql`). Supersedes section B of the 2026-09-26 entry below.
+  - **Tiers:** T1 button taps unchanged (no model). T2 FREE TEXT → new **`netlify/lib/leadBrain.mjs`**
+    `decideFreeText()` → **Anthropic Messages API** (`https://api.anthropic.com/v1/messages`, model
+    `claude-sonnet-4-6`, **raw fetch** — matches repo convention, no SDK dep), 8s `AbortController`,
+    forced tool-call (`tool_choice:{type:'tool',name:'responder'}`) → `{accion:'responder'|'derivar',
+    texto, motivo}`. T3 derivar = handoff line + `escalate()` (push + `bot_paused`); `motivo==='urgente'`
+    → `escalate(..., {urgent:true})` = 🚨 URGENTE push, and the reply carries ECU 911 on life-risk.
+  - **Fact sheet:** new `funnel_knowledge` table (clave/titulo/contenido/orden/activo, owner-RLS), seeded
+    with confirmed facts only (price $39/$35-pack, free 10-min call, Cumbayá+parqueo+maps, online, pago,
+    seguros=Bupa/Humana 80% + BMI excludes + others→derive). **Home visits deliberately absent** → a
+    domicilio question derives. `buildFactSheet(supabase)` = active knowledge rows + live captions of
+    `recibe_nuevos` therapists. Editable in Marketing → Configuración ("Hoja de datos", `KnowledgeEditor`).
+  - **Hard rules** live in `leadBrain.mjs` `SYSTEM_RULES` (Spanish, tú, ≤3 lines, no bare "¿agendas?",
+    only fact-sheet facts, crisis/clinical→urgente, uncertain→derivar) AND enforced in code
+    (`applyDecision`: responder → `sendButtons(texto, ANSWER_BUTTONS)` re-attaches [Elegir terapeuta]
+    [Otra pregunta]; derivar urgente → send `texto`, else `HANDOFF_LINE`).
+  - **Fallback:** `keywordFallback()` (old `classifyKeywords`/`classifyFreeText` APIMart path) runs ONLY
+    when `decideFreeText` returns null (no `ANTHROPIC_API_KEY` / API error / >8s timeout). Greetings/thanks
+    short-circuit before the model (`kw==='gracias'|'saludo'`) and never derive.
+  - **Audit:** every T2 decision → `lead_ai_decisions` (`logDecision`), shown in Marketing → Embudo
+    ("Respuestas del bot a texto libre", `AiDecisionsCard`). `getFunnelData` now also returns `knowledge`
+    + `aiDecisions`; `updateFunnelKnowledge` in queries.js.
+  - **Env:** **`ANTHROPIC_API_KEY`** (Netlify, functions scope) required for T2; absent ⇒ silent keyword
+    fallback. Set by Nicolás 2026-09-27.
+  - **Gotcha (test):** the FIRST message from a brand-new lead hits the welcome branch in `runBot`
+    (`isNew || (!tap && !lead.step_actual)`), NOT T2 — `handleFreeText` only runs on 2nd+ msgs once
+    `step_actual` is set. To test T2, seed a lead row with `step_actual` already set.
+  - **LIVE test 2026-09-27** (6 msgs injected to the deployed webhook, replies to `593968029896`, then
+    purged): precio/ubicacion/seguros(Bupa) → responder ✓; domicilio → derivar ✓; "me siento muy mal" →
+    derivar/urgente + 911 + pause ✓; gracias → greeting, no model ✓. All `claude-sonnet-4-6`, 1.5–3.6s.
 - [x] **Lead bot: known-organic-contact guard + answer-before-asking (Day-1-live bug fixes)** (2026-09-26,
   Opus 4.8). Commit `436cb66`. All code in `netlify/lib/leadBot.mjs`; plus DB row ops (no migration).
   - **A — who is a lead:** new `hasEarlierInbound(supabase, from)` + a guard in `recordLead`. An ORGANIC
@@ -273,10 +305,18 @@ returning leads send free text, which the classifier now answers directly (no re
 ## Pending / Backlog
 
 ### Lead bot — surfaced 2026-09-26
-- [ ] **#24 replaces section B** (per Nicolás). The current answer-before-asking flow + its canned answers
-      (`ANSWER_COPY`, `classifyKeywords`, `answerIntent`, `sendAnswerText` in `leadBot.mjs`) become the
-      **fallback** under #24. Read spec #24 in `~/Desktop/MD FILES - MISCELANEOUS/PERMANENT TO-DO.md` before
-      touching the bot's free-text handling again.
+- [x] ~~**#24 replaces section B**~~ — **DONE 2026-09-27** (commit `fdf9f67`, see top of Completed
+      Features). T2 free text now goes to Claude (Anthropic Sonnet) with the `funnel_knowledge` fact sheet;
+      the old canned/keyword path is the fallback. Tested live end-to-end.
+- [ ] **#24 follow-ups (surfaced 2026-09-27):**
+  - Confirm the `sendButtons` answer path renders the `[Elegir terapeuta] [Otra pregunta]` buttons on a
+    real phone (log stores only the text). Watch the first live leads.
+  - The fact sheet includes `seguros` with Bupa/Humana specifics but marks other insurers "no confirmado →
+    derivar" — enrich once #14 (insurer catalogue) advances.
+  - `slotsForLead` only feeds slots when a therapist is already chosen; fine for now, revisit if leads ask
+    about availability before picking a therapist.
+  - Cost: each free-text message = 1 Sonnet call (~1–4s, few hundred tokens). Fine at current volume; if it
+    spikes, consider Haiku for the classify-only cases.
 - [ ] **Get real phone numbers for the 4 therapists still `telefono IS NULL`:** Camila Maya, Daniela
       Espinosa, Maria Gracia Villalba, Sophia Vergara. Without a phone the therapist-result reply
       (`resultado_llamada` Se hizo / No contestó) can't route to them (`sendResultForLead` skips NULL).
