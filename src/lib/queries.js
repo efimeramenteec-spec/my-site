@@ -814,13 +814,18 @@ const pickCols = (cols, obj) => Object.fromEntries(cols.filter((k) => k in obj).
 export async function getFunnelData() {
   if (isSupabaseConfigured) {
     try {
-      const [lRes, cRes, tRes] = await Promise.all([
+      const [lRes, cRes, tRes, kRes, aRes] = await Promise.all([
         supabase.from('leads').select(FUNNEL_LEAD_SELECT).order('first_at', { ascending: false }),
         supabase.from('funnel_categorias')
           .select('id,clave,etiqueta,orden,terapeutas,especial,activo').order('orden', { ascending: true }),
         supabase.from('therapists')
           .select('id,nombre,apellido,recibe_nuevos,funnel_caption,funnel_card_url,activo,booking_enabled')
           .order('nombre', { ascending: true }),
+        supabase.from('funnel_knowledge')
+          .select('id,clave,titulo,contenido,orden,activo').order('orden', { ascending: true }),
+        supabase.from('lead_ai_decisions')
+          .select('id,phone,texto_in,accion,motivo,reply,step,model,latency_ms,used_fallback,created_at')
+          .order('created_at', { ascending: false }).limit(80),
       ])
       if (lRes.error) throw lRes.error
       if (cRes.error) throw cRes.error
@@ -835,12 +840,32 @@ export async function getFunnelData() {
           for (const l of leads) l.convirtio = l.session_id ? (conv.get(l.session_id) ?? null) : null
         }
       }
-      return { source: 'live', leads, categorias: cRes.data || [], therapists: tRes.data || [] }
+      return {
+        source: 'live', leads,
+        categorias: cRes.data || [], therapists: tRes.data || [],
+        knowledge: kRes.error ? [] : (kRes.data || []),
+        aiDecisions: aRes.error ? [] : (aRes.data || []),
+      }
     } catch (err) {
       console.warn('[efimeramente] Supabase unavailable, showing demo data:', err?.message || err)
     }
   }
-  return { source: 'demo', leads: [], categorias: [], therapists: [] }
+  return { source: 'demo', leads: [], categorias: [], therapists: [], knowledge: [], aiDecisions: [] }
+}
+
+const FUNNEL_KNOWLEDGE_COLUMNS = ['titulo', 'contenido', 'activo', 'orden']
+
+export async function updateFunnelKnowledge(id, patch) {
+  if (!isSupabaseConfigured) return { ok: false, error: 'Solo disponible con datos en vivo.' }
+  const data = { ...pickCols(FUNNEL_KNOWLEDGE_COLUMNS, patch), updated_at: new Date().toISOString() }
+  try {
+    const res = await supabase.from('funnel_knowledge').update(data).eq('id', id)
+      .select('id,clave,titulo,contenido,orden,activo').single()
+    if (res.error) throw res.error
+    return { ok: true, data: res.data }
+  } catch (err) {
+    return { ok: false, error: err?.message || 'No se pudo guardar el conocimiento.' }
+  }
 }
 
 export async function updateFunnelCategoria(id, patch) {

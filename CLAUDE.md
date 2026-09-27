@@ -272,10 +272,20 @@ only SENDS when `LEAD_BOT_LIVE=true`. See `EFIMERAMENTE_STATE.md` for the go-liv
 - **`netlify/lib/leadBot.mjs`** — the brain. Classifies an inbound sender (patient/therapist/payer vs
   lead), creates/advances the `leads` row, runs the button state machine (message 1 → categoría list →
   therapist cards → slot list → booking → confirmation; FAQ list with canned answers), and the follow-up
-  entry points. **No free-form model output ever reaches a lead** — the LLM (APIMart, cheap model) only
-  CLASSIFIES free text into {precio,ubicacion,seguro,pago,otro}; code sends canned copy. Wired into
-  `whatsapp-cloud-webhook.mjs` (which also handles `smb_message_echoes` → `bot_paused`, the manual-reply
-  pause, and the therapist's `Se hizo`/`No contestó` result reply).
+  entry points. Wired into `whatsapp-cloud-webhook.mjs` (which also handles `smb_message_echoes` →
+  `bot_paused`, the manual-reply pause, and the therapist's `Se hizo`/`No contestó` result reply).
+- **Three-tier free-text handling (#24, 2026-09-26):** button taps (T1) never touch a model. FREE TEXT
+  (T2) → **`netlify/lib/leadBrain.mjs`** → Claude via the **Anthropic Messages API** (Sonnet,
+  `ANTHROPIC_API_KEY`, raw fetch, 8s AbortController, forced tool-call → `{accion, texto, motivo}`). Claude
+  may answer ONLY from a curated **fact sheet** (`funnel_knowledge` table + live therapist captions), else
+  it DERIVES (T3): crisis/self-harm/violence/clinical → `motivo:"urgente"` (reply includes ECU 911 on
+  life-risk) + URGENTE push + `bot_paused`; out-of-scope/uncertain → standard handoff line + pause.
+  Greetings/thanks never derive. Every T2 decision is logged to **`lead_ai_decisions`** (Marketing →
+  Embudo). The old keyword path (`classifyKeywords`/`classifyFreeText`, APIMart) is the **fallback only**
+  when the Anthropic call is missing/fails/times out. **`ANTHROPIC_API_KEY` (Netlify, functions scope) is
+  required for T2** — absent ⇒ silent keyword fallback. Fact sheet editable in Marketing → Configuración
+  ("Hoja de datos"); it deliberately excludes home visits (those derive to Nicolás). Migration
+  `supabase/lead-funnel-04-knowledge.sql`.
 - **`netlify/lib/waSend.mjs`** — Cloud-API session sends (text, reply buttons, list, image cards) via
   Dualhook, valid inside the free 72h CTWA window ($0). Templates live in **`netlify/lib/leadTemplates.mjs`**
   (recordatorio_llamada, resultado_llamada, rebook_llamada, primera_sesion + submit/send).

@@ -176,7 +176,51 @@ export function FunnelDashboard({ data }) {
             </div>
           )}
       </Card>
+
+      <AiDecisionsCard decisions={data.aiDecisions || []} />
     </div>
+  )
+}
+
+// Audit log of the bot's free-text (T2) decisions: what a lead typed, whether the
+// bot answered or derived, why, and the reply it sent. `keyword` model = the
+// Claude call failed/timed out and the keyword fallback answered.
+function AiDecisionsCard({ decisions }) {
+  const fmt = (iso) => {
+    const d = new Date(iso)
+    return `${d.getDate()}/${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
+  return (
+    <Card className="p-5">
+      <h3 className="mb-1 font-display text-lg font-bold text-content-primary">Respuestas del bot a texto libre</h3>
+      <p className="mb-4 font-body text-sm text-content-secondary">
+        Cada mensaje escrito que el bot respondió o derivó. “keyword” = la IA falló o tardó y respondió el respaldo.
+      </p>
+      {decisions.length === 0
+        ? <p className="font-body text-sm text-content-secondary">Aún no hay decisiones registradas.</p>
+        : (
+          <div className="max-h-96 space-y-2 overflow-y-auto">
+            {decisions.map((d) => {
+              const derivar = d.accion === 'derivar'
+              const urgente = d.motivo === 'urgente'
+              return (
+                <div key={d.id} className="rounded-lg border border-stroke/60 bg-surface-warm p-3">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <Badge variant="neutral" className={urgente ? 'bg-rose-100 text-rose-700' : derivar ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}>
+                      {urgente ? '🚨 urgente' : derivar ? 'derivó' : 'respondió'}
+                    </Badge>
+                    {d.motivo && !urgente && <span className="font-body text-xs text-content-muted">{d.motivo}</span>}
+                    {d.used_fallback && <span className="font-body text-xs text-content-muted">· keyword</span>}
+                    <span className="ml-auto font-body text-xs text-content-muted">{fmt(d.created_at)}</span>
+                  </div>
+                  <p className="font-body text-sm text-content-primary">💬 {d.texto_in}</p>
+                  {d.reply && <p className="mt-1 font-body text-sm text-content-secondary">↳ {d.reply}</p>}
+                </div>
+              )
+            })}
+          </div>
+        )}
+    </Card>
   )
 }
 
@@ -294,12 +338,51 @@ function TherapistFunnelRow({ t, onSave }) {
   )
 }
 
-export function FunnelConfig({ data, onSaveCategoria, onSaveTherapist }) {
+// One editable fact-sheet topic. The bot's free-text (T2) handler answers ONLY
+// from these; toggling off hides a topic from the model.
+function KnowledgeEditor({ row, onSave }) {
+  const [contenido, setContenido] = useState(row.contenido || '')
+  const [activo, setActivo] = useState(!!row.activo)
+  const [busy, setBusy] = useState(false)
+  const dirty = contenido !== (row.contenido || '') || activo !== !!row.activo
+  const save = async () => { setBusy(true); await onSave(row.id, { contenido, activo }); setBusy(false) }
+  return (
+    <Card className="p-4">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <span className="font-heading font-bold text-content-primary">{row.titulo}</span>
+        <div className="flex items-center gap-3">
+          <Toggle checked={activo} onChange={setActivo} label="Activo" />
+          {dirty && <Button size="sm" onClick={save} disabled={busy}>Guardar</Button>}
+        </div>
+      </div>
+      <textarea
+        className="w-full rounded-lg border border-stroke bg-white p-2 font-body text-sm text-content-primary"
+        rows={3} value={contenido} placeholder="Dato confirmado…"
+        onChange={(e) => setContenido(e.target.value)}
+      />
+    </Card>
+  )
+}
+
+export function FunnelConfig({ data, onSaveCategoria, onSaveTherapist, onSaveKnowledge }) {
   const therapists = data.therapists || []
   // Mariana is excluded permanently — no card, never in the pool.
   const pool = therapists.filter((t) => t.nombre !== 'Mariana')
+  const knowledge = data.knowledge || []
   return (
     <div className="space-y-8">
+      <section>
+        <h3 className="mb-1 font-display text-lg font-bold text-content-primary">Hoja de datos del bot</h3>
+        <p className="mb-3 font-body text-sm text-content-secondary">
+          Lo único que el bot puede afirmar al responder texto libre. Si un tema no está aquí (o está inactivo), el bot deriva a una persona. No incluyas visitas a domicilio.
+        </p>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {knowledge.map((row) => (
+            <KnowledgeEditor key={row.id} row={row} onSave={onSaveKnowledge} />
+          ))}
+        </div>
+      </section>
+
       <section>
         <h3 className="mb-1 font-display text-lg font-bold text-content-primary">Categorías → tarjetas</h3>
         <p className="mb-3 font-body text-sm text-content-secondary">

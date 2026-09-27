@@ -9,7 +9,7 @@ import { Badge } from '../components/Badge/Badge.jsx'
 import { Button } from '../components/Button/Button.jsx'
 import { Select } from '../components/Select/Select.jsx'
 
-import { getMarketingData, updateCampaign, importCampaignWeeks, getFunnelData, updateFunnelCategoria, updateTherapistFunnel } from '../lib/queries.js'
+import { getMarketingData, updateCampaign, importCampaignWeeks, getFunnelData, updateFunnelCategoria, updateTherapistFunnel, updateFunnelKnowledge } from '../lib/queries.js'
 import { FunnelDashboard, FunnelConfig } from './MarketingFunnel.jsx'
 import { parseMetaCsv } from '../lib/metaCsv.js'
 import { computeMarketing, computeFlags, campaignOn } from '../lib/marketing.js'
@@ -425,6 +425,11 @@ export default function Marketing() {
     if (res.ok) setFunnel((f) => ({ ...f, therapists: f.therapists.map((t) => (t.id === id ? { ...t, ...res.data } : t)) }))
     return res
   }
+  const saveKnowledge = async (id, patch) => {
+    const res = await updateFunnelKnowledge(id, patch)
+    if (res.ok) setFunnel((f) => ({ ...f, knowledge: (f.knowledge || []).map((k) => (k.id === id ? res.data : k)) }))
+    return res
+  }
 
   const now = new Date()
   const today = dateKey(now)
@@ -554,7 +559,7 @@ export default function Marketing() {
         : <SkeletonCard className="h-64" />)}
 
       {view === 'config' && (funnel
-        ? <FunnelConfig data={funnel} onSaveCategoria={saveCategoria} onSaveTherapist={saveTherapistFunnel} />
+        ? <FunnelConfig data={funnel} onSaveCategoria={saveCategoria} onSaveTherapist={saveTherapistFunnel} onSaveKnowledge={saveKnowledge} />
         : <SkeletonCard className="h-64" />)}
 
       {view === 'campanas' && !ready && (

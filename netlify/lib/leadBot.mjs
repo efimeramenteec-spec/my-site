@@ -17,6 +17,7 @@ import { sendText, sendButtons, sendList, sendImageCard } from './waSend.mjs'
 import { nextSlots, createBooking } from './booking.mjs'
 import { notifyTherapist } from './push.mjs'
 import { sendCallReminder, sendCallResult, sendRebook, sendFirstSessionNudge } from './leadTemplates.mjs'
+import { buildFactSheet, decideFreeText } from './leadBrain.mjs'
 
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
 
@@ -317,24 +318,48 @@ Mensaje: "${String(text).replace(/"/g, "'").slice(0, 500)}"`
 }
 
 // ── Escalate to Nicolás + pause the bot for this lead forever ────────────────
-async function escalate(supabase, lead, reason) {
+// urgent=true marks a crisis/clinical handoff so the push reads URGENTE (the
+// lead may already have received a containment line with ECU 911).
+async function escalate(supabase, lead, reason, { urgent = false } = {}) {
   await patchLead(supabase, lead, { bot_paused: true })
   try {
     await notifyTherapist(supabase, lead.therapist_id || null, {
-      title: 'Lead necesita atención 🌿',
+      title: urgent ? '🚨 URGENTE — lead necesita atención' : 'Lead necesita atención 🌿',
       body: `${lead.wa_name || lead.phone} — ${reason}`,
       url: '/marketing',
     })
   } catch (e) { console.warn('[bot] escalate push failed:', e.message) }
-  console.log(`[bot] lead ${lead.id} escalated (${reason}) + paused`)
+  console.log(`[bot] lead ${lead.id} escalated (${reason})${urgent ? ' URGENTE' : ''} + paused`)
 }
+
+// Standard handoff copy (T3). Kept as a const so the AI-derive path can send the
+// same line and log it.
+const HANDOFF_LINE = 'Te escribe una persona del equipo en unos minutos 🌿'
 
 // Hand the conversation to a human: one canned line to the lead, then escalate
 // (push to Nicolás + pause the bot for this lead). Used for anything the bot can't
 // answer — never a self re-prompt (B6).
 async function handoff(supabase, lead, reason) {
-  await sendText(lead.phone, 'Te responde una persona del equipo en unos minutos 🌿')
+  await sendText(lead.phone, HANDOFF_LINE)
   await escalate(supabase, lead, reason)
+}
+
+// Append a T2 decision to the audit log (Marketing → Embudo). Best-effort.
+async function logDecision(supabase, lead, { text, accion, motivo, reply, model, latencyMs, fallback = false }) {
+  try {
+    await supabase.from('lead_ai_decisions').insert({
+      lead_id: lead.id,
+      phone: lead.phone,
+      texto_in: String(text || '').slice(0, 1000),
+      accion,
+      motivo: motivo || null,
+      reply: reply ? String(reply).slice(0, 1000) : null,
+      step: lead.step_actual || null,
+      model: fallback ? 'keyword' : (model || null),
+      latency_ms: latencyMs ?? null,
+      used_fallback: fallback,
+    })
+  } catch (e) { console.warn('[bot] logDecision failed:', e.message) }
 }
 
 // ── Steps ────────────────────────────────────────────────────────────────────
@@ -504,19 +529,93 @@ async function renderStep(supabase, lead, { note } = {}) {
   return sendButtons(lead.phone, '¿Quieres agendar tu llamada gratuita de 10 minutos?', MENU_BUTTONS)
 }
 
+// Recent inbound lines from this chat (oldest first), for the T2 model context.
+// Only the lead's own messages are logged (outbound bot sends aren't), which is
+// still useful history. The CURRENT message isn't logged yet (the webhook logs
+// after runBot), so it's never double-counted. Media rows ("[imagen]"…) dropped.
+async function recentInbound(supabase, phone) {
+  const digits = String(phone || '').replace(/\D/g, '')
+  if (!digits) return []
+  const { data } = await supabase.from('whatsapp_messages')
+    .select('cuerpo, created_at').eq('direccion', 'inbound')
+    .eq('raw_payload->message->>from', digits)
+    .order('created_at', { ascending: false }).limit(12)
+  return (data || [])
+    .map((r) => (r.cuerpo || '').trim())
+    .filter((c) => c && !c.startsWith('['))
+    .reverse()
+}
+
+// The chosen therapist's next real free slots (human strings), so the model can
+// speak truthfully about availability without inventing times. Empty if no
+// therapist chosen yet.
+async function slotsForLead(supabase, lead) {
+  if (!lead.therapist_id) return []
+  const { data: t } = await supabase.from('therapists')
+    .select('id, nombre, apellido, booking_availability, calendar_email').eq('id', lead.therapist_id).maybeSingle()
+  if (!t) return []
+  try {
+    const s = await nextSlots(supabase, t, 'llamada', 3)
+    return s.map((x) => humanSlot(x.date, x.time))
+  } catch { return [] }
+}
+
+// T2 — free text. Claude answers from the fact sheet or derives to a human; the
+// keyword path is the fallback only if the API is missing / fails / times out.
 async function handleFreeText(supabase, lead, text) {
-  const intent = await classifyIntent(text)
-  // Thanks/greeting: one short warm line, no pitch, no handoff (B5/B6).
-  if (intent === 'gracias') { await sendText(lead.phone, '¡Con gusto! 🌿'); return }
-  if (intent === 'saludo') { await sendText(lead.phone, '¡Hola! 🌿'); return }
-  // A question we can answer: the canned answer + next-step buttons, one message.
+  // Greetings/thanks NEVER derive and never need the model (spec) — short-circuit.
+  const kw = classifyKeywords(text)
+  if (kw === 'gracias') { await sendText(lead.phone, '¡Con gusto! 🌿'); return }
+  if (kw === 'saludo') { await sendText(lead.phone, '¡Hola! 🌿 Cuéntame, ¿en qué te puedo ayudar?'); return }
+
+  let decision = null
+  try {
+    const [factSheet, history, slots] = await Promise.all([
+      buildFactSheet(supabase),
+      recentInbound(supabase, lead.phone),
+      slotsForLead(supabase, lead),
+    ])
+    decision = await decideFreeText({ factSheet, history, step: lead.step_actual, slots, text })
+  } catch (e) { console.warn('[bot] brain path failed:', e.message) }
+
+  if (decision) return applyDecision(supabase, lead, text, decision)
+  return keywordFallback(supabase, lead, text, kw)
+}
+
+// Act on Claude's {accion, texto, motivo}. "responder" → send the answer with the
+// [Elegir terapeuta]/[Otra pregunta] buttons re-attached (never a bare pitch).
+// "derivar" → handoff; motivo "urgente" sends the model's containment line (with
+// ECU 911 when there's life risk) and pushes URGENTE to Nicolás.
+async function applyDecision(supabase, lead, text, d) {
+  if (d.accion === 'responder') {
+    const reply = d.texto || ANSWER_COPY.precio
+    await sendButtons(lead.phone, reply, ANSWER_BUTTONS)
+    await patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0, last_bot_at: new Date().toISOString() })
+    await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.motivo, reply, model: d.model, latencyMs: d.latencyMs })
+    return
+  }
+  // derivar
+  const urgent = d.motivo === 'urgente'
+  const reply = urgent
+    ? (d.texto || 'Gracias por escribir 🌿 En un momento te contacta una persona del equipo.')
+    : HANDOFF_LINE
+  await sendText(lead.phone, reply)
+  await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.motivo, reply, model: d.model, latencyMs: d.latencyMs })
+  await escalate(supabase, lead, `${urgent ? 'URGENTE' : 'derivar'} — ${d.motivo || 'otro'}`, { urgent })
+}
+
+// Fallback when the model is unavailable: keyword/canned answers, else handoff.
+async function keywordFallback(supabase, lead, text, kw) {
+  const intent = kw || await classifyFreeText(text)
   if (CONTENT.has(intent)) {
     await answerIntent(lead.phone, intent)
     await patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0, last_bot_at: new Date().toISOString() })
+    await logDecision(supabase, lead, { text, accion: 'responder', motivo: intent, reply: ANSWER_COPY[intent], fallback: true })
     return
   }
-  // 'otro' or unclassifiable → hand to a human (B6). The bot never re-prompts.
-  return handoff(supabase, lead, intent === 'otro' ? 'clasificado_otro' : 'no_clasificado')
+  const motivo = intent === 'otro' ? 'clasificado_otro' : 'no_clasificado'
+  await logDecision(supabase, lead, { text, accion: 'derivar', motivo, reply: HANDOFF_LINE, fallback: true })
+  return handoff(supabase, lead, motivo)
 }
 
 async function handleTap(supabase, lead, tap) {
