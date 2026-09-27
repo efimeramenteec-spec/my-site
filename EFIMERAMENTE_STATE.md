@@ -92,13 +92,35 @@ es_lead/fuente correct. Card images live at `/cards/*.jpg`; `therapists.funnel_c
 **BUG FOUND & FIXED (commit 25ba446):** the messages-branch patient cache select omitted `es_lead`, so
 after booking `patient.es_lead` was undefined → `(!patient || patient.es_lead)` falsy → runBot skipped
 for ALL post-booking messages. Now includes es_lead; verified runBot runs post-booking.
-**Next-session polish (minor, non-blocking):** free-text classify returned null for "cuánto cuesta"
-(likely the `claude-haiku-4-5` model id on APIMart — check/adjust `classifyFreeText` in leadBot.mjs); it
-falls back gracefully (re-shows menu). FAQ button path (showFaqList) is unblocked by the es_lead fix.
-WhatsApp reply buttons are single-use (grey out after one tap) — returning leads must send free text to
-get fresh buttons; that's by design (classifier → re-show menu).
+**Next-session polish — RESOLVED 2026-09-26 (commit `436cb66`, see top of Completed Features):** the
+`claude-haiku-4-5` classify-null bug is fixed (keyword-first + `claude-opus-4-8` fallback); the whole answer
+flow was reworked (answer-before-asking) and the known-organic-contact guard added. **B is now superseded by
+spec #24 — see Pending / Backlog.** WhatsApp reply buttons are still single-use (grey out after one tap) —
+returning leads send free text, which the classifier now answers directly (no re-show-menu re-prompt).
 
 ## Completed Features
+- [x] **Lead bot: known-organic-contact guard + answer-before-asking (Day-1-live bug fixes)** (2026-09-26,
+  Opus 4.8). Commit `436cb66`. All code in `netlify/lib/leadBot.mjs`; plus DB row ops (no migration).
+  - **A — who is a lead:** new `hasEarlierInbound(supabase, from)` + a guard in `recordLead`. An ORGANIC
+    sender (`source==='whatsapp_organico'`, i.e. no CTWA `referral`) that already has ANY `direccion='inbound'`
+    row in `whatsapp_messages` (matched on `raw_payload->'message'->>'from'`) is a known contact → returns
+    `null`, no lead row, no bot. Ad clicks (referral present) always become leads. Safe because the webhook
+    logs the current inbound AFTER lead handling, so it's never counted as its own "earlier" message.
+  - **A — data:** filled `therapists.telefono` — Carolina `+593984935328`, Francisco `+593992856511`,
+    Mariana `+593994342657` (recovered from their leads rows). **Still NULL — need real numbers: Camila Maya,
+    Daniela Espinosa, Maria Gracia Villalba, Sophia Vergara.** Deleted the mis-created leads rows for those 3
+    phones + `+593999025081` (their `whatsapp_messages` kept). Cancelled the Mariana↔Sophia test llamada
+    (session `cf48a941`, 28 Sep 09:00) via the calendar fn `cancel` action (Google event soft-cancelled,
+    greyed "CANCELADA —") + `estado→cancelada` (pagado/facturada cleared) — mirrors `updateSession`'s cancel.
+  - **B — answer before asking:** classifier is keyword/regex FIRST (`classifyKeywords`), LLM only as a
+    fallback (`classifyIntent`→`classifyFreeText`; model fixed `claude-haiku-4-5`→`claude-opus-4-8`, the id
+    proven in `proofOcr`). An answer is now ONE interactive message: canned copy body + `[Elegir terapeuta]
+    [Otra pregunta]` buttons (`ANSWER_BUTTONS`/`answerIntent`); ubicación sends the Maps link (preview) then
+    the note+buttons. Removed the two self re-prompts. First contact with an answerable question → plain
+    `sendAnswerText` then Message 1 (B4). `gracias`/`ok`→`¡Con gusto! 🌿`; unclassifiable/`otro`→`handoff()`
+    (canned handoff line + escalate/push, bot paused). `faqText`/`sendFaqAnswer` removed.
+  - **⚠️ SUPERSEDED:** Nicolás says spec **#24 replaces section B** and these canned answers become the
+    **fallback** under #24 — pick that up next session (see Pending / Backlog).
 - [x] **#4 + #20 Lead funnel WhatsApp bot — 4 phases + LIVE for real leads** (2026-09-26, Opus 4.8).
   `LEAD_BOT_LIVE=true`. Commits `2eb9c8f` (A) `9e8d60e` (B) `a74e3ae` (C) `d9d7448` (D) + fixes. Full record
   in the "✅ Lead funnel" section above. New: `netlify/lib/{leadBot,waSend,booking,leadTemplates}.mjs`,
@@ -245,85 +267,19 @@ get fresh buttons; that's by design (classifier → re-show menu).
     `Paciente {nombre} | Sesión {fecha}`. **All 20 obligatoria sessions now dry-run READY (0 blocked).**
   - **Security:** guard token lives ONLY in Netlify secret env `CONTIFICO_FACTURAR_TOKEN`
     (production/functions) + local `.env` — never in git. Function refuses all requests if unset.
-- [x] **Contífico REST API — read-only reconnaissance for the `/facturar` rewrite** (2026-09-23, Opus 4.8).
-  Credentials arrived; probed the API **GET-only** (never POSTed a document) from a throwaway
-  token-guarded Netlify function `netlify/functions/cf-probe.mjs` (same pattern as the deleted dh-probe;
-  **added + DELETED this session**, commit removed — do NOT recreate). api.contifico.com is unreachable
-  from the local VM, so all calls ran server-side. **Both creds now live in Netlify** as **secret**
-  env vars, `functions` scope, **`production` context** (`CONTIFICO_API_KEY`, `CONTIFICO_POS_TOKEN`).
-  ⚠️ Netlify quirk: a secret env var **cannot** use context `all` (the updater silently no-ops); every
-  secret is stored per-context. And **env changes only reach functions on the NEXT deploy** (needed an
-  empty-commit redeploy before the function saw them).
-  - **WORKING AUTH SHAPE:** header **`Authorization: <CONTIFICO_API_KEY>`** — the raw sincronización key,
-    **no `Bearer` prefix**. Base `https://api.contifico.com/sistema/api/v1`. `Bearer` → 401
-    ("Empresa matching query does not exist"); no header → 401 ("Falta Credenciales"). The **`pos` token
-    is NOT needed for GETs** (`/persona/` returns 200 with or without `?pos=`); POS is only for
-    document creation. Confirmed against `GET /persona/` (200, 128 personas).
-  - **⭐ OBSERVACIONES FIELD = `descripcion`** (the single most important finding). The insurance-claim
-    text the UI calls "Observaciones" is carried in the document's top-level **`descripcion`** field, and
-    is **mirrored verbatim into `referencia`**. `adicional1`/`adicional2` are unused (empty) on these
-    invoices. Verified on Laura Vásquez's factura `001-001-000000282` (07/09/2026, $36):
-    `descripcion = "Sesión 4 de Septiembre - Paciente Laura Vásquez F41 otros trastornos de ansiedad"`
-    (= the known-good string; the format actually stored is
-    **`Sesión <fecha> - Paciente <Nombre> <CIE> <texto>`**, not the pipe-separated paraphrase). So the
-    `/facturar` rewrite writes the Observaciones string into **`descripcion`** on `POST /documento/`.
-  - **SRI EMISSION: YES — the API emits electronic invoices to the SRI (not record-only).** All 291
-    existing documents are `electronico:true`, `firmado:true`, 290/291 carry a 49-digit `autorizacion`
-    (SRI clave de acceso) plus `url_ride` (PDF) + `url_xml` (signed XML). Docs confirm the flow is
-    **two-step**: **`POST /documento/`** creates the record → **`PUT /documento/<id>/sri/`** submits it
-    to the SRI for authorization. A "Documento Electrónico" section exists in the docs nav but the
-    detailed schema wasn't in the intro page. ⇒ the rewrite must do POST then PUT-to-SRI (or the POST
-    auto-emits — confirm the exact behaviour when we build, still GET-safe until then).
-  - **PERSONA `id` GUID is NOT exposed** by `GET /persona/` (list or `?cedula=` filter) — `id` is always
-    `null`. The usable client key for invoicing is therefore the **cédula/RUC**, not the GUID. (This is
-    consistent with `patients.contifico_id` already being "a cédula-marker, not the real persona id".)
-    Note: the document (`GET /documento/`) `id` **is** populated (e.g. `y7aA5KX1gcP1YagZ`), and each doc
-    embeds its `persona` (billed-to party) but with `persona.id = null` too.
-  - **Cross-reference of the 10 `facturacion_obligatoria` patients vs Contífico (NO Supabase writes yet
-    — report only):**
-
-    | Patient | In Contífico | Contífico cédula (own or via payer) | Diagnosis from past invoices |
-    |---|---|---|---|
-    | Emiliano Caradonna | ✅ own persona | **0961793387** | **F41** otros trastornos de ansiedad |
-    | Laura Vásquez | ✅ own persona | 1718240995 (already stored) | **F41** otros trastornos de ansiedad |
-    | Cinthya Pérez | ✅ own persona | 2000046116 (already stored) | none (no CIE in descripcion) |
-    | Andrés Gotta | ✅ own persona | **1761043908** | none (no CIE in descripcion) |
-    | Raguel Conforme | via payer Laura Vásquez | payer 1718240995 (own: unknown) | **F88** Otros trastornos del desarrollo psicológico |
-    | Emilie Conforme | via payer Laura Vásquez | payer 1718240995 (own: unknown) | **F88** Otros trastornos del desarrollo psicológico |
-    | Micaela Castro | via payer Germania Domínguez | payer **1716794209** (own: unknown) | **F41.1** Trastorno de Ansiedad Generalizada |
-    | Thomas Quevedo | via payer Gabriela Páliz | payer **1716725765** (own: unknown) | **F41.8** Otro Trastorno de Ansiedad Social Especificado |
-    | Valentina Andrade | via payer Washington Andrade | payer **1712067378** (own: `cedula="na"`) | none (no CIE in descripcion) |
-    | Marthin Spatz (menor) / Sharian Narváez (tutor) | ✅ billed to father "MARTHÍN SPATZ" | **1724765266** (now in Supabase) | **Trastorno de Adaptación** (invoices say "CIE-10 \| Trastorno de Adaptación"; no numeric F-code written) |
-
-  - **Gaps this fills (to be written LATER, after Nicolás confirms):**
-    - `patients.cedula` / `patients.contifico_id`: **Emiliano Caradonna → 0961793387**, **Andrés Gotta
-      → 1761043908** (both have their own Contífico persona; currently null in Supabase).
-    - `payers` cédula/contifico_id (all three currently null): **Germania Domínguez → 1716794209**,
-      **Gabriela Páliz → 1716725765**, **Washington Andrade → 1712067378** ("Jorge Washington Andrade
-      Escobar", also has RUC 1712067378001). Laura Vásquez payer already has 1718240995. The minors
-      (Micaela, Thomas, Raguel, Emilie, Valentina) bill to these payers, so their invoices need the
-      **payer** cédula, not the patient's.
-    - `diagnostico_codigo`/`diagnostico_texto` backfillable for **7**: Emiliano (F41), Laura (F41),
-      Raguel (F88), Emilie (F88), Micaela (F41.1), Thomas (F41.8), Marthin Spatz (**Trastorno de
-      Adaptación** — texto only, no numeric code written in the invoice; that's F43.2 in CIE-10 but
-      confirm before storing a code). **No diagnosis available** in invoices for Cinthya, Valentina, or
-      Andrés (billed without a CIE code).
-  - **Sharian Narváez / Marthin Spatz — RESOLVED (not a data error).** Earlier `contifico_id
-    '1724765266'` looked wrong because it maps to a Contífico persona named "MARTHÍN SPATZ". It's
-    correct: the **father** (Marthin Spatz, ced 1724765266) is the billing person, and the **minor
-    patient is his son, also named Marthin Spatz**. Nicolás (2026-09-23) converted the row to a `menor`
-    patient — **tutor = Sharian Narváez, menor = Marthin Spatz** — and set `cedula`/`contifico_id` =
-    1724765266. Coherent; nothing to fix. This patient has **6 past invoices** under the father.
-  - **What the `/facturar` rewrite now requires (net):** POST `/documento/` (Bearer-less
-    `Authorization: <API_KEY>` + `pos` in body/param for creation), then `PUT /documento/<id>/sri/` to
-    emit to SRI; put the Observaciones string in **`descripcion`**; resolve the billed-to party by
-    **cédula/RUC** (patient's own, or the linked `payer` for minors) — no persona GUID needed; keep it
-    payer-aware. Persona lookup/creation and the exact document payload (line items, IVA, `pos`) are the
-    next things to nail down (still GET-safe recon) before writing any POST.
 > **Older completed work (2026-09-22 and earlier) lives in `CHANGELOG.md`.**
 > It is deliberately not loaded into session context. Read it on demand.
 
 ## Pending / Backlog
+
+### Lead bot — surfaced 2026-09-26
+- [ ] **#24 replaces section B** (per Nicolás). The current answer-before-asking flow + its canned answers
+      (`ANSWER_COPY`, `classifyKeywords`, `answerIntent`, `sendAnswerText` in `leadBot.mjs`) become the
+      **fallback** under #24. Read spec #24 in `~/Desktop/MD FILES - MISCELANEOUS/PERMANENT TO-DO.md` before
+      touching the bot's free-text handling again.
+- [ ] **Get real phone numbers for the 4 therapists still `telefono IS NULL`:** Camila Maya, Daniela
+      Espinosa, Maria Gracia Villalba, Sophia Vergara. Without a phone the therapist-result reply
+      (`resultado_llamada` Se hizo / No contestó) can't route to them (`sendResultForLead` skips NULL).
 
 ### ✅ DONE 2026-09-23 — /facturar REWRITTEN against the Contífico REST API
 - **The Chrome-automation protocol is DELETED.** `/facturar` now runs entirely through the
