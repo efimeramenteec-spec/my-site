@@ -99,6 +99,16 @@ spec #24 — DONE 2026-09-27 (Claude/Sonnet + fact sheet + derive; see top of Co
 answer flow is now only the fallback.** WhatsApp reply buttons are still single-use (grey out after one tap).
 
 ## Completed Features
+- [x] **#30 — `recentInbound` history bug fixed: query `received_at`, not `created_at`** (2026-09-27,
+  Opus 4.8). Commit `9284328`, one-line fix in `netlify/lib/leadBot.mjs#recentInbound`. `whatsapp_messages`
+  has **no `created_at` column** (only `received_at`, default `now()`) → the old `.select('cuerpo,
+  created_at').order('created_at')` errored at PostgREST, `data` came back null, fn returned `[]`, so
+  **Claude got an EMPTY history on every T2 call** (`decideFreeText`, both classify + `libre`). Now uses
+  `received_at`; scoping/oldest-first/`limit(12)` unchanged. History reaches Claude as the "Mensajes
+  recientes del cliente" block (leadBrain.mjs L160) — **inbound lines only** by design; `matchTherapistsForText`
+  gets none. **LIVE test** (`593968029896`, row reset first): (3a) "hola, es para mi hijo de 15" →
+  `intent=adolescentes, categoria=hijo`, tap "Sí" → **skipped reasons list, jumped to hijo cards** (next msg
+  logged `step:"cards"`). ✅ (3b/3c) surfaced two tuning items — see Pending / Backlog.
 - [x] **Lead funnel v2 (#27) — "answer first, then offer" + VERBATIM canned answers** (2026-09-27,
   Opus 4.8). Commits `8574b58` (v2) `115063f` (greeting/handoff fixes) `80025d6` (verbatim/classifier).
   Migration `funnel_v2_schema` + data reseed, mirror `supabase/lead-funnel-05-v2.sql`. Spec:
@@ -325,17 +335,19 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ## Pending / Backlog
 
 ### Lead bot — surfaced 2026-09-26/27
-- [x] ~~**#24 replaces section B**~~ — DONE 2026-09-27 (`fdf9f67`). Then **#27 funnel v2 DONE 2026-09-27**
-      (`8574b58`/`115063f`/`80025d6`, see top of Completed Features): answer-first opening, verbatim CANNED
-      answers (Claude only classifies), 10-reason list, gendered cards + call-explanation, day/night handoff,
-      20s delay + typing. Tested live on `593968029896` — 4/4 correct.
+- [x] ~~#24 + #27 funnel v2~~ — DONE 2026-09-27 (`fdf9f67`/`8574b58`/`115063f`/`80025d6`); #30 history fix
+      2026-09-27 (`9284328`). All in Completed Features.
 - [x] ~~Get real phone numbers for the 4 therapists still `telefono IS NULL`~~ — **DONE** (#26, 2026-09-27):
       Camila, Daniela, Ma. Gracia, Sophia numbers saved in `therapists.telefono`. All 7 now have a number.
 - [ ] **#27 follow-ups (surfaced 2026-09-27, none blocking):**
   - Tighten the felt delay: the fixed 20s sleep in `lead-reply-background.mjs` runs BEFORE the Claude call,
     so total is ~25s. Classify-then-wait-remainder would land it at ~20s.
-  - Fix latent bug: `recentInbound` (leadBot) selects `created_at`, but `whatsapp_messages` has `received_at`
-    → the query fails silently and Claude gets NO prior-message history. One-word fix; improves multi-turn.
+  - **Package answer copy (surfaced #30):** "¿el paquete se paga por adelantado?" classifies as fixed `pago`
+    intent → generic canned copy ("recordatorio 2 días *después*", single-session flow); packages are PREPAID.
+    Add a package line or `pago_paquete` intent in `leadBrain.mjs`/`CANNED`. Low pri — Nicolás supervises leads.
+  - **Burst debounce (surfaced #30):** rapid texts each spawn their own ~25s delayed reply, no cross-msg dedup
+    → 2 location-ish Qs both fired the full `ubicacion` block. Invitation safely guarded (sent once). Pairs with
+    the delay-tighten item: a per-lead coalesce window in `lead-reply-background.mjs` would collapse a burst.
   - Routing (`funnel_categorias`) is PROVISIONAL — replace when the "Mapa de casos" survey answers arrive on
     9933 (messages starting "MAPA DE CASOS"). Filter stays recibe_nuevos + first 3 + Francisco never bumped.
   - Enrich the `seguros` fact sheet as #14 (insurer catalogue) advances; Saludsa/Ecuasanitas % still "según plan".

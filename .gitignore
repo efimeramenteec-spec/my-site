@@ -15,6 +15,7 @@ dist/assets/
 .env
 dist/logos/
 dist/manifest.webmanifest
+dist/cards/
 
 # One-off data import (patient PII) + its script — never commit
 Sesiones_Consultorio.xlsx
