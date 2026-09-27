@@ -15,7 +15,7 @@
 // Everything here reads secrets from Netlify env only; nothing is echoed back.
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
-import { discoverDataset, sendCapiEvent, sweepCapiEvents, capiEnabled } from '../lib/capi.mjs'
+import { discoverDataset, sendCapiEvent, sweepCapiEvents, capiEnabled, rawGraph } from '../lib/capi.mjs'
 
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj, null, 2), { status, headers: { 'Content-Type': 'application/json' } })
@@ -54,6 +54,14 @@ export default async (req) => {
   if (action === 'discover') {
     const create = url.searchParams.get('create') === '1'
     try { return json(await discoverDataset({ create })) }
+    catch (e) { return json({ ok: false, error: e.message }, 500) }
+  }
+
+  if (action === 'raw') {
+    const path = url.searchParams.get('path')
+    if (!path) return json({ error: 'path required, e.g. path=1857507018469524' }, 400)
+    const method = (url.searchParams.get('method') || 'GET').toUpperCase()
+    try { return json(await rawGraph(path, method)) }
     catch (e) { return json({ ok: false, error: e.message }, 500) }
   }
 
