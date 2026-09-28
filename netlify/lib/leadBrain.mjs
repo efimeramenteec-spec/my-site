@@ -60,6 +60,14 @@ const STEP_ES = {
   agendado: 'ya agendó su llamada gratuita',
 }
 
+// Captions are written for WhatsApp, so they carry newlines (one bullet per
+// line). Both prompts list one therapist per line — flatten before embedding.
+const oneLine = (s) => String(s || '')
+  .split('\n')
+  .map((l) => l.replace(/^[\s•·\-*]+/, '').trim())
+  .filter(Boolean)
+  .join(' · ')
+
 // Build the fact sheet block from funnel_knowledge + live therapist captions.
 // Only ACTIVE knowledge rows and therapists that receive new patients are
 // included, so the model's "availability" reflects the real bot pool.
@@ -72,7 +80,7 @@ export async function buildFactSheet(supabase) {
   const facts = (kRes.data || []).map((k) => `- ${k.titulo}: ${k.contenido}`).join('\n')
   const teamRows = (tRes.data || [])
     .filter((t) => t.funnel_caption)
-    .map((t) => `- ${t.nombre} ${t.apellido}: ${t.funnel_caption}`)
+    .map((t) => `- ${t.nombre} ${t.apellido}: ${oneLine(t.funnel_caption)}`)
   const team = teamRows.length ? `\n\nTerapeutas disponibles (para elegir en el chat):\n${teamRows.join('\n')}` : ''
   return `${facts}${team}`
 }
@@ -293,7 +301,7 @@ export async function matchTherapistsForText({ roster, text, mode }) {
   const allowed = (roster || []).filter((t) => !excludedByMapa(t.nombre, sig))
   if (!allowed.length) return { accion: 'derivar', nombres: [], motivo: 'sin_fit_exclusiones', model: MODEL, latencyMs: 0 }
 
-  const rosterBlock = allowed.map((t) => `- ${t.nombre}: ${t.caption || ''}`).join('\n')
+  const rosterBlock = allowed.map((t) => `- ${t.nombre}: ${oneLine(t.caption)}`).join('\n')
   const mapaBlock = mapaBlockFor(allowed.map((t) => t.nombre))
   const modeLine = mode === 'diagnostico'
     ? 'El cliente eligió "Tengo un diagnóstico" y describe su diagnóstico o sospecha.'
