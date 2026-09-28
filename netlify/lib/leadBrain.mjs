@@ -38,6 +38,8 @@
 //
 // Env: ANTHROPIC_API_KEY (Sonnet). Absent ⇒ returns null ⇒ keyword fallback.
 
+import MAPA from './mapaCasos.json' with { type: 'json' }
+
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 const MODEL = 'claude-sonnet-4-6' // spec: Sonnet
 const TIMEOUT_MS = 8000
@@ -205,8 +207,78 @@ const MATCH_SYSTEM = `Eres el asistente de un consultorio de psicología en Cumb
 
 REGLAS:
 - Elige SOLO terapeutas que estén en el ROSTER (usa su primer nombre exacto). Máximo 3, del más al menos afín.
+- Guíate por el MAPA DE CASOS: es lo que cada terapeuta respondió sobre qué puede atender. Manda sobre cualquier otra señal. Prioriza a quien tiene ESPECIALIDAD en el tema; después a quien puede trabajarlo. Lo que no aparece como ESPECIALIDAD ni como "NO trabaja" es algo que sí puede tomar.
+- NUNCA recomiendes a alguien para un tema que el mapa marca como "NO trabaja", ni a alguien cuyas EXCLUSIONES choquen con lo que cuenta el cliente (edad, población).
 - DERIVA (accion "derivar") si: ningún terapeuta del roster cubre el caso; el tema es trastorno alimentario, psicosis, trastorno bipolar, o autolesión/ideas suicidas; el mensaje es una historia larga/muy emocional; o no queda claro qué busca. En una derivación pon un motivo corto (ej. "sin_fit", "riesgo", "poco_claro", "trastorno_alimentario").
-- No escribes nada al cliente; solo devuelves la decisión. No inventes especialidades: guíate por las descripciones del roster.`
+- No escribes nada al cliente; solo devuelves la decisión. No inventes especialidades: guíate por el MAPA y por las descripciones del roster.`
+
+// ── MAPA DE CASOS — matrix + hard exclusions (reasons 7 & 9) ─────────────────
+// The matrix is data (mapaCasos.json). It's rendered into the prompt for ONLY
+// the roster therapists, and backed by a deterministic filter that drops anyone
+// an exclusion rules out. That filter fires ONLY on signals the lead states
+// outright (an explicit age, the word "adicción") — never on an inferred one,
+// because silently dropping a good match on a guessed age is worse than letting
+// the model weigh it. "mi hijo" with no age is passed to the model as context,
+// not treated as proof the patient is a minor.
+
+// One line per therapist: specialties and no-gos. Anything unlisted is "○".
+function mapaBlockFor(nombres) {
+  const lines = []
+  for (const n of nombres) {
+    const t = MAPA.terapeutas[n]
+    if (!t) continue
+    const pick = (obj, mark) => Object.entries(obj)
+      .filter(([, v]) => v === mark).map(([k]) => k.replace(/_/g, ' '))
+    const esp = [...pick(t.motivos, '★'), ...pick(t.poblaciones, '★'), ...pick(t.diagnosticos, '★')]
+    const no = [...pick(t.motivos, '✗'), ...pick(t.poblaciones, '✗'), ...pick(t.diagnosticos, '✗')]
+    const row = [`- ${n}:`]
+    if (esp.length) row.push(`ESPECIALIDAD: ${esp.join(', ')}.`)
+    if (no.length) row.push(`NO trabaja: ${no.join(', ')}.`)
+    if (t.exclusiones?.length) row.push(`EXCLUSIONES: ${t.exclusiones.join('; ')}.`)
+    if (t.tambien_trabaja?.length) row.push(`También: ${t.tambien_trabaja.join(', ')}.`)
+    lines.push(row.join(' '))
+  }
+  return lines.join('\n')
+}
+
+// Signals the lead states outright. Everything here must be explicit in the text.
+function readSignals(text) {
+  const s = String(text || '').toLowerCase()
+  const out = { edad: null, paraHijo: false, adultoMayor: false, hombre: false, adiccion: false }
+  // Most explicit first. The lookahead keeps "tengo 2 hijos" / "de 4 sesiones"
+  // from being read as an age.
+  const AGE_RE = [
+    // "8 años" — but not "llevo 8 años de casado" (a duration, not an age).
+    /(\d{1,2})\s*a(?:ñ|n)(?:os|itos)\b(?!\s*(?:de\s+)?(?:casad|juntos|junt[oa]s|relaci|matrimoni|novi|trabaj|convivi|separad|divorciad))/,
+    /\bmi\s+(?:hij[oa]|ni(?:ñ|n)[oa]|peque(?:ñ|n)[oa])\s+de\s+(\d{1,2})\b/,
+    /\b(?:tengo|tiene)\s+(\d{1,2})\b(?!\s*(?:hij|herman|sesion|mes|semana|a(?:ñ|n)os\s+de\s+casad))/,
+  ]
+  for (const re of AGE_RE) {
+    const m = s.match(re)
+    if (!m) continue
+    const n = parseInt(m[1], 10)
+    if (n >= 1 && n <= 99) { out.edad = n; break }
+  }
+  out.paraHijo = /\bmi\s+(hij[oa]|ni(?:ñ|n)[oa]|peque(?:ñ|n)[oa])\b/.test(s)
+  out.adultoMayor = /adult[oa]\s+mayor|tercera\s+edad/.test(s) || (out.edad != null && out.edad >= 65)
+  out.hombre = /\bsoy\s+(un\s+)?(hombre|var[oó]n)\b/.test(s)
+  out.adiccion = /adicci[oó]n|adict[oa]|alcoh[oó]lic|drogadic/.test(s)
+  return out
+}
+
+// Why this therapist can't take this case, or null. Explicit signals only.
+function excludedByMapa(nombre, sig) {
+  const t = MAPA.terapeutas[nombre]
+  if (!t?.exclusiones?.length) return null
+  const has = (re) => t.exclusiones.some((e) => re.test(e))
+  const { edad } = sig
+  if (edad != null && edad < 18 && has(/menores de edad/)) return 'menor_de_edad'
+  if (edad != null && edad < 12 && has(/menores de 12/)) return 'nino_menor_12'
+  if (sig.adultoMayor && has(/adultos mayores/)) return 'adulto_mayor'
+  if (sig.hombre && edad != null && edad > 50 && has(/hombres mayores de 50/)) return 'hombre_mayor_50'
+  if (sig.adiccion && has(/adicciones/)) return 'adicciones'
+  return null
+}
 
 // Given the lead's free-text motive + the bookable roster, pick cards or derive.
 // roster: [{ nombre, caption }] (recibe_nuevos therapists). mode: 'diagnostico'|'varios'.
@@ -214,14 +286,28 @@ REGLAS:
 export async function matchTherapistsForText({ roster, text, mode }) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return null
-  const rosterBlock = (roster || []).map((t) => `- ${t.nombre}: ${t.caption || ''}`).join('\n')
+
+  // Exclusions are applied BEFORE asking (so an excluded therapist is never
+  // offered) and again to the answer (so a hallucinated name can't slip past).
+  const sig = readSignals(text)
+  const allowed = (roster || []).filter((t) => !excludedByMapa(t.nombre, sig))
+  if (!allowed.length) return { accion: 'derivar', nombres: [], motivo: 'sin_fit_exclusiones', model: MODEL, latencyMs: 0 }
+
+  const rosterBlock = allowed.map((t) => `- ${t.nombre}: ${t.caption || ''}`).join('\n')
+  const mapaBlock = mapaBlockFor(allowed.map((t) => t.nombre))
   const modeLine = mode === 'diagnostico'
     ? 'El cliente eligió "Tengo un diagnóstico" y describe su diagnóstico o sospecha.'
     : 'El cliente eligió "Varios motivos" y describe varias situaciones a la vez.'
+  const hijoLine = sig.paraHijo
+    ? '\nOJO: el cliente habla de su hijo/a. Si no dice la edad, considera que podría ser menor de edad y prioriza a quien sí atiende niños y adolescentes.'
+    : ''
   const user = `ROSTER (terapeutas disponibles):
 ${rosterBlock}
 
-CONTEXTO: ${modeLine}
+MAPA DE CASOS (lo que cada uno respondió que puede atender — manda sobre el roster):
+${mapaBlock}
+
+CONTEXTO: ${modeLine}${hijoLine}
 
 MENSAJE DEL CLIENTE:
 "${String(text).slice(0, 1000)}"
@@ -230,14 +316,31 @@ Decide y llama a la herramienta "recomendar".`
 
   const out = await callTool({ apiKey, system: MATCH_SYSTEM, user, tool: MATCH_TOOL })
   if (!out || (out.accion !== 'cards' && out.accion !== 'derivar')) return null
+
+  const byName = new Map(allowed.map((t) => [t.nombre.toLowerCase(), t.nombre]))
+  const nombres = (Array.isArray(out.nombres) ? out.nombres : [])
+    .map((n) => byName.get(String(n).trim().toLowerCase())) // roster-only, canonical spelling
+    .filter(Boolean)
+    .filter((n) => !excludedByMapa(n, sig))
+    .filter((n, i, a) => a.indexOf(n) === i)
+    .slice(0, 3)
+
+  // Everything the model picked was ruled out ⇒ a human, not an empty card list.
+  if (out.accion === 'cards' && !nombres.length) {
+    return { accion: 'derivar', nombres: [], motivo: 'sin_fit_exclusiones', model: MODEL, latencyMs: out.latencyMs }
+  }
   return {
     accion: out.accion,
-    nombres: Array.isArray(out.nombres) ? out.nombres.map((n) => String(n).trim()).filter(Boolean).slice(0, 3) : [],
+    nombres,
     motivo: (out.motivo || '').toString().slice(0, 60),
     model: MODEL,
     latencyMs: out.latencyMs,
   }
 }
+
+// The deterministic half of the match, exported so it can be checked without a
+// network call (there's no test runner in this repo — see CLAUDE.md).
+export const _mapa = { readSignals, excludedByMapa, mapaBlockFor }
 
 // Shared single-tool Anthropic call. Returns the tool input (+ latencyMs) or null.
 async function callTool({ apiKey, system, user, tool }) {

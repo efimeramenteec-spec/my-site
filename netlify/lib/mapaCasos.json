@@ -1,0 +1,137 @@
+{
+  "_fuente": "MAPA DE CASOS — encuesta respondida por el equipo el 27–28 sep 2026. Mariana no responde (solo referidos, nunca se ofrece a leads).",
+  "_escala": { "★": "especialidad", "○": "puede trabajarlo", "✗": "no lo trabaja" },
+
+  "siempre_a_nicolas": [
+    "autolesiones o ideación suicida",
+    "trastornos alimentarios",
+    "psicosis",
+    "trastorno bipolar"
+  ],
+
+  "terapeutas": {
+    "Camila": {
+      "motivos": {
+        "hijo": "○", "ruptura": "★", "problemas_pareja": "★", "depresion_ansiedad": "★",
+        "consumo": "✗", "terapia_pareja": "○", "trauma": "○"
+      },
+      "poblaciones": {
+        "ninos_hasta_11": "✗", "adolescentes_12_17": "○", "jovenes_adultos_18_25": "★",
+        "adultos": "★", "familias_y_pautas_de_crianza": "○"
+      },
+      "diagnosticos": {
+        "tdah": "✗", "autismo": "○", "toc": "✗", "tlp": "○", "bipolar": "✗",
+        "trastornos_alimentarios": "✗", "tept": "✗", "panico_y_fobias": "○",
+        "depresion_mayor": "★", "adicciones": "✗", "duelo": "○",
+        "autolesiones_o_ideacion": "○", "psicosis": "✗"
+      },
+      "exclusiones": [
+        "no atiende niños menores de 12 años",
+        "no atiende trastornos alimentarios",
+        "no atiende adicciones"
+      ]
+    },
+
+    "Carolina": {
+      "motivos": {
+        "hijo": "✗", "ruptura": "★", "problemas_pareja": "★", "depresion_ansiedad": "○",
+        "consumo": "✗", "terapia_pareja": "★", "trauma": "○"
+      },
+      "poblaciones": {
+        "ninos_hasta_11": "✗", "adolescentes_12_17": "○", "jovenes_adultos_18_25": "★",
+        "adultos": "★", "familias_y_pautas_de_crianza": "○"
+      },
+      "diagnosticos": {
+        "tdah": "○", "autismo": "✗", "toc": "○", "tlp": "○", "bipolar": "✗",
+        "trastornos_alimentarios": "✗", "tept": "○", "panico_y_fobias": "○",
+        "depresion_mayor": "○", "adicciones": "✗", "duelo": "○",
+        "autolesiones_o_ideacion": "○", "psicosis": "✗"
+      },
+      "exclusiones": [
+        "no atiende niños menores de 12 años"
+      ]
+    },
+
+    "Daniela": {
+      "motivos": {
+        "hijo": "✗", "ruptura": "★", "problemas_pareja": "★", "depresion_ansiedad": "○",
+        "consumo": "○", "terapia_pareja": "✗", "trauma": "○"
+      },
+      "poblaciones": {
+        "ninos_hasta_11": "✗", "adolescentes_12_17": "✗", "jovenes_adultos_18_25": "○",
+        "adultos": "○", "familias_y_pautas_de_crianza": "○"
+      },
+      "diagnosticos": {
+        "tdah": "✗", "autismo": "✗", "toc": "✗", "tlp": "○", "bipolar": "✗",
+        "trastornos_alimentarios": "○", "tept": "✗", "panico_y_fobias": "○",
+        "depresion_mayor": "○", "adicciones": "○", "duelo": "○",
+        "autolesiones_o_ideacion": "○", "psicosis": "✗"
+      },
+      "exclusiones": [
+        "no atiende menores de edad",
+        "no atiende hombres mayores de 50 años",
+        "no atiende anorexia grave"
+      ]
+    },
+
+    "Francisco": {
+      "motivos": {
+        "hijo": "★", "ruptura": "★", "problemas_pareja": "○", "depresion_ansiedad": "★",
+        "consumo": "○", "terapia_pareja": "✗", "trauma": "★"
+      },
+      "poblaciones": {
+        "ninos_hasta_11": "★", "adolescentes_12_17": "★", "jovenes_adultos_18_25": "★",
+        "adultos": "★", "familias_y_pautas_de_crianza": "○"
+      },
+      "diagnosticos": {
+        "tdah": "○", "autismo": "○", "toc": "○", "tlp": "○", "bipolar": "○",
+        "trastornos_alimentarios": "○", "tept": "★", "panico_y_fobias": "★",
+        "depresion_mayor": "★", "adicciones": "○", "duelo": "★",
+        "autolesiones_o_ideacion": "★", "psicosis": "○"
+      },
+      "exclusiones": []
+    },
+
+    "Maria Gracia": {
+      "motivos": {
+        "hijo": "★", "ruptura": "★", "problemas_pareja": "★", "depresion_ansiedad": "★",
+        "consumo": "○", "terapia_pareja": "✗", "trauma": "○"
+      },
+      "poblaciones": {
+        "ninos_hasta_11": "★", "adolescentes_12_17": "○", "jovenes_adultos_18_25": "★",
+        "adultos": "★", "familias_y_pautas_de_crianza": "○"
+      },
+      "diagnosticos": {
+        "tdah": "★", "autismo": "★", "toc": "○", "tlp": "○", "bipolar": "○",
+        "trastornos_alimentarios": "✗", "tept": "○", "panico_y_fobias": "✗",
+        "depresion_mayor": "★", "adicciones": "✗", "duelo": "★",
+        "autolesiones_o_ideacion": "★", "psicosis": "○"
+      },
+      "exclusiones": []
+    },
+
+    "Sophia": {
+      "motivos": {
+        "hijo": "○", "ruptura": "★", "problemas_pareja": "○", "depresion_ansiedad": "★",
+        "consumo": "○", "terapia_pareja": "✗", "trauma": "★"
+      },
+      "poblaciones": {
+        "ninos_hasta_11": "✗", "adolescentes_12_17": "✗", "jovenes_adultos_18_25": "★",
+        "adultos": "★", "familias_y_pautas_de_crianza": "○"
+      },
+      "diagnosticos": {
+        "tdah": "✗", "autismo": "○", "toc": "○", "tlp": "○", "bipolar": "✗",
+        "trastornos_alimentarios": "○", "tept": "★", "panico_y_fobias": "○",
+        "depresion_mayor": "○", "adicciones": "○", "duelo": "★",
+        "autolesiones_o_ideacion": "○", "psicosis": "✗"
+      },
+      "exclusiones": [
+        "no atiende menores de edad",
+        "no atiende adultos mayores"
+      ],
+      "tambien_trabaja": [
+        "población LGBT", "crisis de vida", "autoexigencia", "problemas de autoestima"
+      ]
+    }
+  }
+}
