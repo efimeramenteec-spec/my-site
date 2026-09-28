@@ -70,14 +70,6 @@ async function graph(path, { method = 'GET', body } = {}) {
   } finally { clearTimeout(timer) }
 }
 
-// Raw Graph passthrough — diagnostic only (capi-admin ?action=raw). Lets us probe
-// whether the transport forwards arbitrary Graph paths (the /dataset stop condition).
-export async function rawGraph(path, method = 'GET', body = undefined) {
-  const { base, direct } = transport()
-  const res = await graph(path, { method, body })
-  return { transport: direct ? 'graph.facebook.com' : 'dualhook', base, ...res }
-}
-
 // ── Dataset discovery ─────────────────────────────────────────────────────────
 // GET /{WABA}/dataset → the WABA's messaging-event dataset id. Meta auto-creates
 // one per WABA; a POST creates it if none exists. Cached in module memory for the
