@@ -5,6 +5,40 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+- [x] **Payment reminders + Comprobante auto-mark — BUILT & LIVE** (2026-09-24/25, Opus 4.8). Three-part
+  billing automation; all live and hands-off (cloud crons, no laptop needed).
+  - **WhatsApp templates** (WABA `1857507018469524`, submitted via the since-DELETED token-guarded
+    `dh-tpl.mjs` Dualhook throwaway): **`recordatorio_pago_v2`** (id `3646376502176152`, **APPROVED** —
+    patient reminder, bank block + dynamic URL button "Pagar con tarjeta" → `https://ppls.me/{{1}}`, suffix
+    from env `PAYPHONE_LINK_SUFFIX`); **`comprobante_sin_identificar`** (`1595464335377117`, **APPROVED**);
+    **`resumen_en_mora`** (`4657291211223040`, **PENDING** — needed a trailing line, Meta rejects a body
+    ending in a variable, err 2388299). Old `recordatorio_pago` (`1871176587622662`) is APPROVED-but-dormant,
+    superseded (its fixed numeric {{3}} forced "sesión(es)"). Gotcha: Dualhook 429s on rapid template create.
+  - **Reminder protocol** (spec #8): `netlify/lib/paymentReminders.mjs` — rule: confirmada, tipo≠llamada,
+    unpaid, fecha ≤ today−2 (GYE), `recordatorio_pago_at IS NULL`, `pago_excluido=false`; skip en-mora
+    patients (reminded+unpaid); one msg/patient; sum monto; code-gen {{3}} sesiones-text; send via
+    `sendDualhookPaymentReminder` (`whatsapp.mjs`). Scheduled `send-payment-reminders.mjs` cron
+    `0 15 * * 1-6` (10:00 GYE Mon–Sat, never Sun), gated by **`PAYMENT_REMINDERS_LIVE=true`**. Manual
+    `payment-run.mjs` (`?t=&mode=dry|live`). **Recipient = Option A**: always `patients.telefono`, NEVER
+    payer routing (`payer_id` is invoicing-only); minors (`tipo_paciente='menor'`) store the tutor's number
+    as the patient phone → greet tutor, name child in {{3}} ("la sesión de Camila del …"). Migrations:
+    `sessions.recordatorio_pago_at` + `pago_excluido` + index (`supabase/payment-reminder-fields.sql`);
+    **room-cap trigger now skips flag-only updates** so stamping pagado never trips ROOMS_FULL
+    (`supabase/presencial-room-cap-trigger.sql`). Go-live boundary: 31 pre-22-Sep unpaid sessions flagged
+    `pago_excluido` (Nicolás's last manual batch). Live-sent 24 Sep (22nd) + 25 Sep (23rd).
+  - **Comprobante AUTO-MARK** (spec #2): `netlify/lib/proofOcr.mjs` (shared OCR, refactored OUT of
+    `extract-proof.mjs` — both paths use it) + `netlify/lib/proofReconcile.mjs` (`decideAutoReconcile` +
+    apply). Auto-marks paid ONLY when clean: matched patient · extraction `ok` · confidence≠low · recipient
+    Mariana · amount = one session's price (oldest if several same-price — Nicolás's call) OR exact sum of
+    all unpaid · `transfer_id` not reused. Else HOLD in Comprobantes (overpayment [until #19], partial,
+    reused_reference, unreadable, unknown sender…). Scheduled `process-proofs.mjs` cron `*/10 * * * *`,
+    gated by **`COMPROBANTES_AUTO_LIVE=true`** (skips entirely when off — no OCR churn); manual
+    `proofs-run.mjs` (`?t=&mode=dry|live&days=N`). Sets `pagado/paid_at/metodo_pago` + `reconciled_*` +
+    `auto_reconciled=true` (migration `supabase/whatsapp-messages-auto-reconciled.sql`); logs proof→session.
+    Polling is ~free (idle run = 1 query); OCR cost is per-new-proof, independent of cadence.
+  - **Gotcha:** Netlify function env changes (`PAYMENT_REMINDERS_LIVE`, `COMPROBANTES_AUTO_LIVE`,
+    `PAYPHONE_LINK_SUFFIX`) only reach the running functions on the NEXT deploy — each needed an
+    empty-commit redeploy. And a GitHub→Netlify webhook miss once skipped two commits; an empty nudge fixed it.
 - [x] **/facturar REWRITTEN against the Contífico REST API — Chrome automation DELETED** (2026-09-23, Opus 4.8).
   New engine `netlify/functions/facturar.mjs` (modern runtime, token-guarded). Modes: `recon`
   (GET-only), `dry-run` (default — builds full payloads, **zero Contífico calls**), `emit-one`,

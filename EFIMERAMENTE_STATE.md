@@ -99,6 +99,31 @@ spec #24 — DONE 2026-09-27 (Claude/Sonnet + fact sheet + derive; see top of Co
 answer flow is now only the fallback.** WhatsApp reply buttons are still single-use (grey out after one tap).
 
 ## Completed Features
+- [x] **#22 Meta Conversions API (CAPI for Business Messaging) — SHIPPED & LIVE** (2026-09-27, Opus 4.8).
+  Commits `9091db5`→`5d7c02c`. Reports each Click-to-WhatsApp lead's funnel progress to Meta, keyed on its
+  `ctwa_clid`, so the campaign can optimize on real outcomes. **`CAPI_LIVE=true`** (rollback: unset it).
+  - **Data:** migration `supabase/lead-funnel-06-capi.sql` — `leads.ctwa_clid` + `capi_{lead,schedule,
+    purchase}_sent_at` + partial index. Backfilled `ctwa_clid` from `whatsapp_messages.raw_payload->message->
+    referral->ctwa_clid` (**11/11 ad leads**; 3 organic have none). `recordLead` (leadBot.mjs) captures it
+    going forward (`referralOf` returns it; backfills onto a known contact who later clicks an ad).
+  - **Transport = Plan B (the Dualhook proxy is messaging-only — it 404s the `/dataset` + `/events` edges).**
+    A Meta **system-user token** `efimeramente-capi` (portfolio `1077659662089797`, scopes
+    `whatsapp_business_management` + `whatsapp_business_manage_events`; **ads_management wasn't offered on the
+    "Efimeramente" app** — only needed for the campaign-goal switch, a manual step) lives in Netlify env
+    **`META_CAPI_TOKEN`** (production, secret, never-expires). `netlify/lib/capi.mjs` auto-switches to
+    `graph.facebook.com` when it's set, else falls back to Dualhook. **Dataset = `1131866282506788`**
+    (`META_DATASET_ID`, from `GET /{WABA 1857507018469524}/dataset`) — NOT the legacy Events-Manager one
+    (1722418552501748).
+  - **Events (business_messaging enum — web names 'Lead'/'Schedule' are REJECTED):** category picked →
+    `LeadSubmitted` · intro call booked → `QualifiedLead` (**optimize the campaign on this**) · first paid
+    real session → `Purchase` (value USD). Fired by the **`lead-followups` cron** (Phase E, `sweepCapiEvents`),
+    idempotent via the `capi_*_sent_at` cols + deterministic `event_id` (`<lead_id>:<event>`). Test phone
+    excluded unless `CAPI_ALLOW_TEST_PHONE=true`. Never touches `convirtio`.
+  - **Ops endpoint `netlify/functions/capi-admin.mjs`** (token-guarded by `WA_CLOUD_VERIFY_TOKEN`):
+    `status` / `discover` / `sweep` / `test-event`. (The arbitrary-Graph `raw` passthrough was removed after
+    the stop-condition probe.) **Validated:** all 3 event types returned `events_received:1` with test code
+    `TEST51990`. **Gotcha:** Meta shows the token once — copy via the dialog + `pbpaste`→`netlify env:set` in
+    ONE atomic call (clipboard can get swapped between calls). Netlify CLI installed + linked this session.
 - [x] **#30 — `recentInbound` history bug fixed: query `received_at`, not `created_at`** (2026-09-27,
   Opus 4.8). Commit `9284328`, one-line fix in `netlify/lib/leadBot.mjs#recentInbound`. `whatsapp_messages`
   has **no `created_at` column** (only `received_at`, default `now()`) → the old `.select('cuerpo,
@@ -291,44 +316,10 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
     (non-package) lotes exist; package lotes are clean multiples the trigger fully covers. (2) `paymentReminders`
     net-of-credit (same trigger). (3) `DROP COLUMN sessions.package_anchor` (needs approval). No new-package
     auto-creation until (1): record a new pack by adding a lote row or marking sessions paid manually.
-- [x] **Payment reminders + Comprobante auto-mark — BUILT & LIVE** (2026-09-24/25, Opus 4.8). Three-part
-  billing automation; all live and hands-off (cloud crons, no laptop needed).
-  - **WhatsApp templates** (WABA `1857507018469524`, submitted via the since-DELETED token-guarded
-    `dh-tpl.mjs` Dualhook throwaway): **`recordatorio_pago_v2`** (id `3646376502176152`, **APPROVED** —
-    patient reminder, bank block + dynamic URL button "Pagar con tarjeta" → `https://ppls.me/{{1}}`, suffix
-    from env `PAYPHONE_LINK_SUFFIX`); **`comprobante_sin_identificar`** (`1595464335377117`, **APPROVED**);
-    **`resumen_en_mora`** (`4657291211223040`, **PENDING** — needed a trailing line, Meta rejects a body
-    ending in a variable, err 2388299). Old `recordatorio_pago` (`1871176587622662`) is APPROVED-but-dormant,
-    superseded (its fixed numeric {{3}} forced "sesión(es)"). Gotcha: Dualhook 429s on rapid template create.
-  - **Reminder protocol** (spec #8): `netlify/lib/paymentReminders.mjs` — rule: confirmada, tipo≠llamada,
-    unpaid, fecha ≤ today−2 (GYE), `recordatorio_pago_at IS NULL`, `pago_excluido=false`; skip en-mora
-    patients (reminded+unpaid); one msg/patient; sum monto; code-gen {{3}} sesiones-text; send via
-    `sendDualhookPaymentReminder` (`whatsapp.mjs`). Scheduled `send-payment-reminders.mjs` cron
-    `0 15 * * 1-6` (10:00 GYE Mon–Sat, never Sun), gated by **`PAYMENT_REMINDERS_LIVE=true`**. Manual
-    `payment-run.mjs` (`?t=&mode=dry|live`). **Recipient = Option A**: always `patients.telefono`, NEVER
-    payer routing (`payer_id` is invoicing-only); minors (`tipo_paciente='menor'`) store the tutor's number
-    as the patient phone → greet tutor, name child in {{3}} ("la sesión de Camila del …"). Migrations:
-    `sessions.recordatorio_pago_at` + `pago_excluido` + index (`supabase/payment-reminder-fields.sql`);
-    **room-cap trigger now skips flag-only updates** so stamping pagado never trips ROOMS_FULL
-    (`supabase/presencial-room-cap-trigger.sql`). Go-live boundary: 31 pre-22-Sep unpaid sessions flagged
-    `pago_excluido` (Nicolás's last manual batch). Live-sent 24 Sep (22nd) + 25 Sep (23rd).
-  - **Comprobante AUTO-MARK** (spec #2): `netlify/lib/proofOcr.mjs` (shared OCR, refactored OUT of
-    `extract-proof.mjs` — both paths use it) + `netlify/lib/proofReconcile.mjs` (`decideAutoReconcile` +
-    apply). Auto-marks paid ONLY when clean: matched patient · extraction `ok` · confidence≠low · recipient
-    Mariana · amount = one session's price (oldest if several same-price — Nicolás's call) OR exact sum of
-    all unpaid · `transfer_id` not reused. Else HOLD in Comprobantes (overpayment [until #19], partial,
-    reused_reference, unreadable, unknown sender…). Scheduled `process-proofs.mjs` cron `*/10 * * * *`,
-    gated by **`COMPROBANTES_AUTO_LIVE=true`** (skips entirely when off — no OCR churn); manual
-    `proofs-run.mjs` (`?t=&mode=dry|live&days=N`). Sets `pagado/paid_at/metodo_pago` + `reconciled_*` +
-    `auto_reconciled=true` (migration `supabase/whatsapp-messages-auto-reconciled.sql`); logs proof→session.
-    Polling is ~free (idle run = 1 query); OCR cost is per-new-proof, independent of cadence.
-  - **Gotcha:** Netlify function env changes (`PAYMENT_REMINDERS_LIVE`, `COMPROBANTES_AUTO_LIVE`,
-    `PAYPHONE_LINK_SUFFIX`) only reach the running functions on the NEXT deploy — each needed an
-    empty-commit redeploy. And a GitHub→Netlify webhook miss once skipped two commits; an empty nudge fixed it.
-- [x] **/facturar REWRITTEN against the Contífico REST API — Chrome automation DELETED** (2026-09-23) —
-  moved to `CHANGELOG.md` on 2026-09-27 to keep this file under 600 lines. `/facturar` runs entirely
-  through `netlify/functions/facturar.mjs` (dry-run default, non-retroactive `FACTURAR_SINCE=2026-09-24`,
-  token-guarded); full write-up in the changelog. The backlog summary still lives under "✅ DONE 2026-09-23" below.
+- [x] **Payment reminders + Comprobante auto-mark** (2026-09-24/25) + **/facturar REST rewrite** (2026-09-23) —
+  both **moved to `CHANGELOG.md`** on 2026-09-27. TL;DR: `paymentReminders.mjs`/`send-payment-reminders.mjs`
+  (`PAYMENT_REMINDERS_LIVE`), `proofOcr.mjs`/`proofReconcile.mjs`/`process-proofs.mjs` (`COMPROBANTES_AUTO_LIVE`),
+  `facturar.mjs` (`FACTURAR_SINCE`). Backlog summaries still under "✅ DONE" below.
 > **Older completed work (2026-09-22 and earlier) lives in `CHANGELOG.md`.**
 > It is deliberately not loaded into session context. Read it on demand.
 
@@ -337,6 +328,14 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ### Lead bot — surfaced 2026-09-26/27
 - [x] ~~#24 + #27 funnel v2~~ — DONE 2026-09-27 (`fdf9f67`/`8574b58`/`115063f`/`80025d6`); #30 history fix
       2026-09-27 (`9284328`). All in Completed Features.
+- [x] ~~#22 Meta Conversions API~~ — **SHIPPED & LIVE 2026-09-27** (`5d7c02c`). See Completed Features.
+- [ ] **#22 manual follow-ups (surfaced 2026-09-27, not blocking):**
+  - **Switch the campaign performance goal to `QualifiedLead`** in Ads Manager (needs `ads_management` — the
+    system-user token doesn't have it; do it in the UI). Spec: do this "once events are flowing", separate step.
+  - **Cheap real test still pending:** click a real ad → book an intro call → confirm `QualifiedLead` in Events
+    Manager (outside test mode). NOTE it needs the lead to reach `agendo` — i.e. booked **via the bot** (web
+    `/agendar` doesn't stamp the lead's `agendo_at`). So CAPI stays dormant for real leads until they flow
+    through the live bot. For his own phone set `CAPI_ALLOW_TEST_PHONE=true` first (else the test phone is excluded).
 - [x] ~~Get real phone numbers for the 4 therapists still `telefono IS NULL`~~ — **DONE** (#26, 2026-09-27):
       Camila, Daniela, Ma. Gracia, Sophia numbers saved in `therapists.telefono`. All 7 now have a number.
 - [ ] **#27 follow-ups (surfaced 2026-09-27, none blocking):**
