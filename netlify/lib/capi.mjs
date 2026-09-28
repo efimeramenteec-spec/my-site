@@ -5,10 +5,12 @@
 // for real outcomes (Schedule / Purchase) instead of "conversation started".
 //
 // Three events, keyed on the lead's ctwa_clid (the per-click id Meta stamps on the
-// ad-referral message):
-//   • Lead     = category picked          (leads.categoria set)
-//   • Schedule = intro call booked        (leads.agendo_at / session_id)
-//   • Purchase = first PAID real session  (value + currency USD)
+// ad-referral message). NOTE: the business_messaging action source only accepts a
+// fixed enum of event names (Purchase, LeadSubmitted, QualifiedLead, …) — the web
+// names "Lead"/"Schedule" are rejected — so the funnel steps map like this:
+//   • category picked          → LeadSubmitted  (leads.categoria set)
+//   • intro call booked        → QualifiedLead  (leads.agendo_at / session_id) ← optimize on this
+//   • first PAID real session  → Purchase       (value + currency USD)
 // Each fires at most once per lead (the leads.capi_*_sent_at columns) and carries a
 // deterministic event_id ("<lead_id>:<event>") so Meta also dedupes on its side.
 //
@@ -163,13 +165,13 @@ export async function sweepCapiEvents(supabase) {
 
     // Lead — a reason/category was picked (or detected from the conversation).
     if (!lead.capi_lead_sent_at && lead.categoria) {
-      if (await fire(supabase, { lead, datasetId, testCode, eventName: 'Lead', column: 'capi_lead_sent_at' })) summary.lead++
+      if (await fire(supabase, { lead, datasetId, testCode, eventName: 'LeadSubmitted', column: 'capi_lead_sent_at' })) summary.lead++
       else summary.errors++
     }
 
-    // Schedule — an intro call was booked.
+    // Schedule — an intro call was booked → a qualified lead (the optimization event).
     if (!lead.capi_schedule_sent_at && (lead.agendo_at || lead.session_id)) {
-      if (await fire(supabase, { lead, datasetId, testCode, eventName: 'Schedule', column: 'capi_schedule_sent_at' })) summary.schedule++
+      if (await fire(supabase, { lead, datasetId, testCode, eventName: 'QualifiedLead', column: 'capi_schedule_sent_at' })) summary.schedule++
       else summary.errors++
     }
 
