@@ -5,6 +5,81 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+- [x] **#19 saldo a favor — comprobante→lote + net-of-credit matching/reminders + package_anchor DROPPED
+  (steps 2–7 of the finish plan)** (2026-09-25, Opus 4.8). Commits `5ee272e` (2–6) + `5566b0e` (7).
+  Step 1 (verify the 7 backfilled lotes, $433) re-confirmed with Nicolás — correct; the only non-$35
+  component is Samantha Aldaz's special $24 rate ($48 = 2×$24), everything else is 11×$35.
+  - **proofReconcile (`netlify/lib/proofReconcile.mjs`) now decides against the patient's saldo pool.**
+    `decideAutoReconcile(proof, ex, unpaid, ctx)` gained `ctx = {credit, tarifa, payerId}` and returns a
+    richer plan (`mark` | `lote` | `withhold`). Rules: **$140 → package lote** ($35/session) then settles
+    whatever the pooled credit now fully covers; **overpayment from a matched sender → surplus banked as a
+    lote at tarifa** (existing credit drawn for the rest); **no-debt payment → prepay lote**; **match vs
+    amount owed NET of credit + consume credit on match** ($10 credit + $40 session → $30 exact);
+    **underpayment stays a warning** (never partial credit). New apply path: `fifoConsumeLotes` +
+    `insertLote` + `applyPlan` (insert-then-consume so a package lote is used last and an overpayment
+    surplus is never drawn). `report` gained a `lotes` counter + per-item lote/credit fields.
+  - **Same-day matching bug fixed:** the matcher used `fecha < today`, missing a session confirmed & paid
+    the SAME day (real case: Thais Cardoso's $39 for today's session would have mis-banked as prepay
+    credit). Now `<= today`.
+  - **paymentReminders (`netlify/lib/paymentReminders.mjs`):** amount asked = owed **net of credit**;
+    fully-covered patients are skipped (`skipped_covered_by_credit`) and NOT stamped, so they don't
+    become "en mora". Entry now carries `gross`/`credit`.
+  - **Step 7 — `sessions.package_anchor` DROPPED** (migration `drop_sessions_package_anchor`, mirror
+    `supabase/drop-sessions-package-anchor.sql`). Dormant since bd31c6a; provenance of the 7 lotes lives
+    in `saldo_lotes.source_session_id` + note. Approved by Nicolás in chat.
+  - **⚠️ Pool-based semantics (documented, not a bug):** both the confirm trigger AND proofReconcile settle
+    draw the session's **`monto`** from total remaining credit; `price_per_session` is nominal accounting,
+    not a per-session cap. So a $140 pool covers ~$140 of sessions at their real monto — exactly 4 sessions
+    only when tarifa == $35. For $39-tarifa package buyers (Emily, Ramesvary) a $140 pack covers ~3.5
+    sessions, not 4. If Nicolás wants a package to always cover 4 sessions regardless of tarifa, the trigger
+    + settle must consume `price_per_session` instead of `monto` — a deliberate future change, not shipped.
+  - **Verified:** 15 pure-decision unit assertions (all pass) + dry runs of both processors against the live
+    DB (nothing written; Thais's $39 now marks today's session; reminders query + lotes join clean).
+
+- [x] **#19 Saldo a favor (credit lotes) LIVE + old 4-pack mechanism RETIRED + comprobante warning alert +
+  Sesiones search fix** (2026-09-26, Opus 4.8). Four things shipped this session.
+  - **Comprobante warning alert (spec #2 additions) — LIVE.** On every WITHHELD proof the auto-processor
+    now WhatsApps Nicolás once (template `comprobante_sin_identificar`, id `1595464335377117`, APPROVED).
+    New `sendDualhookComprobanteAlert({sender,amount,motivo})` in `netlify/lib/whatsapp.mjs` (recipient =
+    env `OWNER_WHATSAPP`, fallback `+593968029896`; Meta rejects empty vars so all 3 are coerced). Wired in
+    `netlify/lib/proofReconcile.mjs` `runProofAutomation`: on `withhold`, if `!proof.alerted_at` send + stamp
+    `alerted_at` (the THROTTLE — the every-10-min processor would re-alert forever otherwise); best-effort, a
+    failed send never crashes the batch and leaves `alerted_at` null to retry; dry runs show `would-alert`.
+    Reasons → Spanish `motivo` map (`unmatched`→"remitente no identificado", `amount_no_match`, `overpayment`,
+    `reused_reference`, `extraction_*`→"no se pudo leer la imagen", …). Additive column
+    `whatsapp_messages.alerted_at` applied (migration `add_whatsapp_alerted_at`, mirror
+    `supabase/whatsapp-messages-alerted-at.sql`). Burst on first live run was ≤2 (only 2 held proofs then).
+  - **#19 saldo a favor — LIVE.** Replaces the 4-session-package prepay. `saldo_lotes` table
+    (`amount / price_per_session / remaining`, FIFO, owner RLS + explicit service_role/authenticated GRANTs,
+    `payer_id` denormalized for future payer-group scoping; origin `package|overpayment|prepay|manual`).
+    Pure math in `netlify/lib/saldo.mjs` (`totalCredit`, `netOwed`, `isPackagePayment` [$140], `packageLote`
+    [$35/session], FIFO `consume` → `{applied,shortfall}`; node-unit-checked). **DB trigger
+    `consume_saldo_on_confirm`** (BEFORE INSERT/UPDATE on sessions): on confirmada + unpaid + billable, FIFO-draws
+    the patient's credit at the lote price, **full-coverage only** (package lotes are whole multiples so partials
+    never happen; if credit can't cover the whole session it stays unpaid for the reminder/comprobante flow),
+    sets pagado+paid_at. Fires from ALL write paths. **Verified in a rolled-back tx** (pays while credit covers,
+    leaves unpaid when exhausted, ignores llamadas — nothing persisted). Migration
+    `saldo_lotes_table_and_trigger`; mirror `supabase/saldo-lotes.sql`. **Backfill applied: 7 live-credit lotes,
+    $433** (Daniel $35, Emily $35, Isabel $70, Ramesvary $105, Samantha **$48 @ her special $24 rate**, Shyam
+    $105, Thomas $35 [now a menor]). Micaela dropped (balance $0, re-typed menor). Rate: $35 standard,
+    per-patient exceptions carried explicitly. Loose $39/$32 session pricing left as-is (Nicolás's existing
+    "mismatch → warning → fix tarifa → auto-pays next time" flow handles it).
+  - **Old 4-pack mechanism RETIRED.** The `package_anchor` checkbox ("primera sesión de un paquete de 4") +
+    the ★ star on anchor rows are GONE, superseded by saldo a favor. Removed: the drawer control +
+    schedule-time prepay (so packaged patients' sessions now come in unpaid and the trigger pays them on
+    confirm — leaving both would DOUBLE-COUNT), `PackageStar` in `views.jsx`, deleted `src/lib/packages.js`,
+    and `package_anchor` dropped from `queries.js` SESSION_SELECT/SESSION_COLUMNS + the getPatientsData select.
+    **DB column `sessions.package_anchor` left DORMANT** (nothing reads/writes it; it's the provenance of the
+    backfilled lotes) — a `DROP COLUMN` is a separate approved step, not done.
+  - **Sesiones → Lista search now matches BOTH names.** Was `nombre`+`apellido` only, so a menor/pareja couldn't
+    be found by the second person. Now uses `patientSearchText(s.patient)` (covers `nombre_2`/`apellido_2`).
+    Surfaced because Nicolás re-typed Micaela AND Thomas as menores this session.
+  - **DEFERRED (next):** (1) `proofReconcile`: $140 comprobante → package lote, matched-sender overpayment
+    surplus → `overpayment` lote, match against amount-net-of-credit + consume — only needed once odd-amount
+    (non-package) lotes exist; package lotes are clean multiples the trigger fully covers. (2) `paymentReminders`
+    net-of-credit (same trigger). (3) `DROP COLUMN sessions.package_anchor` (needs approval). No new-package
+    auto-creation until (1): record a new pack by adding a lote row or marking sessions paid manually.
+
 - [x] **Payment reminders + Comprobante auto-mark — BUILT & LIVE** (2026-09-24/25, Opus 4.8). Three-part
   billing automation; all live and hands-off (cloud crons, no laptop needed).
   - **WhatsApp templates** (WABA `1857507018469524`, submitted via the since-DELETED token-guarded

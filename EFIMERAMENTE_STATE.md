@@ -99,6 +99,50 @@ spec #24 — DONE 2026-09-27 (Claude/Sonnet + fact sheet + derive; see top of Co
 answer flow is now only the fallback.** WhatsApp reply buttons are still single-use (grey out after one tap).
 
 ## Completed Features
+- [x] **#4b Funnel cards v2 + final routing + Mapa de casos matching — SHIPPED & LIVE** (2026-09-28, Opus 5).
+  Commits `800c3f0` → `77f838e` → `1241e8c`. Source of truth for all of it:
+  `~/Desktop/MD FILES - MISCELANEOUS/MAPA DE CASOS.md` (survey answered by the team 27–28 Sep).
+  - **Cards (`scripts/build-cards.mjs`, new):** renders `public/cards/<slug>.jpg` from a photo in `~/Downloads`
+    + the copy in the `CARDS` array. **Slugs are load-bearing** — they're what `therapists.funnel_card_url`
+    points at, so renaming one breaks the bot's image cards. Chrome headless screenshot at 2× → `sips`
+    downscale → JPEG q86. Webfont (DM Sans) is fetched at render time.
+    - The photo is shown **WHOLE — never cropped or zoomed** (Nicolás, 28 Sep: a face-crop v1 looked "crammed").
+      Width fixed at 989 so the set looks uniform in a chat; **height follows each photo's aspect**, so
+      Carolina (989×1690) and Sophia (989×1629) are taller than the other four (989×1410).
+    - Card carries ONLY: whole photo, name, one education line. **The 3 areas are NOT on the card** — they live
+      in `therapists.funnel_caption`, which `renderCards` already sends as the message text beside the image.
+    - `scripts/face-detect.swift` (macOS Vision) is still run but **only as a sanity check** — a portrait with
+      no detectable face means the wrong file was picked up. It no longer drives framing.
+    - **Gotcha:** the photos were "in Recents" in Finder, not a folder. `mtime`/`birthtime` are the ORIGINAL
+      shoot dates (Mar–Aug 2026) because macOS preserves them on download — the field that proves recency is
+      **`kMDItemDateAdded`** (`mdls`). Don't conclude "no new photos" from mtime again.
+  - **Captions:** `therapists.funnel_caption` rewritten to the 3 areas as `• `-prefixed lines, no Enfoque.
+    Multi-line captions broke the two prompts that list one therapist per line, so `leadBrain.mjs` now has
+    `oneLine()` and both `buildFactSheet` and `matchTherapistsForText` flatten before embedding.
+  - **Routing:** `funnel_categorias.terapeutas` set to the final ordered lists for all 7 active categories
+    (hijo / ruptura / problemas_pareja / depresion_ansiedad / consumo / terapia_pareja / trauma). Verified by
+    query that Francisco is in the visible top-3 everywhere he's listed; `terapia_pareja` is the one category
+    he's deliberately absent from (✗ for joint couples work). Daniela is stored but `recibe_nuevos=false`, so
+    she's filtered out of every list today. The "never bump Francisco" guard already lived in `resolveCards`.
+  - **Reasons 7 + 9 now match against the matrix (`netlify/lib/mapaCasos.json`, new):** motivos / poblaciones /
+    diagnósticos (★ ○ ✗) + each therapist's stated exclusions. Only the roster's rows are rendered into the
+    prompt (`mapaBlockFor`), so the model sees specialties and no-gos instead of marketing copy.
+    - Exclusions are enforced **in code, twice**: `matchTherapistsForText` pre-filters the roster (an excluded
+      therapist is never offered) and re-filters the model's answer (a hallucinated name can't slip past).
+      All candidates ruled out ⇒ `derivar` with motivo `sin_fit_exclusiones`, never an empty card list.
+    - `readSignals` reads **only what the lead states outright** — an explicit age, "adicción". **"mi hijo" with
+      no age does NOT hard-filter**; it's passed to the model as context, because silently dropping a good match
+      on a guessed age is worse. Age parsing excludes durations: "llevo 8 años de casado" is not an 8-year-old
+      (that bug would have dropped 4 therapists from a couples case — caught in testing, fixed before ship).
+    - `_mapa` is exported from `leadBrain.mjs` purely so the deterministic half can be checked without a
+      network call (no test runner in this repo).
+    - Self-harm / eating disorders / psychosis / bipolar keep deriving to Nicolás, unchanged.
+  - **esbuild note:** the JSON is imported with `with { type: 'json' }`; verified it bundles (esbuild 0.25,
+    `node_bundler = "esbuild"`) and inlines into the function.
+  - **Verified end-to-end** via synthetic Cloud-API webhooks from `593968029896` (no signature needed —
+    `WA_CLOUD_APP_SECRET` is unset; `LEAD_BOT_TEST_PHONES` already held the number): reason 1 → cards/hijo,
+    reason 4 → cards/depresion_ansiedad, reason 7 "tengo TDAH" → **`match_diagnostico: Maria Gracia, Francisco`**
+    (2.0s, `used_fallback:false`). Two names not three is CORRECT — TDAH is ✗ for the other four.
 - [x] **#22 Meta Conversions API (CAPI for Business Messaging) — SHIPPED & LIVE** (2026-09-27, Opus 4.8).
   Commits `9091db5`→`5d7c02c`. Reports each Click-to-WhatsApp lead's funnel progress to Meta, keyed on its
   `ctwa_clid`, so the campaign can optimize on real outcomes. **`CAPI_LIVE=true`** (rollback: unset it).
@@ -243,79 +287,11 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   else booked leads (es_lead patients) read undefined → `(!patient||patient.es_lead)` falsy → runBot skipped
   for all post-booking msgs. **Verified:** full flow + echo pause (smb_message_echoes → bot_paused) + FAQ.
   Test mode `LEAD_BOT_TEST_PHONES` retained. Templates: `recordatorio_llamada` APPROVED, other 3 PENDING.
-- [x] **#19 saldo a favor — comprobante→lote + net-of-credit matching/reminders + package_anchor DROPPED
-  (steps 2–7 of the finish plan)** (2026-09-25, Opus 4.8). Commits `5ee272e` (2–6) + `5566b0e` (7).
-  Step 1 (verify the 7 backfilled lotes, $433) re-confirmed with Nicolás — correct; the only non-$35
-  component is Samantha Aldaz's special $24 rate ($48 = 2×$24), everything else is 11×$35.
-  - **proofReconcile (`netlify/lib/proofReconcile.mjs`) now decides against the patient's saldo pool.**
-    `decideAutoReconcile(proof, ex, unpaid, ctx)` gained `ctx = {credit, tarifa, payerId}` and returns a
-    richer plan (`mark` | `lote` | `withhold`). Rules: **$140 → package lote** ($35/session) then settles
-    whatever the pooled credit now fully covers; **overpayment from a matched sender → surplus banked as a
-    lote at tarifa** (existing credit drawn for the rest); **no-debt payment → prepay lote**; **match vs
-    amount owed NET of credit + consume credit on match** ($10 credit + $40 session → $30 exact);
-    **underpayment stays a warning** (never partial credit). New apply path: `fifoConsumeLotes` +
-    `insertLote` + `applyPlan` (insert-then-consume so a package lote is used last and an overpayment
-    surplus is never drawn). `report` gained a `lotes` counter + per-item lote/credit fields.
-  - **Same-day matching bug fixed:** the matcher used `fecha < today`, missing a session confirmed & paid
-    the SAME day (real case: Thais Cardoso's $39 for today's session would have mis-banked as prepay
-    credit). Now `<= today`.
-  - **paymentReminders (`netlify/lib/paymentReminders.mjs`):** amount asked = owed **net of credit**;
-    fully-covered patients are skipped (`skipped_covered_by_credit`) and NOT stamped, so they don't
-    become "en mora". Entry now carries `gross`/`credit`.
-  - **Step 7 — `sessions.package_anchor` DROPPED** (migration `drop_sessions_package_anchor`, mirror
-    `supabase/drop-sessions-package-anchor.sql`). Dormant since bd31c6a; provenance of the 7 lotes lives
-    in `saldo_lotes.source_session_id` + note. Approved by Nicolás in chat.
-  - **⚠️ Pool-based semantics (documented, not a bug):** both the confirm trigger AND proofReconcile settle
-    draw the session's **`monto`** from total remaining credit; `price_per_session` is nominal accounting,
-    not a per-session cap. So a $140 pool covers ~$140 of sessions at their real monto — exactly 4 sessions
-    only when tarifa == $35. For $39-tarifa package buyers (Emily, Ramesvary) a $140 pack covers ~3.5
-    sessions, not 4. If Nicolás wants a package to always cover 4 sessions regardless of tarifa, the trigger
-    + settle must consume `price_per_session` instead of `monto` — a deliberate future change, not shipped.
-  - **Verified:** 15 pure-decision unit assertions (all pass) + dry runs of both processors against the live
-    DB (nothing written; Thais's $39 now marks today's session; reminders query + lotes join clean).
+- [x] **#19 saldo a favor — comprobante→lote + net-of-credit matching/reminders + package_anchor DROPPED**
+  (2026-09-26/27) — **moved to `CHANGELOG.md`** on 2026-09-28.
 - [x] **#19 Saldo a favor (credit lotes) LIVE + old 4-pack mechanism RETIRED + comprobante warning alert +
-  Sesiones search fix** (2026-09-26, Opus 4.8). Four things shipped this session.
-  - **Comprobante warning alert (spec #2 additions) — LIVE.** On every WITHHELD proof the auto-processor
-    now WhatsApps Nicolás once (template `comprobante_sin_identificar`, id `1595464335377117`, APPROVED).
-    New `sendDualhookComprobanteAlert({sender,amount,motivo})` in `netlify/lib/whatsapp.mjs` (recipient =
-    env `OWNER_WHATSAPP`, fallback `+593968029896`; Meta rejects empty vars so all 3 are coerced). Wired in
-    `netlify/lib/proofReconcile.mjs` `runProofAutomation`: on `withhold`, if `!proof.alerted_at` send + stamp
-    `alerted_at` (the THROTTLE — the every-10-min processor would re-alert forever otherwise); best-effort, a
-    failed send never crashes the batch and leaves `alerted_at` null to retry; dry runs show `would-alert`.
-    Reasons → Spanish `motivo` map (`unmatched`→"remitente no identificado", `amount_no_match`, `overpayment`,
-    `reused_reference`, `extraction_*`→"no se pudo leer la imagen", …). Additive column
-    `whatsapp_messages.alerted_at` applied (migration `add_whatsapp_alerted_at`, mirror
-    `supabase/whatsapp-messages-alerted-at.sql`). Burst on first live run was ≤2 (only 2 held proofs then).
-  - **#19 saldo a favor — LIVE.** Replaces the 4-session-package prepay. `saldo_lotes` table
-    (`amount / price_per_session / remaining`, FIFO, owner RLS + explicit service_role/authenticated GRANTs,
-    `payer_id` denormalized for future payer-group scoping; origin `package|overpayment|prepay|manual`).
-    Pure math in `netlify/lib/saldo.mjs` (`totalCredit`, `netOwed`, `isPackagePayment` [$140], `packageLote`
-    [$35/session], FIFO `consume` → `{applied,shortfall}`; node-unit-checked). **DB trigger
-    `consume_saldo_on_confirm`** (BEFORE INSERT/UPDATE on sessions): on confirmada + unpaid + billable, FIFO-draws
-    the patient's credit at the lote price, **full-coverage only** (package lotes are whole multiples so partials
-    never happen; if credit can't cover the whole session it stays unpaid for the reminder/comprobante flow),
-    sets pagado+paid_at. Fires from ALL write paths. **Verified in a rolled-back tx** (pays while credit covers,
-    leaves unpaid when exhausted, ignores llamadas — nothing persisted). Migration
-    `saldo_lotes_table_and_trigger`; mirror `supabase/saldo-lotes.sql`. **Backfill applied: 7 live-credit lotes,
-    $433** (Daniel $35, Emily $35, Isabel $70, Ramesvary $105, Samantha **$48 @ her special $24 rate**, Shyam
-    $105, Thomas $35 [now a menor]). Micaela dropped (balance $0, re-typed menor). Rate: $35 standard,
-    per-patient exceptions carried explicitly. Loose $39/$32 session pricing left as-is (Nicolás's existing
-    "mismatch → warning → fix tarifa → auto-pays next time" flow handles it).
-  - **Old 4-pack mechanism RETIRED.** The `package_anchor` checkbox ("primera sesión de un paquete de 4") +
-    the ★ star on anchor rows are GONE, superseded by saldo a favor. Removed: the drawer control +
-    schedule-time prepay (so packaged patients' sessions now come in unpaid and the trigger pays them on
-    confirm — leaving both would DOUBLE-COUNT), `PackageStar` in `views.jsx`, deleted `src/lib/packages.js`,
-    and `package_anchor` dropped from `queries.js` SESSION_SELECT/SESSION_COLUMNS + the getPatientsData select.
-    **DB column `sessions.package_anchor` left DORMANT** (nothing reads/writes it; it's the provenance of the
-    backfilled lotes) — a `DROP COLUMN` is a separate approved step, not done.
-  - **Sesiones → Lista search now matches BOTH names.** Was `nombre`+`apellido` only, so a menor/pareja couldn't
-    be found by the second person. Now uses `patientSearchText(s.patient)` (covers `nombre_2`/`apellido_2`).
-    Surfaced because Nicolás re-typed Micaela AND Thomas as menores this session.
-  - **DEFERRED (next):** (1) `proofReconcile`: $140 comprobante → package lote, matched-sender overpayment
-    surplus → `overpayment` lote, match against amount-net-of-credit + consume — only needed once odd-amount
-    (non-package) lotes exist; package lotes are clean multiples the trigger fully covers. (2) `paymentReminders`
-    net-of-credit (same trigger). (3) `DROP COLUMN sessions.package_anchor` (needs approval). No new-package
-    auto-creation until (1): record a new pack by adding a lote row or marking sessions paid manually.
+  Sesiones search fix** (2026-09-26) — **moved to `CHANGELOG.md`** on 2026-09-28. TL;DR: `saldo.mjs` +
+  `lotes`/`lote_sesiones`, `sessions.package_anchor` retired, comprobante warning alert, Sesiones search fix.
 - [x] **Payment reminders + Comprobante auto-mark** (2026-09-24/25) + **/facturar REST rewrite** (2026-09-23) —
   both **moved to `CHANGELOG.md`** on 2026-09-27. TL;DR: `paymentReminders.mjs`/`send-payment-reminders.mjs`
   (`PAYMENT_REMINDERS_LIVE`), `proofOcr.mjs`/`proofReconcile.mjs`/`process-proofs.mjs` (`COMPROBANTES_AUTO_LIVE`),
@@ -347,10 +323,19 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   - **Burst debounce (surfaced #30):** rapid texts each spawn their own ~25s delayed reply, no cross-msg dedup
     → 2 location-ish Qs both fired the full `ubicacion` block. Invitation safely guarded (sent once). Pairs with
     the delay-tighten item: a per-lead coalesce window in `lead-reply-background.mjs` would collapse a burst.
-  - Routing (`funnel_categorias`) is PROVISIONAL — replace when the "Mapa de casos" survey answers arrive on
-    9933 (messages starting "MAPA DE CASOS"). Filter stays recibe_nuevos + first 3 + Francisco never bumped.
+  - [x] ~~Routing (`funnel_categorias`) is PROVISIONAL~~ — **DONE 2026-09-28 (#4b)**: final ordered lists from
+    the Mapa de casos, all 7 categories. See Completed Features.
   - Enrich the `seguros` fact sheet as #14 (insurer catalogue) advances; Saludsa/Ecuasanitas % still "según plan".
   - Cost: each free-text msg = 1 Sonnet call (temp 0, ~2.5–4.5s). Fine at volume; consider Haiku if it spikes.
+- [ ] **Cards v2 follow-ups (surfaced 2026-09-28, none blocking):**
+  - **Carolina's photo carries a Google Photos AI-edit watermark** (small four-pointed sparkle, bottom-right).
+    The v1 face-crop cut it off; showing the photo whole brings it into frame. Ask her for a clean export,
+    drop it in `~/Downloads` under the same name, re-run `node scripts/build-cards.mjs`.
+  - **Carolina 1:1.71 and Sophia 1:1.65 are tall for a WhatsApp bubble.** Past ~1:1.7 WhatsApp can centre-crop
+    the preview and clip the name strip. Nicolás saw them on his phone and they were fine — revisit only if it
+    ever clips. Capping height without cropping the photo means side margins, so don't do it pre-emptively.
+  - **María Gracia's source photo is the smallest (738×923)** and is upscaled ~1.2× at full card width. Holds
+    up, but a larger original would be better if one exists.
 - [ ] **14-day funnel check — Sat 10 Oct 2026:** lead→call vs the 8% baseline, target ≥25% (exclude test
       phone `593968029896`). If the answer-first opening moved it, keep; else revisit copy/routing.
 
