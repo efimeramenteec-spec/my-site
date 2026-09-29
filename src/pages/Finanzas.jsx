@@ -80,6 +80,8 @@ export default function Finanzas() {
   const [period, setPeriod] = useState('todo')
   const [custom, setCustom] = useState({ from: '', to: '' })
   const [showDeudores, setShowDeudores] = useState(false)
+  const [showMora, setShowMora] = useState(false)
+  const [showSaldo, setShowSaldo] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -101,6 +103,11 @@ export default function Finanzas() {
     const inPeriod = (s) => (!from || s.fecha >= from) && (!to || s.fecha <= to)
     const real = data.sessions.filter(isReal)
     const scoped = real.filter(inPeriod)
+
+    // saldo_lotes has no patient join — resolve names from the sessions we
+    // already loaded (a patient with credit but zero sessions stays unnamed).
+    const patientById = {}
+    for (const s of data.sessions) if (s.patient_id && s.patient) patientById[s.patient_id] = s.patient
 
     const sum = (rows) => rows.reduce((a, s) => a + Number(s.monto || 0), 0)
 
@@ -127,6 +134,44 @@ export default function Finanzas() {
       if (s.fecha < deudAcc[id].desde) deudAcc[id].desde = s.fecha
     }
     const deudores = Object.values(deudAcc).sort((a, b) => a.desde.localeCompare(b.desde))
+
+    // ── En mora ──────────────────────────────────────────────────────────────
+    // The reminder bot stops chasing a patient the moment ANY of their sessions
+    // has been reminded and is still unpaid (paymentReminders.mjs: the "never
+    // insists" rule). At that point collection silently becomes Nicolás's job —
+    // this card is the handoff, which until now happened with no notice at all.
+    // Deliberately NOT period-scoped: it's a standing state, not a period metric.
+    // Iterates ALL sessions, not `real`: the bot's mora test is exactly
+    // "reminded AND unpaid" with no other filter, so a reminded session that was
+    // later cancelled still freezes that patient. Filtering by `real` here would
+    // hide exactly those patients — the ones nobody is chasing at all.
+    const moraAcc = {}
+    for (const s of data.sessions) {
+      if (s.pagado || !s.recordatorio_pago_at) continue
+      const id = s.patient_id || 'sin'
+      moraAcc[id] ||= { patient: s.patient, sesiones: 0, total: 0, desde: s.fecha, recordado: s.recordatorio_pago_at }
+      moraAcc[id].sesiones += 1
+      moraAcc[id].total += Number(s.monto || 0)
+      if (s.fecha < moraAcc[id].desde) moraAcc[id].desde = s.fecha
+      if (s.recordatorio_pago_at > moraAcc[id].recordado) moraAcc[id].recordado = s.recordatorio_pago_at
+    }
+    const enMora = Object.values(moraAcc).sort((a, b) => a.recordado.localeCompare(b.recordado))
+    const moraTotal = enMora.reduce((a, r) => a + r.total, 0)
+
+    // ── Saldo a favor ────────────────────────────────────────────────────────
+    // Open prepaid credit (saldo_lotes.remaining). This is money already
+    // collected that the practice still owes in sessions — a liability, so it is
+    // NOT revenue and never enters bruto/neto. Also standing, not period-scoped.
+    const saldoAcc = {}
+    for (const l of data.saldoLotes || []) {
+      const id = l.patient_id || 'sin'
+      saldoAcc[id] ||= { patient: patientById[id] || null, total: 0, lotes: 0, desde: l.created_at }
+      saldoAcc[id].total += Number(l.remaining || 0)
+      saldoAcc[id].lotes += 1
+      if (l.created_at < saldoAcc[id].desde) saldoAcc[id].desde = l.created_at
+    }
+    const saldos = Object.values(saldoAcc).sort((a, b) => b.total - a.total)
+    const saldoTotal = saldos.reduce((a, r) => a + r.total, 0)
 
     // Tendencia mensual: fixed last-12-months window (ignores the period
     // selector on purpose — it answers "am I growing?", not "this period").
@@ -194,6 +239,7 @@ export default function Finanzas() {
 
     return {
       porCobrar: { count: porCobrarRows.length, total: sum(porCobrarRows) },
+      enMora, moraTotal, saldos, saldoTotal,
       sinFacturar: { count: sinFacturarRows.length, total: sum(sinFacturarRows) },
       facturadas,
       deudores,
@@ -259,7 +305,7 @@ export default function Finanzas() {
       </div>
 
       {/* KPIs (period-scoped) */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <KpiCard
           label="Sesiones por cobrar"
           value={formatCurrency(m.porCobrar.total)}
@@ -286,6 +332,28 @@ export default function Finanzas() {
           label="Pendientes de facturar"
           value={formatCurrency(m.sinFacturar.total)}
           caption={`${m.sinFacturar.count} ${m.sinFacturar.count === 1 ? 'pagada sin factura' : 'pagadas sin factura'} · ${m.facturadas} facturadas`}
+        />
+        <KpiCard
+          label="En mora — te toca a ti"
+          value={formatCurrency(m.moraTotal)}
+          caption={
+            m.enMora.length === 0
+              ? 'Nadie pendiente · el bot sigue cobrando solo'
+              : `${m.enMora.length} ${m.enMora.length === 1 ? 'paciente ya recordado' : 'pacientes ya recordados'} sin pagar · el bot ya no insiste`
+          }
+          onClick={() => setShowMora((v) => !v)}
+          active={showMora}
+        />
+        <KpiCard
+          label="Saldo a favor"
+          value={formatCurrency(m.saldoTotal)}
+          caption={
+            m.saldos.length === 0
+              ? 'Nadie tiene saldo pendiente'
+              : `${m.saldos.length} ${m.saldos.length === 1 ? 'paciente con crédito' : 'pacientes con crédito'} · sesiones ya pagadas por dar`
+          }
+          onClick={() => setShowSaldo((v) => !v)}
+          active={showSaldo}
         />
       </div>
 
@@ -326,6 +394,92 @@ export default function Finanzas() {
             {m.deudores.length === 0 && (
               <p className="py-2 font-caption text-sm text-content-muted">
                 Nadie debe nada en el período seleccionado. 🎉
+              </p>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* En mora — expanded from its KPI. Ordered by how long they've been
+          silent: the oldest handoff is the most urgent call to make. */}
+      {showMora && (
+        <Card className="p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="font-caption text-xs font-bold uppercase tracking-wide text-content-muted">
+              En mora — el bot ya les recordó y no insiste más
+            </p>
+            <p className="font-caption text-xs text-content-muted">
+              {m.enMora.length} {m.enMora.length === 1 ? 'paciente' : 'pacientes'}
+            </p>
+          </div>
+          <p className="mt-1 font-caption text-xs text-content-muted">
+            Todo el historial, sin filtro de período. El cobro de estos pacientes pasó a ti.
+          </p>
+          <div className="mt-3 divide-y divide-stroke/40">
+            {m.enMora.map((d, i) => (
+              <div key={d.patient?.id || i} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5">
+                <div className="min-w-[160px] flex-1">
+                  <p className="truncate font-body font-bold text-content-primary">
+                    {d.patient ? patientLabel(d.patient) : 'Paciente eliminado'}
+                  </p>
+                  {d.patient?.telefono && (
+                    <p className="font-caption text-xs text-content-muted">{d.patient.telefono}</p>
+                  )}
+                </div>
+                <span className="font-caption text-xs text-content-muted">
+                  {d.sesiones} {d.sesiones === 1 ? 'sesión' : 'sesiones'} · desde {formatDateShort(d.desde)}
+                </span>
+                <span className="font-caption text-xs text-rose-600">
+                  recordado hace {daysSince(d.recordado.slice(0, 10))} días
+                </span>
+                <span className="w-20 text-right font-heading text-sm font-bold text-content-primary">
+                  {formatCurrency(d.total)}
+                </span>
+              </div>
+            ))}
+            {m.enMora.length === 0 && (
+              <p className="py-2 font-caption text-sm text-content-muted">
+                Nadie en mora — todos los recordados pagaron. 🎉
+              </p>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Saldo a favor — expanded from its KPI. Largest balance first: that's
+          the patient most likely to ask "¿cuánto me queda?". */}
+      {showSaldo && (
+        <Card className="p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="font-caption text-xs font-bold uppercase tracking-wide text-content-muted">
+              Saldo a favor — crédito abierto por paciente
+            </p>
+            <p className="font-caption text-xs text-content-muted">
+              {m.saldos.length} {m.saldos.length === 1 ? 'paciente' : 'pacientes'}
+            </p>
+          </div>
+          <p className="mt-1 font-caption text-xs text-content-muted">
+            Dinero ya cobrado que debes en sesiones. No cuenta como ingreso y se descuenta solo al confirmar.
+          </p>
+          <div className="mt-3 divide-y divide-stroke/40">
+            {m.saldos.map((d, i) => (
+              <div key={d.patient?.id || i} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5">
+                <div className="min-w-[160px] flex-1">
+                  <p className="truncate font-body font-bold text-content-primary">
+                    {d.patient ? patientLabel(d.patient) : 'Paciente sin sesiones registradas'}
+                  </p>
+                </div>
+                <span className="font-caption text-xs text-content-muted">
+                  {d.lotes} {d.lotes === 1 ? 'pago' : 'pagos'} · desde {formatDateShort(d.desde.slice(0, 10))}
+                </span>
+                <span className="w-20 text-right font-heading text-sm font-bold text-emerald-600">
+                  {formatCurrency(d.total)}
+                </span>
+              </div>
+            ))}
+            {m.saldos.length === 0 && (
+              <p className="py-2 font-caption text-sm text-content-muted">
+                Nadie tiene saldo a favor pendiente.
               </p>
             )}
           </div>

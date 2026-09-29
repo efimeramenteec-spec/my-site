@@ -110,13 +110,22 @@ const formFromPatient = (patient) => ({
   diagnostico_texto: patient.diagnostico_texto || '',
 })
 
-function PatientDetail({ patient, therapist, therapists = [], sessions, fullAccess = true, onClose, onSave, onDelete }) {
+function PatientDetail({ patient, therapist, therapists = [], sessions, saldoLotes = [], fullAccess = true, onClose, onSave, onDelete }) {
   const [form, setForm] = useState(() => formFromPatient(patient))
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [moving, setMoving] = useState(false)
+
+  // Saldo a favor: prepaid money still owed in sessions. Shown only to the
+  // owner — `saldo_lotes` is RLS owner-only, so a therapist always reads [] and
+  // would otherwise see a silent "$0" for every patient.
+  const saldoTotal = saldoLotes.reduce((a, l) => a + Number(l.remaining || 0), 0)
+  const saldoSesiones = saldoLotes.reduce((a, l) => {
+    const price = Number(l.price_per_session || 0)
+    return price > 0 ? a + Number(l.remaining || 0) / price : a
+  }, 0)
 
   useEffect(() => {
     setForm(formFromPatient(patient))
@@ -240,6 +249,21 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, fullAcce
             <p className="mt-1 font-body text-sm text-content-secondary">
               {patient.motivo_consulta}
             </p>
+          )}
+          {fullAccess && saldoTotal > 0 && (
+            <div className="mt-2 inline-flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-xl bg-emerald-50 px-3 py-1.5">
+              <span className="font-caption text-xs font-bold uppercase tracking-wide text-emerald-700">
+                Saldo a favor
+              </span>
+              <span className="font-heading text-base font-bold text-emerald-700">
+                {formatCurrency(saldoTotal)}
+              </span>
+              {saldoSesiones >= 1 && (
+                <span className="font-caption text-xs text-emerald-600">
+                  ≈ {Math.floor(saldoSesiones)} {Math.floor(saldoSesiones) === 1 ? 'sesión' : 'sesiones'}
+                </span>
+              )}
+            </div>
           )}
         </div>
         <button
@@ -828,6 +852,11 @@ export default function Pacientes() {
   const patientSessions = selectedId && data
     ? data.sessions.filter((s) => s.patient_id === selectedId)
     : []
+  // Open prepaid credit. saldo_lotes is RLS owner-only, so this is always []
+  // for a therapist — PatientDetail hides the whole block unless fullAccess.
+  const patientSaldoLotes = selectedId && data
+    ? (data.saldoLotes || []).filter((l) => l.patient_id === selectedId)
+    : []
 
   const handleUpdate = useCallback(async (id, patch) => {
     const res = await updatePatient(id, patch)
@@ -1021,6 +1050,7 @@ export default function Pacientes() {
                 therapist={therapistMap[selectedPatient.terapeuta_id]}
                 therapists={data.therapists}
                 sessions={patientSessions}
+                saldoLotes={patientSaldoLotes}
                 fullAccess={fullAccess}
                 onClose={() => setSelectedId(null)}
                 onSave={handleUpdate}

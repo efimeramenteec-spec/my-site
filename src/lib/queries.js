@@ -45,28 +45,43 @@ async function fetchAll(makeQuery) {
 // Finance-only slim select: the Finanzas page reads ALL session history, so
 // it skips the patient join and heavy columns on purpose.
 const FINANZAS_SESSION_SELECT =
-  'id,terapeuta_id,patient_id,fecha,tipo,estado,monto,pagado,facturada,paid_at,' +
+  'id,terapeuta_id,patient_id,fecha,tipo,estado,monto,pagado,facturada,paid_at,recordatorio_pago_at,' +
   'therapist:therapists(id,nombre,apellido,color,provision_rate),' +
   'patient:patients(id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono)'
+
+// Open saldo a favor (credit) per patient. `saldo_lotes` is RLS owner-only, so
+// a therapist session gets [] back rather than an error — every caller must gate
+// the UI on fullAccess so nobody reads an empty list as "everyone is at $0".
+async function fetchSaldoLotes() {
+  const { data, error } = await fetchAll(() => supabase
+    .from('saldo_lotes')
+    .select('id,patient_id,amount,remaining,price_per_session,origin,created_at')
+    .gt('remaining', 0)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true }))
+  if (error) throw error
+  return data || []
+}
 
 export async function getFinanzasData() {
   if (isSupabaseConfigured) {
     try {
-      const [sRes, tRes] = await Promise.all([
+      const [sRes, tRes, lotes] = await Promise.all([
         fetchAll(() => supabase.from('sessions').select(FINANZAS_SESSION_SELECT)
           .order('fecha', { ascending: true }).order('id', { ascending: true })),
         supabase.from('therapists').select('id,nombre,apellido,color,activo,provision_rate')
           .order('nombre', { ascending: true }),
+        fetchSaldoLotes(),
       ])
       if (sRes.error) throw sRes.error
       if (tRes.error) throw tRes.error
-      return { source: 'live', sessions: sRes.data || [], therapists: tRes.data || [] }
+      return { source: 'live', sessions: sRes.data || [], therapists: tRes.data || [], saldoLotes: lotes }
     } catch (err) {
       console.warn('[efimeramente] Supabase unavailable, showing demo data:', err?.message || err)
     }
   }
   const store = getDemoStore()
-  return { source: 'demo', sessions: [...store.sessions], therapists: [...store.therapists] }
+  return { source: 'demo', sessions: [...store.sessions], therapists: [...store.therapists], saldoLotes: [] }
 }
 
 
@@ -513,11 +528,14 @@ export async function getPatientsData() {
       if (pRes.error) throw pRes.error
       if (tRes.error) throw tRes.error
       if (sRes.error) throw sRes.error
+      // Owner-only (RLS) — a therapist gets [], and the UI hides saldo for them.
+      const lotes = await fetchSaldoLotes()
       return {
         source: 'live',
         patients: pRes.data || [],
         therapists: tRes.data || [],
         sessions: sRes.data || [],
+        saldoLotes: lotes,
       }
     } catch (err) {
       console.warn('[efimeramente] Supabase unavailable, showing demo data:', err?.message || err)
@@ -529,6 +547,7 @@ export async function getPatientsData() {
     patients: [...store.patients],
     therapists: [...store.therapists],
     sessions: [...store.sessions],
+    saldoLotes: [],
   }
 }
 
