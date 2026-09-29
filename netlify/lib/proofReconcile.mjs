@@ -195,6 +195,14 @@ async function fifoConsumeLotes(supabase, patientId, amount) {
   return used
 }
 
+// Returns 'inserted' | 'duplicate' | 'error'. saldo_lotes has a unique index on
+// proof_id (supabase/saldo-lote-proof-unique.sql), so 'duplicate' means this proof
+// was ALREADY applied by an earlier run — the caller must abort rather than carry
+// on, because everything after the insert (the FIFO credit draw, the session mark)
+// would otherwise run a second time.
+//
+// 2026-09-29: this is what happened to Andrea Torres. Proof d3cbbe00 was applied
+// twice, so she got two $140 lotes AND two $39 draws against a single transfer.
 async function insertLote(supabase, proof, ctx, lote) {
   const { error } = await supabase.from('saldo_lotes').insert({
     patient_id: proof.patient_id,
@@ -203,8 +211,12 @@ async function insertLote(supabase, proof, ctx, lote) {
     origin: lote.origin, proof_id: proof.id,
     note: `Auto — comprobante ${proof.id}`,
   })
-  if (error) { console.error('[proof-auto] lote insert failed:', error.message); return false }
-  return true
+  if (!error) return 'inserted'
+  if (error.code === '23505' || /duplicate key|saldo_lotes_proof_id_unique/i.test(error.message || '')) {
+    return 'duplicate'
+  }
+  console.error('[proof-auto] lote insert failed:', error.message)
+  return 'error'
 }
 
 // Apply a plan (live). Mirrors updateSession's rules on the mark (stamps paid_at,
@@ -213,7 +225,22 @@ async function insertLote(supabase, proof, ctx, lote) {
 // lote is never drawn (need ≤ existing credit). Then mark sessions + stamp the proof.
 async function applyPlan(supabase, proof, ctx, plan, now) {
   const iso = now.toISOString()
-  if (plan.action === 'lote' && !(await insertLote(supabase, proof, ctx, plan.lote))) return false
+  // Already applied (a retry, or two overlapping cron runs picking up the same
+  // proof). Everything below credits money or marks sessions paid, so re-running
+  // it double-counts. The stamp is the cheap check; the unique index below is the
+  // one that also closes the race two concurrent runs can win together.
+  if (proof.reconciled_at) {
+    console.warn(`[proof-auto] proof ${proof.id} already reconciled at ${proof.reconciled_at} — skipping`)
+    return true
+  }
+  if (plan.action === 'lote') {
+    const res = await insertLote(supabase, proof, ctx, plan.lote)
+    if (res === 'error') return false
+    if (res === 'duplicate') {
+      console.warn(`[proof-auto] proof ${proof.id} already has a lote — already applied, skipping draw + mark`)
+      return true
+    }
+  }
   if (plan.creditConsume > EPS) await fifoConsumeLotes(supabase, proof.patient_id, plan.creditConsume)
   if (plan.sessionIds?.length) {
     const { error: sErr } = await supabase
@@ -233,17 +260,34 @@ async function applyPlan(supabase, proof, ctx, plan, now) {
   return true
 }
 
+// Bank references are the same number written differently across screenshots:
+// leading zeros, spaces, hyphens, mixed case. Compare on the canonical form.
+//
+// 2026-09-29: Andrea Torres sent one transfer twice; OCR read '91822893' on one
+// screenshot and '0091822893' on the other. The old exact-string match saw two
+// different references and credited the money twice. Stripping leading zeros can
+// in theory collide two genuinely different references — that errs toward
+// withholding for human review, which is the safe direction for money.
+export function normalizeReference(raw) {
+  const cleaned = String(raw ?? '').replace(/[^0-9a-zA-Z]/g, '').toUpperCase()
+  if (!cleaned) return ''
+  const trimmed = cleaned.replace(/^0+/, '')
+  return trimmed || '0' // an all-zeros reference stays a reference
+}
+
 // Is this transfer_id already recorded on a DIFFERENT comprobante? (reused reference)
+// Only ~dozens of proofs ever carry a reference, so we read them and compare
+// canonically in JS — PostgREST can't normalize inside the filter.
 async function referenceReused(supabase, proof, transferId) {
-  if (!transferId) return false
+  const target = normalizeReference(transferId)
+  if (!target) return false
   const { data, error } = await supabase
     .from('whatsapp_messages')
-    .select('id')
-    .filter('extracted->>transfer_id', 'eq', transferId)
+    .select('id, extracted')
+    .not('extracted->>transfer_id', 'is', null)
     .neq('id', proof.id)
-    .limit(1)
   if (error) { console.warn('[proof-auto] reused-ref check failed (treat as not reused):', error.message); return false }
-  return (data || []).length > 0
+  return (data || []).some((r) => normalizeReference(r?.extracted?.transfer_id) === target)
 }
 
 // Orchestrator. Options: { now, live, daysBack }.
