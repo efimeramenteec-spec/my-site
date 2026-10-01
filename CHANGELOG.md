@@ -5,6 +5,28 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+- [x] **Lead bot: known-organic-contact guard + answer-before-asking (Day-1-live bug fixes)** (2026-09-26,
+  Opus 4.8). Commit `436cb66`. All code in `netlify/lib/leadBot.mjs`; plus DB row ops (no migration).
+  - **A — who is a lead:** new `hasEarlierInbound(supabase, from)` + a guard in `recordLead`. An ORGANIC
+    sender (`source==='whatsapp_organico'`, i.e. no CTWA `referral`) that already has ANY `direccion='inbound'`
+    row in `whatsapp_messages` (matched on `raw_payload->'message'->>'from'`) is a known contact → returns
+    `null`, no lead row, no bot. Ad clicks (referral present) always become leads. Safe because the webhook
+    logs the current inbound AFTER lead handling, so it's never counted as its own "earlier" message.
+  - **A — data:** filled `therapists.telefono` — Carolina `+593984935328`, Francisco `+593992856511`,
+    Mariana `+593994342657` (recovered from their leads rows). Deleted the mis-created leads rows for the 4
+    NULL-phone therapists + `+593999025081` (their `whatsapp_messages` kept). Cancelled the Mariana↔Sophia test
+    llamada (session `cf48a941`, 28 Sep 09:00) via the calendar fn `cancel` action + `estado→cancelada`.
+  - **B — answer before asking:** classifier is keyword/regex FIRST (`classifyKeywords`), LLM only as a
+    fallback. An answer was ONE interactive message: canned copy body + `[Elegir terapeuta][Otra pregunta]`
+    buttons. **⚠️ SUPERSEDED by #24/#27 funnel v2** — these canned answers became the fallback path.
+- [x] **#4 + #20 Lead funnel WhatsApp bot — 4 phases + LIVE for real leads** (2026-09-26, Opus 4.8).
+  `LEAD_BOT_LIVE=true`. Commits `2eb9c8f` (A) `9e8d60e` (B) `a74e3ae` (C) `d9d7448` (D) + fixes. New:
+  `netlify/lib/{leadBot,waSend,booking,leadTemplates}.mjs`, `netlify/functions/{lead-followups,submit-lead-templates}.mjs`,
+  `src/pages/MarketingFunnel.jsx`, `src/lib/funnel.js`; migrations `lead_funnel_0{1,2,3}_*`. `public-booking.mjs`
+  delegates to shared `booking.mjs`. **Gotcha fixed (`25ba446`):** messages-branch patient cache select MUST
+  include `es_lead`, else booked leads read undefined → runBot skipped for all post-booking msgs. Verified:
+  full flow + echo pause (smb_message_echoes → bot_paused) + FAQ. (Full live record in the "✅ Lead funnel"
+  section of `EFIMERAMENTE_STATE.md`.)
 - [x] **#19 saldo a favor — comprobante→lote + net-of-credit matching/reminders + package_anchor DROPPED
   (steps 2–7 of the finish plan)** (2026-09-25, Opus 4.8). Commits `5ee272e` (2–6) + `5566b0e` (7).
   Step 1 (verify the 7 backfilled lotes, $433) re-confirmed with Nicolás — correct; the only non-$35

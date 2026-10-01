@@ -27,7 +27,10 @@ import { buildFactSheet, decideFreeText, matchTherapistsForText } from './leadBr
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
 
 const FRANCISCO_ID = '2f5bf11b-42a8-562f-99c9-501c62a4ca04'
+const MARIANA_ID = 'b219e764-4664-594c-9eb3-d2b19e52caac'
 const APP_BASE = process.env.URL || 'https://efimeramente-panel.netlify.app'
+
+const stripAccents = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
 // The bot may SEND to a lead when it's globally live OR when that lead's phone is
 // in the test allow-list (LEAD_BOT_TEST_PHONES, comma-separated, last-9 match).
@@ -168,6 +171,26 @@ async function patchLead(supabase, lead, patch) {
   await supabase.from('leads').update(patch).eq('id', lead.id)
   Object.assign(lead, patch)
 }
+
+// Send a plain-text bubble, but NEVER the same text twice in a row to this lead
+// (the live bug sent three identical greetings). Tracks last_bot_text so a repeat
+// is silently dropped. Interactive sends (list/cards/buttons) don't dedupe here.
+async function say(supabase, lead, text, { previewUrl = false } = {}) {
+  if (text && text === lead.last_bot_text) {
+    console.log(`[bot] dedupe — skipped repeat text to ${lead.phone}: "${String(text).slice(0, 40)}"`)
+    return
+  }
+  await sendText(lead.phone, text, { previewUrl })
+  await patchLead(supabase, lead, { last_bot_text: text, last_bot_at: new Date().toISOString() })
+}
+
+// Fire-and-forget heads-up to Nicolás (owner push, no bot pause). Used by the
+// safety nets so a lead never sits unanswered for hours again.
+async function pushNicolas(supabase, lead, { title, body }) {
+  try {
+    await notifyTherapist(supabase, null, { title, body, url: '/marketing' })
+  } catch (e) { console.warn('[bot] pushNicolas failed:', e.message) }
+}
 const STAGE_TS = {
   toco: 'toco_at', eligio_terapeuta: 'eligio_terapeuta_at', agendo: 'agendo_at',
   llamada_hecha: 'llamada_hecha_at', no_contesto: 'no_contesto_at', paciente: 'paciente_at', frio: 'frio_at',
@@ -297,7 +320,7 @@ function classifyKeywords(text) {
   if (has(/seguro|aseguradora|reembolso|cobertura/)) return 'seguro'
   if (has(/tarjeta|transferencia|pagar|paquete/)) return 'pago'
   if (has(/gracias|\bok\b|perfecto/)) return 'gracias'
-  if (has(/hola|buenas|buenos d[ií]as|buenas tardes|buenas noches/)) return 'saludo'
+  if (has(/hola|buen[oa]s|buen d[ií]a|saludos|\bhey\b|que tal/)) return 'saludo'
   return null
 }
 
@@ -412,12 +435,12 @@ function captionSansEnfoque(caption) {
 }
 
 // Render the resolved therapist cards. Gendered caption line + button.
-async function renderCards(supabase, lead, therapists) {
+async function renderCards(supabase, lead, therapists, { intro } = {}) {
   if (!therapists.length) {
     await sendText(lead.phone, 'En este momento no tengo terapeutas disponibles para ese tema. Escríbenos y te ayudamos directamente 🌿')
     return escalate(supabase, lead, 'sin_terapeutas')
   }
-  await sendText(lead.phone, 'Aquí tienes a los profesionales especializados en tu motivo de consulta.')
+  await sendText(lead.phone, intro || 'Aquí tienes a los profesionales especializados en tu motivo de consulta.')
   for (const t of therapists) {
     const g = t.genero === 'M'
     const line = g ? '*Puedes agendar una llamada gratuita para conocerlo*' : '*Puedes agendar una llamada gratuita para conocerla*'
@@ -484,6 +507,67 @@ async function matchFlow(supabase, lead, text, mode) {
   }
   await logDecision(supabase, lead, { text, accion: 'cards', motivo: `match_${mode}: ${chosen.map((t) => t.nombre).join(', ')}`, reply: null, model: res.model, latencyMs: res.latencyMs })
   return renderCards(supabase, lead, chosen.slice(0, 3))
+}
+
+// ── Named therapist + "agendar" (deterministic, model-independent) ────────────
+// The live bug: the model called "quiero empezar mi cita con la Dra. Carolina
+// Almeida" a `saludo`. These checks run BEFORE the model so a named therapist or a
+// plain booking request is handled reliably, free, even for therapists the model
+// can't see in the fact sheet (Mariana / Daniela don't receive new patients).
+
+// All active therapists, with the fields a card + routing decision need.
+async function allTherapists(supabase) {
+  const { data } = await supabase.from('therapists')
+    .select('id, nombre, apellido, genero, recibe_nuevos, activo, funnel_caption, funnel_card_url')
+    .eq('activo', true)
+  return data || []
+}
+
+// Find a therapist named in free text: full "nombre apellido" first, then apellido
+// alone, then a significant (≥5-char) first-name token — all accent-insensitive on
+// word boundaries. Returns the therapist row or null.
+function matchTherapistInText(therapists, text) {
+  const t = ` ${stripAccents(text).replace(/[^a-z0-9]+/g, ' ').trim()} `
+  const inT = (needle) => needle && t.includes(` ${needle} `)
+  for (const th of therapists) { if (inT(stripAccents(`${th.nombre} ${th.apellido}`))) return th }
+  for (const th of therapists) { const ap = stripAccents(th.apellido); if (ap.length >= 4 && inT(ap)) return th }
+  for (const th of therapists) {
+    for (const w of stripAccents(th.nombre).split(' ')) { if (w.length >= 5 && inT(w)) return th }
+  }
+  return null
+}
+
+// Plain booking intent with NO therapist named ("quiero agendar mi primera cita").
+function isAgendarText(text) {
+  const t = stripAccents(text)
+  if (/\b(agendar|agende|agenda|agendemos|reservar|reserva|turno|cita|citas)\b/.test(t)) return true
+  if (/quiero empezar|empezar (mi |la )?(terapia|sesion|proceso)|empezar a ir/.test(t)) return true
+  return false
+}
+
+// A therapist was named. Safety net (a): ALWAYS ping Nicolás. If the therapist
+// doesn't receive new patients (Mariana / Daniela) → handoff; otherwise show that
+// one therapist's card and let the normal "Quiero conocerla/o" flow continue.
+async function namedTherapist(supabase, lead, t, text) {
+  await advanceStage(supabase, lead, 'toco')
+  if (!t.recibe_nuevos || t.id === MARIANA_ID) {
+    await logDecision(supabase, lead, { text, accion: 'derivar', motivo: `terapeuta_nombrado_cerrado:${t.nombre}`, reply: null, model: 'regla' })
+    await say(supabase, lead, `Gracias por tu interés en ${shortName(t.nombre)} 🌿 Déjame coordinar esto contigo por aquí.`)
+    return escalate(supabase, lead, `terapeuta_nombrado:${t.nombre} ${t.apellido} (no recibe nuevos)`)
+  }
+  await pushNicolas(supabase, lead, {
+    title: 'Lead pidió un terapeuta por nombre 🌿',
+    body: `${lead.wa_name || lead.phone} → ${t.nombre} ${t.apellido}`,
+  })
+  await logDecision(supabase, lead, { text, accion: 'cards', motivo: `terapeuta_nombrado:${t.nombre}`, reply: '[card]', model: 'regla' })
+  return renderCards(supabase, lead, [t], { intro: `Con gusto 🌿 Aquí te dejo el perfil de ${shortName(t.nombre)}:` })
+}
+
+// Resolve a therapist by a free-form name string (the model's `terapeuta` field),
+// against ALL active therapists. Returns the row or null.
+async function resolveTherapistByName(supabase, nameText) {
+  if (!nameText) return null
+  return matchTherapistInText(await allTherapists(supabase), nameText)
 }
 
 // ── Slots + booking ───────────────────────────────────────────────────────────
@@ -582,7 +666,7 @@ async function renderStep(supabase, lead, { note } = {}) {
   if (step === 'reasons') return showReasonList(supabase, lead)
   if (step === 'cards' && lead.categoria) return showCards(supabase, lead, lead.categoria)
   if (step === 'slots' && lead.therapist_id) return showSlotsById(supabase, lead, lead.therapist_id)
-  if (!note) await sendText(lead.phone, 'Cuéntame, en qué te ayudo 🙂')
+  if (!note) return showReasonList(supabase, lead)
 }
 
 // Recent inbound lines from this chat (oldest first), for the T2 model context.
@@ -612,10 +696,41 @@ async function slotsForLead(supabase, lead) {
   } catch { return [] }
 }
 
-// Welcome + reason list (bare greeting / ad text on first contact).
+// Welcome + reason list — the ONE greeting path (spec). The greeting bubble is sent
+// at most once per lead (saludo_enviado); if they greet again we go straight to the
+// reason list without re-greeting.
 async function welcomeAndReasons(supabase, lead) {
-  await sendText(lead.phone, 'Hola! Qué gusto que nos escribas')
+  if (!lead.saludo_enviado) {
+    await say(supabase, lead, 'Hola! Qué gusto que nos escribas')
+    await patchLead(supabase, lead, { saludo_enviado: true })
+  }
   return showReasonList(supabase, lead)
+}
+
+// Safety net (b): the lead went quiet > 1h and is writing again without having
+// moved past the start of the funnel → heads-up to Nicolás (bot still replies).
+async function maybeReengagePush(supabase, lead) {
+  if (!lead.last_bot_at) return
+  if (!['nuevo', 'toco', 'eligio_terapeuta'].includes(lead.stage)) return
+  if (Date.now() - new Date(lead.last_bot_at).getTime() < 60 * 60 * 1000) return
+  await pushNicolas(supabase, lead, {
+    title: 'Lead volvió a escribir 🌿',
+    body: `${lead.wa_name || lead.phone} escribió de nuevo tras +1h sin avanzar`,
+  })
+}
+
+// Safety net (c): 3+ inbound messages and still on the starting step → ping Nicolás
+// once (stuck_push_at). Signals the bot is failing to move this lead forward.
+async function maybeStuckPush(supabase, lead) {
+  if (lead.stuck_push_at) return
+  if (![null, undefined, '', 'reasons'].includes(lead.step_actual)) return
+  const hist = await recentInbound(supabase, lead.phone)
+  if (hist.length < 3) return
+  await pushNicolas(supabase, lead, {
+    title: 'Lead atascado en el inicio 🌿',
+    body: `${lead.wa_name || lead.phone} lleva ${hist.length} mensajes sin avanzar`,
+  })
+  await patchLead(supabase, lead, { stuck_push_at: new Date().toISOString() })
 }
 
 // A BARE greeting is just "hola" / "buenas" with nothing substantive. A greeting
@@ -625,8 +740,9 @@ async function welcomeAndReasons(supabase, lead) {
 function isBareGreeting(text) {
   const t = String(text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   const stripped = t
-    .replace(/buen[oa]s?\s*(d[ií]as|tardes|noches)?/g, '')
-    .replace(/hola|holaa+|ola|hey|hi|saludos|que tal|klk|buenas/g, '')
+    .replace(/buen[oa]?s?/g, '')
+    .replace(/d[ií]as?|dias?|tardes?|noches?/g, '')
+    .replace(/hola|holaa+|ola|hey|hi|saludos|que tal|klk/g, '')
     .replace(/[^a-z0-9]/g, '')
   return stripped.length < 4
 }
@@ -636,18 +752,34 @@ function isBareGreeting(text) {
 // sheet or derives. Keyword canned answers are the fallback if the model is down.
 async function handleFreeText(supabase, lead, text, { firstTouch = false } = {}) {
   const kw = classifyKeywords(text)
-  if (kw === 'gracias') { await sendText(lead.phone, 'Con gusto! 🌿'); return }
-  // A BARE greeting on first contact → welcome + reasons. A greeting carrying a
-  // motive ("hola, es para mi hijo de 15") is NOT bare — let Claude answer + detect
-  // the reason, so a later "Sí" can skip the list.
-  if (kw === 'saludo' && isBareGreeting(text)) {
-    if (firstTouch) return welcomeAndReasons(supabase, lead)
-    await sendText(lead.phone, 'Hola! 🌿 Cuéntame, en qué te puedo ayudar')
-    return
-  }
+  if (kw === 'gracias') { await say(supabase, lead, 'Con gusto! 🌿'); return }
+
+  // Prompt steps (the lead is describing a diagnosis / several motives) win first.
   if (lead.step_actual === 'diagnostico_prompt') return matchFlow(supabase, lead, text, 'diagnostico')
   if (lead.step_actual === 'varios_prompt') return matchFlow(supabase, lead, text, 'varios')
 
+  // Safety nets — heads-up to Nicolás; they don't change what the bot replies.
+  await maybeReengagePush(supabase, lead)
+  await maybeStuckPush(supabase, lead)
+
+  // (1) A therapist named by name/surname → that therapist's card (or handoff).
+  // Deterministic + model-independent, so it can't be misread as a greeting and it
+  // covers therapists the model never sees (Mariana / Daniela don't take new ones).
+  const named = matchTherapistInText(await allTherapists(supabase), text)
+  if (named) return namedTherapist(supabase, lead, named, text)
+
+  // (2) A BARE greeting → the one spec greeting (sent once). A greeting carrying a
+  // motive ("hola, es para mi hijo de 15") is NOT bare — Claude answers + detects
+  // the reason so a later "Sí" can skip the list.
+  if (kw === 'saludo' && isBareGreeting(text)) return welcomeAndReasons(supabase, lead)
+
+  // (3) Plain booking request, no therapist named → the reason list directly.
+  if (isAgendarText(text)) {
+    await logDecision(supabase, lead, { text, accion: 'responder', motivo: 'agendar', reply: '[reasons]', model: 'regla' })
+    return showReasonList(supabase, lead)
+  }
+
+  // (4) Everything else → Claude (fact-sheet answer or derive).
   let decision = null
   try {
     const [factSheet, history, slots] = await Promise.all([
@@ -670,18 +802,33 @@ async function applyDecision(supabase, lead, text, d) {
   if (d.accion === 'responder') {
     if (d.categoria) await patchLead(supabase, lead, { categoria: d.categoria })
     if (d.intent === 'saludo') {
-      // A greeting reaching Claude (non-bare). If the reason is already clear
-      // ("hola, es para mi hijo de 15") → warm line + the one-time invitation, so a
-      // "Sí" jumps straight to that reason's cards. Otherwise just a warm nudge.
+      // A greeting reaching Claude (non-bare — bare ones are handled before the
+      // model). If the reason is already clear ("hola, es para mi hijo de 15") →
+      // the one greeting (once) + the one-time invitation, so a "Sí" jumps straight
+      // to that reason's cards. Otherwise fall back to the welcome + reason list.
       if (d.categoria) {
-        await sendText(lead.phone, 'Hola! Qué gusto que nos escribas')
-        await patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0, last_bot_at: new Date().toISOString() })
+        if (!lead.saludo_enviado) {
+          await say(supabase, lead, 'Hola! Qué gusto que nos escribas')
+          await patchLead(supabase, lead, { saludo_enviado: true })
+        }
+        await patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0 })
         await sendInvitationOnce(supabase, lead)
       } else {
-        await sendText(lead.phone, 'Hola! 🌿 Cuéntame, en qué te puedo ayudar')
+        await welcomeAndReasons(supabase, lead)
       }
       await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.intent, reply: null, model: d.model, latencyMs: d.latencyMs })
       return
+    }
+    if (d.intent === 'agendar') {
+      await logDecision(supabase, lead, { text, accion: d.accion, motivo: 'agendar', reply: '[reasons]', model: d.model, latencyMs: d.latencyMs })
+      return showReasonList(supabase, lead)
+    }
+    if (d.intent === 'terapeuta_nombrado') {
+      const t = await resolveTherapistByName(supabase, d.terapeuta || text)
+      if (t) return namedTherapist(supabase, lead, t, text)
+      // Named someone we couldn't resolve → treat as a plain booking request.
+      await logDecision(supabase, lead, { text, accion: d.accion, motivo: 'terapeuta_nombrado_no_resuelto', reply: '[reasons]', model: d.model, latencyMs: d.latencyMs })
+      return showReasonList(supabase, lead)
     }
     if (CANNED[d.intent]) {
       await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.intent, reply: `[canned:${d.intent}]`, model: d.model, latencyMs: d.latencyMs })
@@ -776,7 +923,7 @@ export async function runBot(supabase, { lead, isNew, msg }) {
       return await handleFreeText(supabase, lead, msg.text.body, { firstTouch })
     }
     // Any other inbound (image/sticker/etc) → gentle nudge back to the current step.
-    return await renderStep(supabase, lead, { note: 'Cuéntame, en qué te ayudo 🙂' })
+    return await renderStep(supabase, lead)
   } catch (e) {
     console.warn('[bot] runBot failed (non-blocking):', e.message)
   }

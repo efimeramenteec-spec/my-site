@@ -91,12 +91,13 @@ export async function buildFactSheet(supabase) {
 // fixed cases (the model writes the answer). Keep in sync with leadBot's CANNED.
 const INTENTS = [
   'precio', 'ubicacion', 'saludsa', 'seguros', 'adolescentes', 'duracion',
-  'horarios', 'psiquiatra', 'pareja', 'pago', 'objecion_precio', 'saludo', 'libre',
+  'horarios', 'psiquiatra', 'pareja', 'pago', 'objecion_precio',
+  'agendar', 'terapeuta_nombrado', 'saludo', 'libre',
 ]
 
 const SYSTEM_RULES = `Eres el asistente de WhatsApp de Efimeramente, un consultorio de psicología en Cumbayá (Ecuador). Escribes a un posible paciente que llegó por un anuncio. Con cada mensaje de TEXTO LIBRE tu trabajo es CLASIFICARLO en un "intent" y decidir si el sistema debe "responder" o "derivar" (pasar a una persona del equipo).
 
-IMPORTANTE: para los intents con respuesta fija (precio, ubicacion, saludsa, seguros, adolescentes, duracion, horarios, psiquiatra, pareja, pago, objecion_precio, saludo) el SISTEMA envía un texto ya redactado — NO escribas tú la respuesta, solo pon el intent correcto y deja "texto" vacío. SOLO cuando el intent sea "libre" escribe la respuesta en "texto", usando ÚNICAMENTE la HOJA DE DATOS.
+IMPORTANTE: para los intents con respuesta fija (precio, ubicacion, saludsa, seguros, adolescentes, duracion, horarios, psiquiatra, pareja, pago, objecion_precio, agendar, terapeuta_nombrado, saludo) el SISTEMA envía un texto ya redactado o ejecuta un flujo — NO escribas tú la respuesta, solo pon el intent correcto y deja "texto" vacío. SOLO cuando el intent sea "libre" escribe la respuesta en "texto", usando ÚNICAMENTE la HOJA DE DATOS.
 
 INTENTS:
 - precio: costo / valor / cuánto cuesta la sesión.
@@ -110,7 +111,9 @@ INTENTS:
 - pareja: terapia o sesiones de pareja.
 - pago: cómo o cuándo se paga / formas de pago.
 - objecion_precio: dice que es caro, que no le alcanza, que tiene poco presupuesto.
-- saludo: saludo o texto del anuncio sin una pregunta concreta.
+- agendar: quiere agendar / reservar una cita o sesión, empezar terapia, SIN nombrar a ningún terapeuta (ej. "quiero agendar una cita", "me gustaría empezar mi primera cita"). El sistema le muestra la lista de motivos directamente.
+- terapeuta_nombrado: menciona a un terapeuta por su nombre o apellido (con o sin "Dra./Dr."), por ejemplo "quiero una cita con Carolina Almeida" o "quiero con Mariana". Pon el nombre que mencionó en el campo "terapeuta". El sistema lo resuelve.
+- saludo: SOLO un saludo puro, sin ninguna pregunta ni intención (ej. "hola", "buenas", "buen día"). Si el mensaje pide agendar, nombra a un terapeuta o hace una pregunta, NO es saludo.
 - libre: pregunta legítima que SÍ está en la hoja de datos pero no encaja arriba (escribe la respuesta en "texto").
 
 REGLAS DE DERIVACIÓN (accion "derivar"):
@@ -139,8 +142,12 @@ EJEMPLOS (así responde el sistema — TEXTO LITERAL; una barra "/" separa mensa
 - "me parece caro" → intent objecion_precio → "Te entiendo totalmente. Me podrías decir qué presupuesto tenías en mente?"
 - "es para mi hijo de 15" → intent adolescentes (o saludo si no hay pregunta), categoria hijo.
 - "mi hija necesita medicación?" → derivar, motivo "urgente".
+- "quiero agendar una cita" / "me gustaría empezar mi primera cita" → intent agendar (sin terapeuta nombrado).
+- "quiero una cita con Carolina Almeida" → intent terapeuta_nombrado, terapeuta "Carolina Almeida".
+- "quiero con Mariana" → intent terapeuta_nombrado, terapeuta "Mariana".
+- "buen día" (solo el saludo) → intent saludo.
 
-FORMATO DE SALIDA: llama a la herramienta "responder" con accion, intent, texto (vacío salvo intent "libre" o derivación "urgente"), motivo y categoria.`
+FORMATO DE SALIDA: llama a la herramienta "responder" con accion, intent, texto (vacío salvo intent "libre" o derivación "urgente"), motivo, categoria y terapeuta (solo si intent "terapeuta_nombrado").`
 
 const TOOL = {
   name: 'responder',
@@ -153,6 +160,7 @@ const TOOL = {
       texto: { type: 'string' },
       motivo: { type: 'string' },
       categoria: { type: 'string', enum: CATEGORIA_CLAVES },
+      terapeuta: { type: 'string', description: 'Nombre o apellido del terapeuta mencionado (solo para intent "terapeuta_nombrado").' },
     },
     required: ['accion', 'intent', 'texto', 'motivo'],
   },
@@ -191,6 +199,7 @@ Decide y llama a la herramienta "responder".`
     texto: typeof out.texto === 'string' ? out.texto.trim() : '',
     motivo: (out.motivo || '').toString().slice(0, 60),
     categoria: CATEGORIA_CLAVES.includes(out.categoria) ? (out.categoria || '') : '',
+    terapeuta: typeof out.terapeuta === 'string' ? out.terapeuta.trim().slice(0, 80) : '',
     model: MODEL,
     latencyMs: out.latencyMs,
   }

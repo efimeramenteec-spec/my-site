@@ -99,6 +99,42 @@ spec #24 — DONE 2026-09-27 (Claude/Sonnet + fact sheet + derive; see top of Co
 answer flow is now only the fallback.** WhatsApp reply buttons are still single-use (grey out after one tap).
 
 ## Completed Features
+- [x] **Lead-bot classifier fix — booking intents no longer read as greetings** (2026-10-01, Opus 4.8).
+  Live bug (lead +593984765268, 30 Sep): "me gustaría agendar mi primera cita" and "quiero empezar mi cita
+  con la Dra. Carolina Almeida" were classified `saludo` by the model → 3 identical "Hola! 🌿 Cuéntame, en qué
+  te puedo ayudar" bubbles + 8h silent. Fixed at the root with a **deterministic layer that runs before the
+  model** in `netlify/lib/leadBot.mjs#handleFreeText`, plus prompt tightening in `netlify/lib/leadBrain.mjs`.
+  - **The bad greeting text is GONE.** The ONLY greeting is now the spec one: `welcomeAndReasons()` sends
+    "Hola! Qué gusto que nos escribas" + the reason list ("Me dirías tu motivo de consulta?"). The two
+    `'Hola! 🌿 Cuéntame…'` dead-ends (old `handleFreeText` non-firstTouch + `applyDecision` saludo-no-categoria)
+    and the two `'Cuéntame, en qué te ayudo 🙂'` nudges (`renderStep` fallback + `runBot` media note) were
+    removed — those paths now fall through to `showReasonList`.
+  - **New `handleFreeText` priority order:** gracias → diagnostico/varios prompt steps → safety-net pushes →
+    **(1) named therapist** → **(2) bare greeting** → **(3) agendar** → **(4) Claude**. Order matters:
+    a therapist name beats a booking verb ("quiero empezar mi cita con la Dra. Carolina Almeida" → Carolina).
+  - **Named-therapist detection is deterministic + model-independent** (`matchTherapistInText` over
+    `allTherapists`, accent-insensitive, matches full name → apellido → ≥5-char first-name token on word
+    boundaries). This is why it catches Mariana/Daniela, whom the model never sees (they're `recibe_nuevos=false`
+    so absent from the fact sheet). `namedTherapist()`: always `pushNicolas` (safety net a), then if
+    `recibe_nuevos=false || id===MARIANA_ID` → handoff + pause, else render that one therapist's card
+    (`renderCards([t], {intro})`) with the normal "Quiero conocerla/o" button → existing pick flow.
+  - **`agendar`** (`isAgendarText`, no therapist named) → reason list directly, no greeting.
+  - **Classifier (`leadBrain.mjs`):** `saludo` is now ONLY a pure greeting; added intents `agendar` and
+    `terapeuta_nombrado` (+ a `terapeuta` output field the code resolves via `resolveTherapistByName`) to
+    `INTENTS`, the tool schema, `SYSTEM_RULES`, few-shots, and the `decideFreeText` return. The model is a
+    backstop; the deterministic layer is the authority. **Not a restructure** — enum + prompt lines only.
+  - **Dedup + safety nets** (migration `supabase/lead-funnel-07-greeting-dedup.sql`, applied;
+    `leads.saludo_enviado` / `last_bot_text` / `stuck_push_at`): `say()` never sends the same text twice in a
+    row; greeting sent once per lead (`saludo_enviado`). Pushes to Nicolás (owner-only, `notifyTherapist(null)`,
+    no pause): (a) any `terapeuta_nombrado`, (b) `maybeReengagePush` — lead writes again after >1h without
+    moving past `nuevo/toco/eligio_terapeuta`, (c) `maybeStuckPush` — ≥3 inbound and still on the starting step
+    (once, via `stuck_push_at`).
+  - **Verified** end-to-end against the LIVE DB with the WhatsApp send layer mocked (all 4 cases route without
+    touching the model): "buen día" → greeting once + list · "quiero agendar una cita" → list only, no re-greet
+    · "quiero una cita con Carolina Almeida" → Carolina card + push · "quiero con Mariana" → handoff + pause.
+    `lead_ai_decisions` logged `agendar` / `terapeuta_nombrado:Carolina` / `terapeuta_nombrado_cerrado:Mariana`
+    (model `regla`). Also broadened greeting detection so "buen día"/"buen dia" are caught (`classifyKeywords`
+    saludo regex + `isBareGreeting` strip).
 - [x] **#4b Funnel cards v2 + final routing + Mapa de casos matching — SHIPPED & LIVE** (2026-09-28, Opus 5).
   Commits `800c3f0` → `77f838e` → `1241e8c`. Source of truth for all of it:
   `~/Desktop/MD FILES - MISCELANEOUS/MAPA DE CASOS.md` (survey answered by the team 27–28 Sep).
@@ -256,52 +292,31 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   - **LIVE test 2026-09-27** (6 msgs injected to the deployed webhook, replies to `593968029896`, then
     purged): precio/ubicacion/seguros(Bupa) → responder ✓; domicilio → derivar ✓; "me siento muy mal" →
     derivar/urgente + 911 + pause ✓; gracias → greeting, no model ✓. All `claude-sonnet-4-6`, 1.5–3.6s.
-- [x] **Lead bot: known-organic-contact guard + answer-before-asking (Day-1-live bug fixes)** (2026-09-26,
-  Opus 4.8). Commit `436cb66`. All code in `netlify/lib/leadBot.mjs`; plus DB row ops (no migration).
-  - **A — who is a lead:** new `hasEarlierInbound(supabase, from)` + a guard in `recordLead`. An ORGANIC
-    sender (`source==='whatsapp_organico'`, i.e. no CTWA `referral`) that already has ANY `direccion='inbound'`
-    row in `whatsapp_messages` (matched on `raw_payload->'message'->>'from'`) is a known contact → returns
-    `null`, no lead row, no bot. Ad clicks (referral present) always become leads. Safe because the webhook
-    logs the current inbound AFTER lead handling, so it's never counted as its own "earlier" message.
-  - **A — data:** filled `therapists.telefono` — Carolina `+593984935328`, Francisco `+593992856511`,
-    Mariana `+593994342657` (recovered from their leads rows). **Still NULL — need real numbers: Camila Maya,
-    Daniela Espinosa, Maria Gracia Villalba, Sophia Vergara.** Deleted the mis-created leads rows for those 3
-    phones + `+593999025081` (their `whatsapp_messages` kept). Cancelled the Mariana↔Sophia test llamada
-    (session `cf48a941`, 28 Sep 09:00) via the calendar fn `cancel` action (Google event soft-cancelled,
-    greyed "CANCELADA —") + `estado→cancelada` (pagado/facturada cleared) — mirrors `updateSession`'s cancel.
-  - **B — answer before asking:** classifier is keyword/regex FIRST (`classifyKeywords`), LLM only as a
-    fallback (`classifyIntent`→`classifyFreeText`; model fixed `claude-haiku-4-5`→`claude-opus-4-8`, the id
-    proven in `proofOcr`). An answer is now ONE interactive message: canned copy body + `[Elegir terapeuta]
-    [Otra pregunta]` buttons (`ANSWER_BUTTONS`/`answerIntent`); ubicación sends the Maps link (preview) then
-    the note+buttons. Removed the two self re-prompts. First contact with an answerable question → plain
-    `sendAnswerText` then Message 1 (B4). `gracias`/`ok`→`¡Con gusto! 🌿`; unclassifiable/`otro`→`handoff()`
-    (canned handoff line + escalate/push, bot paused). `faqText`/`sendFaqAnswer` removed.
-  - **⚠️ SUPERSEDED:** Nicolás says spec **#24 replaces section B** and these canned answers become the
-    **fallback** under #24 — pick that up next session (see Pending / Backlog).
-- [x] **#4 + #20 Lead funnel WhatsApp bot — 4 phases + LIVE for real leads** (2026-09-26, Opus 4.8).
-  `LEAD_BOT_LIVE=true`. Commits `2eb9c8f` (A) `9e8d60e` (B) `a74e3ae` (C) `d9d7448` (D) + fixes. Full record
-  in the "✅ Lead funnel" section above. New: `netlify/lib/{leadBot,waSend,booking,leadTemplates}.mjs`,
-  `netlify/functions/{lead-followups,submit-lead-templates}.mjs`, `src/pages/MarketingFunnel.jsx`,
-  `src/lib/funnel.js`; migrations `lead_funnel_0{1,2,3}_*`. `public-booking.mjs` delegates to shared
-  `booking.mjs`. **Gotcha fixed (`25ba446`):** messages-branch patient cache select MUST include `es_lead`,
-  else booked leads (es_lead patients) read undefined → `(!patient||patient.es_lead)` falsy → runBot skipped
-  for all post-booking msgs. **Verified:** full flow + echo pause (smb_message_echoes → bot_paused) + FAQ.
-  Test mode `LEAD_BOT_TEST_PHONES` retained. Templates: `recordatorio_llamada` APPROVED, other 3 PENDING.
-- [x] **#19 saldo a favor — comprobante→lote + net-of-credit matching/reminders + package_anchor DROPPED**
-  (2026-09-26/27) — **moved to `CHANGELOG.md`** on 2026-09-28.
-- [x] **#19 Saldo a favor (credit lotes) LIVE + old 4-pack mechanism RETIRED + comprobante warning alert +
-  Sesiones search fix** (2026-09-26) — **moved to `CHANGELOG.md`** on 2026-09-28. TL;DR: `saldo.mjs` +
-  `lotes`/`lote_sesiones`, `sessions.package_anchor` retired, comprobante warning alert, Sesiones search fix.
-- [x] **Payment reminders + Comprobante auto-mark** (2026-09-24/25) + **/facturar REST rewrite** (2026-09-23) —
-  both **moved to `CHANGELOG.md`** on 2026-09-27. TL;DR: `paymentReminders.mjs`/`send-payment-reminders.mjs`
-  (`PAYMENT_REMINDERS_LIVE`), `proofOcr.mjs`/`proofReconcile.mjs`/`process-proofs.mjs` (`COMPROBANTES_AUTO_LIVE`),
-  `facturar.mjs` (`FACTURAR_SINCE`). Backlog summaries still under "✅ DONE" below.
+- [x] **Lead bot: known-organic-contact guard + answer-before-asking (Day-1-live bug fixes)** (2026-09-26) —
+  **moved to `CHANGELOG.md`** on 2026-10-01. TL;DR: `hasEarlierInbound` guard in `recordLead` (organic known
+  contacts aren't leads); section B canned-answer classifier SUPERSEDED by #24/#27 funnel v2 (now the fallback).
+- [x] **#4 + #20 Lead funnel WhatsApp bot — 4 phases + LIVE for real leads** (2026-09-26) — **moved to
+  `CHANGELOG.md`** on 2026-10-01 (full live record still in the "✅ Lead funnel" section above). TL;DR: new
+  `netlify/lib/{leadBot,waSend,booking,leadTemplates}.mjs` + followups/templates fns + MarketingFunnel page;
+  migrations `lead_funnel_0{1,2,3}_*`; gotcha `25ba446` (es_lead in patient cache select).
+- [x] **#19 saldo a favor (comprobante→lote, net-of-credit matching/reminders, 4-pack retired, comprobante
+  warning, Sesiones search fix)** (2026-09-26/27) + **Payment reminders + Comprobante auto-mark** (2026-09-24/25)
+  + **/facturar REST rewrite** (2026-09-23) — all **moved to `CHANGELOG.md`**. Key env flags:
+  `PAYMENT_REMINDERS_LIVE`, `COMPROBANTES_AUTO_LIVE`, `FACTURAR_SINCE`; files `saldo.mjs`/`proofReconcile.mjs`/
+  `facturar.mjs`. Backlog summaries still under "✅ DONE" below.
 > **Older completed work (2026-09-22 and earlier) lives in `CHANGELOG.md`.**
 > It is deliberately not loaded into session context. Read it on demand.
 
 ## Pending / Backlog
 
 ### Lead bot — surfaced 2026-09-26/27
+- [x] ~~Booking intents misclassified as `saludo` (repeated greetings, 8h silence)~~ — **FIXED 2026-10-01**
+      (Opus 4.8). Deterministic named-therapist + `agendar` layer before the model; `saludo` tightened; greeting
+      unified + sent once; dedup + 3 safety-net pushes to Nicolás. Migration `lead-funnel-07-greeting-dedup.sql`.
+      See top of Completed Features.
+- [ ] **Burst/dedup follow-up still open:** the `say()` consecutive-text dedup + `saludo_enviado` close the
+      *greeting* repeat, but rapid multi-message bursts each still spawn their own ~25s delayed reply (no
+      cross-message coalesce). Pairs with the "#27 burst debounce" + delay-tighten items below.
 - [x] ~~#24 + #27 funnel v2~~ — DONE 2026-09-27 (`fdf9f67`/`8574b58`/`115063f`/`80025d6`); #30 history fix
       2026-09-27 (`9284328`). All in Completed Features.
 - [x] ~~#22 Meta Conversions API~~ — **SHIPPED & LIVE 2026-09-27** (`5d7c02c`). See Completed Features.
