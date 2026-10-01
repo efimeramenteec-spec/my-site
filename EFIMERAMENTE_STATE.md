@@ -99,6 +99,31 @@ spec #24 — DONE 2026-09-27 (Claude/Sonnet + fact sheet + derive; see top of Co
 answer flow is now only the fallback.** WhatsApp reply buttons are still single-use (grey out after one tap).
 
 ## Completed Features
+- [x] **Lead bot — burst coalesce + tighter felt delay** (2026-10-01, Opus 4.8). Both #27/#30 follow-ups,
+  entirely inside **`netlify/functions/lead-reply-background.mjs`** (the delayed-reply background fn); no
+  schema change, no change to the webhook's fire-per-message flow (only its stale "FIXED 20s" comments updated).
+  - **Tighter delay:** the up-front wait is now `WAIT_MS = REPLY_DELAY_MS(20s) − CLASSIFY_BUDGET_MS(5s)` = 15s,
+    so the Sonnet classify (~2.5–4.5s, 8s cap) overlaps the remainder and the Claude path lands near 20s instead
+    of ~25s (the old bug: a fixed 20s `sleep` ran BEFORE `runBot`→Claude). Deterministic paths (named therapist
+    / agendar / greeting, no model call) now reply a touch sooner (~15s) — acceptable.
+  - **Burst coalesce:** a lead firing N quick texts still spawns one background invocation each, but only the
+    LAST replies, and it replies to the WHOLE burst folded into one message. Coordination is stateless (separate
+    fn instances): after the wait, one newest-first query over `whatsapp_messages` (inbound, matched on
+    `raw_payload->message->>from` = phone digits, limit 15) serves both jobs — (a) **bail** if `rows[0].twilio_sid
+    !== msg.id` (a newer inbound landed during the wait → a later invocation, waking after its own wait, answers
+    the full set); (b) **gather** every inbound text with `received_at > lead.last_bot_at` (the unanswered burst),
+    strip media markers (`[`-prefixed), join chronologically, and pass a synthetic `{type:'text', text:{body}}`
+    to `runBot`. So the deterministic + Claude layers classify the full thought, not just the first line.
+  - **Why not literal "classify-first-then-wait" (the backlog wording):** classifying up front on each message
+    would do N model calls on fragments and reply to only the first line — it doesn't compose with coalesce.
+    Wait-then-classify-the-combined-text (shaved by the classify budget) gives both the ~20s delay and one
+    coherent answer. Single-message behaviour is byte-identical except the shorter wait (combined === myText ⇒
+    original `msg` is used; no bail since `rows[0]` is itself).
+  - **Edges handled:** `bot_paused` during the wait → early return (also caught by `runBot`); brand-new lead's
+    first burst → winner has `isNew=false` but `step_actual` still null ⇒ `firstTouch` true, welcome path intact;
+    media-tail burst → `myText` empty ⇒ falls back to original-msg handling (`renderStep`). Build green; both
+    fns `node --check` clean. **Not yet observed against a real multi-text burst in prod** — watch Marketing →
+    Embudo / function logs on the next live burst.
 - [x] **Lead-bot classifier fix — booking intents no longer read as greetings** (2026-10-01, Opus 4.8).
   Live bug (lead +593984765268, 30 Sep): "me gustaría agendar mi primera cita" and "quiero empezar mi cita
   con la Dra. Carolina Almeida" were classified `saludo` by the model → 3 identical "Hola! 🌿 Cuéntame, en qué
@@ -260,38 +285,11 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
     classify-then-wait-remainder would tighten it. (2) Latent pre-existing bug: `recentInbound` selects a
     non-existent `created_at` (table has `received_at`) → Claude gets no prior-message history; harmless for
     single-question turns, worth a one-word fix for multi-turn context.
-- [x] **Lead bot #24 — three-tier free-text handling: Claude (Anthropic Sonnet) + fact sheet + derive**
-  (2026-09-27, Opus 4.8). Commit `fdf9f67`. Migration `lead_funnel_04_knowledge_and_ai_log`
-  (`supabase/lead-funnel-04-knowledge.sql`). Supersedes section B of the 2026-09-26 entry below.
-  - **Tiers:** T1 button taps unchanged (no model). T2 FREE TEXT → new **`netlify/lib/leadBrain.mjs`**
-    `decideFreeText()` → **Anthropic Messages API** (`https://api.anthropic.com/v1/messages`, model
-    `claude-sonnet-4-6`, **raw fetch** — matches repo convention, no SDK dep), 8s `AbortController`,
-    forced tool-call (`tool_choice:{type:'tool',name:'responder'}`) → `{accion:'responder'|'derivar',
-    texto, motivo}`. T3 derivar = handoff line + `escalate()` (push + `bot_paused`); `motivo==='urgente'`
-    → `escalate(..., {urgent:true})` = 🚨 URGENTE push, and the reply carries ECU 911 on life-risk.
-  - **Fact sheet:** new `funnel_knowledge` table (clave/titulo/contenido/orden/activo, owner-RLS), seeded
-    with confirmed facts only (price $39/$35-pack, free 10-min call, Cumbayá+parqueo+maps, online, pago,
-    seguros=Bupa/Humana 80% + BMI excludes + others→derive). **Home visits deliberately absent** → a
-    domicilio question derives. `buildFactSheet(supabase)` = active knowledge rows + live captions of
-    `recibe_nuevos` therapists. Editable in Marketing → Configuración ("Hoja de datos", `KnowledgeEditor`).
-  - **Hard rules** live in `leadBrain.mjs` `SYSTEM_RULES` (Spanish, tú, ≤3 lines, no bare "¿agendas?",
-    only fact-sheet facts, crisis/clinical→urgente, uncertain→derivar) AND enforced in code
-    (`applyDecision`: responder → `sendButtons(texto, ANSWER_BUTTONS)` re-attaches [Elegir terapeuta]
-    [Otra pregunta]; derivar urgente → send `texto`, else `HANDOFF_LINE`).
-  - **Fallback:** `keywordFallback()` (old `classifyKeywords`/`classifyFreeText` APIMart path) runs ONLY
-    when `decideFreeText` returns null (no `ANTHROPIC_API_KEY` / API error / >8s timeout). Greetings/thanks
-    short-circuit before the model (`kw==='gracias'|'saludo'`) and never derive.
-  - **Audit:** every T2 decision → `lead_ai_decisions` (`logDecision`), shown in Marketing → Embudo
-    ("Respuestas del bot a texto libre", `AiDecisionsCard`). `getFunnelData` now also returns `knowledge`
-    + `aiDecisions`; `updateFunnelKnowledge` in queries.js.
-  - **Env:** **`ANTHROPIC_API_KEY`** (Netlify, functions scope) required for T2; absent ⇒ silent keyword
-    fallback. Set by Nicolás 2026-09-27.
-  - **Gotcha (test):** the FIRST message from a brand-new lead hits the welcome branch in `runBot`
-    (`isNew || (!tap && !lead.step_actual)`), NOT T2 — `handleFreeText` only runs on 2nd+ msgs once
-    `step_actual` is set. To test T2, seed a lead row with `step_actual` already set.
-  - **LIVE test 2026-09-27** (6 msgs injected to the deployed webhook, replies to `593968029896`, then
-    purged): precio/ubicacion/seguros(Bupa) → responder ✓; domicilio → derivar ✓; "me siento muy mal" →
-    derivar/urgente + 911 + pause ✓; gracias → greeting, no model ✓. All `claude-sonnet-4-6`, 1.5–3.6s.
+- [x] **Lead bot #24 — three-tier free-text handling (Claude Sonnet + fact sheet + derive)** (2026-09-27,
+  `fdf9f67`) — **moved to `CHANGELOG.md`** on 2026-10-01. TL;DR: T2 free text → `netlify/lib/leadBrain.mjs`
+  `decideFreeText()` (Anthropic Messages API, `claude-sonnet-4-6`, raw fetch, forced tool-call); fact sheet in
+  `funnel_knowledge`; every call logged to `lead_ai_decisions`; keyword path is now the fallback. Env
+  `ANTHROPIC_API_KEY` (functions). Migration `lead-funnel-04-knowledge.sql`.
 - [x] **Lead bot: known-organic-contact guard + answer-before-asking (Day-1-live bug fixes)** (2026-09-26) —
   **moved to `CHANGELOG.md`** on 2026-10-01. TL;DR: `hasEarlierInbound` guard in `recordLead` (organic known
   contacts aren't leads); section B canned-answer classifier SUPERSEDED by #24/#27 funnel v2 (now the fallback).
@@ -314,9 +312,9 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
       (Opus 4.8). Deterministic named-therapist + `agendar` layer before the model; `saludo` tightened; greeting
       unified + sent once; dedup + 3 safety-net pushes to Nicolás. Migration `lead-funnel-07-greeting-dedup.sql`.
       See top of Completed Features.
-- [ ] **Burst/dedup follow-up still open:** the `say()` consecutive-text dedup + `saludo_enviado` close the
-      *greeting* repeat, but rapid multi-message bursts each still spawn their own ~25s delayed reply (no
-      cross-message coalesce). Pairs with the "#27 burst debounce" + delay-tighten items below.
+- [x] ~~Burst/dedup follow-up: rapid multi-message bursts each spawn their own delayed reply~~ — **DONE
+      2026-10-01** (Opus 4.8). Per-lead coalesce in `lead-reply-background.mjs` (only the last msg replies, to the
+      combined burst) + delay tightened to ~20s (wait shaved by the classify budget). See top of Completed Features.
 - [x] ~~#24 + #27 funnel v2~~ — DONE 2026-09-27 (`fdf9f67`/`8574b58`/`115063f`/`80025d6`); #30 history fix
       2026-09-27 (`9284328`). All in Completed Features.
 - [x] ~~#22 Meta Conversions API~~ — **SHIPPED & LIVE 2026-09-27** (`5d7c02c`). See Completed Features.
@@ -330,14 +328,14 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [x] ~~Get real phone numbers for the 4 therapists still `telefono IS NULL`~~ — **DONE** (#26, 2026-09-27):
       Camila, Daniela, Ma. Gracia, Sophia numbers saved in `therapists.telefono`. All 7 now have a number.
 - [ ] **#27 follow-ups (surfaced 2026-09-27, none blocking):**
-  - Tighten the felt delay: the fixed 20s sleep in `lead-reply-background.mjs` runs BEFORE the Claude call,
-    so total is ~25s. Classify-then-wait-remainder would land it at ~20s.
+  - [x] ~~Tighten the felt delay (~25s because the sleep ran before the Claude call)~~ — **DONE 2026-10-01**:
+    wait shaved by the classify budget in `lead-reply-background.mjs` → Claude path lands ~20s. See Completed Features.
   - **Package answer copy (surfaced #30):** "¿el paquete se paga por adelantado?" classifies as fixed `pago`
     intent → generic canned copy ("recordatorio 2 días *después*", single-session flow); packages are PREPAID.
     Add a package line or `pago_paquete` intent in `leadBrain.mjs`/`CANNED`. Low pri — Nicolás supervises leads.
-  - **Burst debounce (surfaced #30):** rapid texts each spawn their own ~25s delayed reply, no cross-msg dedup
-    → 2 location-ish Qs both fired the full `ubicacion` block. Invitation safely guarded (sent once). Pairs with
-    the delay-tighten item: a per-lead coalesce window in `lead-reply-background.mjs` would collapse a burst.
+  - [x] ~~Burst debounce (surfaced #30): rapid texts each spawn their own reply, no cross-msg dedup~~ — **DONE
+    2026-10-01**: per-lead coalesce in `lead-reply-background.mjs` collapses a burst into one reply (last msg wins,
+    answers the combined text). Not yet seen against a real multi-text burst in prod — watch the next live burst.
   - [x] ~~Routing (`funnel_categorias`) is PROVISIONAL~~ — **DONE 2026-09-28 (#4b)**: final ordered lists from
     the Mapa de casos, all 7 categories. See Completed Features.
   - Enrich the `seguros` fact sheet as #14 (insurer catalogue) advances; Saludsa/Ecuasanitas % still "según plan".

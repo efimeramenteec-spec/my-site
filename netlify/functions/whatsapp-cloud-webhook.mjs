@@ -30,9 +30,9 @@ import { notifyTherapist } from '../lib/push.mjs'
 import { isTherapistOrPayer, recordLead, handleEchoes, runBot, handleTherapistResult, isTap, botAllowedForPhone } from '../lib/leadBot.mjs'
 import { sendReadReceipt } from '../lib/waSend.mjs'
 
-// Fire the delayed-reply background function (fixed 20s + typing) for a lead's
-// free text. Returns fast (Netlify 202s a background invocation). The shared
-// verify token gates it so the endpoint can't be abused to make the bot send.
+// Fire the delayed-reply background function (~20s + typing, burst-coalesced) for
+// a lead's free text. Returns fast (Netlify 202s a background invocation). The
+// shared verify token gates it so the endpoint can't be abused to make the bot send.
 async function invokeLeadReplyBackground(payload) {
   const base = process.env.URL || 'https://efimeramente-panel.netlify.app'
   try {
@@ -251,9 +251,10 @@ export default async (req) => {
                   // Button taps → immediate reply, inline (no delay).
                   await runBot(supabase, { lead, isNew: rec.isNew, msg })
                 } else if (!lead.bot_paused && botAllowedForPhone(lead.phone)) {
-                  // Free text / media → reply after a FIXED 20s with a typing
-                  // indicator (#27). Show "escribiendo…" now (text only), then let
-                  // the background function wait + reply, so we can 200 Meta fast.
+                  // Free text / media → reply after ~20s with a typing indicator
+                  // (#27); rapid bursts are coalesced into one reply in the bg fn
+                  // (#30). Show "escribiendo…" now (text only), then let the
+                  // background function wait + reply, so we can 200 Meta fast.
                   if (msg.type === 'text' && msg.id) {
                     try { await sendReadReceipt(msg.id, { typing: true }) }
                     catch (e) { console.warn('[wa-cloud] typing indicator failed (non-blocking):', e.message) }

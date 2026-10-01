@@ -5,6 +5,38 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+- [x] **Lead bot #24 — three-tier free-text handling: Claude (Anthropic Sonnet) + fact sheet + derive**
+  (2026-09-27, Opus 4.8). Commit `fdf9f67`. Migration `lead_funnel_04_knowledge_and_ai_log`
+  (`supabase/lead-funnel-04-knowledge.sql`). Supersedes section B of the 2026-09-26 entry below.
+  - **Tiers:** T1 button taps unchanged (no model). T2 FREE TEXT → new **`netlify/lib/leadBrain.mjs`**
+    `decideFreeText()` → **Anthropic Messages API** (`https://api.anthropic.com/v1/messages`, model
+    `claude-sonnet-4-6`, **raw fetch** — matches repo convention, no SDK dep), 8s `AbortController`,
+    forced tool-call (`tool_choice:{type:'tool',name:'responder'}`) → `{accion:'responder'|'derivar',
+    texto, motivo}`. T3 derivar = handoff line + `escalate()` (push + `bot_paused`); `motivo==='urgente'`
+    → `escalate(..., {urgent:true})` = 🚨 URGENTE push, and the reply carries ECU 911 on life-risk.
+  - **Fact sheet:** new `funnel_knowledge` table (clave/titulo/contenido/orden/activo, owner-RLS), seeded
+    with confirmed facts only (price $39/$35-pack, free 10-min call, Cumbayá+parqueo+maps, online, pago,
+    seguros=Bupa/Humana 80% + BMI excludes + others→derive). **Home visits deliberately absent** → a
+    domicilio question derives. `buildFactSheet(supabase)` = active knowledge rows + live captions of
+    `recibe_nuevos` therapists. Editable in Marketing → Configuración ("Hoja de datos", `KnowledgeEditor`).
+  - **Hard rules** live in `leadBrain.mjs` `SYSTEM_RULES` (Spanish, tú, ≤3 lines, no bare "¿agendas?",
+    only fact-sheet facts, crisis/clinical→urgente, uncertain→derivar) AND enforced in code
+    (`applyDecision`: responder → `sendButtons(texto, ANSWER_BUTTONS)` re-attaches [Elegir terapeuta]
+    [Otra pregunta]; derivar urgente → send `texto`, else `HANDOFF_LINE`).
+  - **Fallback:** `keywordFallback()` (old `classifyKeywords`/`classifyFreeText` APIMart path) runs ONLY
+    when `decideFreeText` returns null (no `ANTHROPIC_API_KEY` / API error / >8s timeout). Greetings/thanks
+    short-circuit before the model (`kw==='gracias'|'saludo'`) and never derive.
+  - **Audit:** every T2 decision → `lead_ai_decisions` (`logDecision`), shown in Marketing → Embudo
+    ("Respuestas del bot a texto libre", `AiDecisionsCard`). `getFunnelData` now also returns `knowledge`
+    + `aiDecisions`; `updateFunnelKnowledge` in queries.js.
+  - **Env:** **`ANTHROPIC_API_KEY`** (Netlify, functions scope) required for T2; absent ⇒ silent keyword
+    fallback. Set by Nicolás 2026-09-27.
+  - **Gotcha (test):** the FIRST message from a brand-new lead hits the welcome branch in `runBot`
+    (`isNew || (!tap && !lead.step_actual)`), NOT T2 — `handleFreeText` only runs on 2nd+ msgs once
+    `step_actual` is set. To test T2, seed a lead row with `step_actual` already set.
+  - **LIVE test 2026-09-27** (6 msgs injected to the deployed webhook, replies to `593968029896`, then
+    purged): precio/ubicacion/seguros(Bupa) → responder ✓; domicilio → derivar ✓; "me siento muy mal" →
+    derivar/urgente + 911 + pause ✓; gracias → greeting, no model ✓. All `claude-sonnet-4-6`, 1.5–3.6s.
 - [x] **Lead bot: known-organic-contact guard + answer-before-asking (Day-1-live bug fixes)** (2026-09-26,
   Opus 4.8). Commit `436cb66`. All code in `netlify/lib/leadBot.mjs`; plus DB row ops (no migration).
   - **A — who is a lead:** new `hasEarlierInbound(supabase, from)` + a guard in `recordLead`. An ORGANIC
