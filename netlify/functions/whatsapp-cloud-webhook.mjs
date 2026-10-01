@@ -240,7 +240,13 @@ export default async (req) => {
         // therapist or a payer. A booked lead has an es_lead=true patient row, so
         // matching a patient does NOT exclude them — only es_lead=false does.
         // Measurement (recordLead) always runs; runBot self-gates on LEAD_BOT_LIVE.
-        if (!handledResult && (!patient || patient.es_lead)) {
+        //
+        // IMAGES / PDFs never enter the funnel (second not-a-lead bug): they're
+        // payment receipts and belong to the comprobante flow (#2), which already
+        // OCRs every inbound image+document and alerts Nicolás for unknown senders.
+        // Routing a receipt to the bot made it greet with "¿motivo de consulta?".
+        const isReceiptMedia = msg.type === 'image' || msg.type === 'document'
+        if (!handledResult && !isReceiptMedia && (!patient || patient.es_lead)) {
           try {
             if (!(await isTherapistOrPayer(supabase, msg.from))) {
               const contact = value.contacts?.[0] || null

@@ -5,6 +5,50 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+- [x] **Lead funnel v2 (#27) — "answer first, then offer" + VERBATIM canned answers** (2026-09-27,
+  Opus 4.8). Commits `8574b58` (v2) `115063f` (greeting/handoff fixes) `80025d6` (verbatim/classifier).
+  Migration `funnel_v2_schema` + data reseed, mirror `supabase/lead-funnel-05-v2.sql`. Spec:
+  `PERMANENT TO-DO.md` → "#27 Funnel v2". Supersedes the opening (Message 1) of the #4/#24 entries below.
+  - **Opening:** Message 1 (price + "Elegir terapeuta") REMOVED. A **bare** greeting/ad text (`isBareGreeting`
+    in leadBot) → "Hola! Qué gusto que nos escribas" + the 10-reason list. A real question → Claude answers,
+    then the **one-time** invitation `*Te gustaría ver a nuestros terapeutas disponibles?*` [Sí][Tengo otra
+    pregunta] (`leads.invitacion_enviada`, `sendInvitationOnce`). "Sí" (`inv_si`) skips the list when a reason
+    was detected from the conversation (Claude sets `categoria`); "Tengo otra pregunta" (`inv_otra`) → "Claro, dime".
+  - **VERBATIM answers — the key fix:** Claude no longer WRITES the common answers (it drifted). It only
+    **classifies an `intent`**; code sends the exact copy. Source of truth = **`CANNED` map in
+    `leadBot.mjs`** (`sendCanned`), one WhatsApp bubble per array item. Tails: `invite` (one-time invitation) /
+    `invite_custom` (adolescentes: the question itself carries the [Sí][Tengo otra pregunta] buttons) / `cards`
+    (pareja → Carolina card, no invitation) / `handoff` (objeción de precio → the line + `escalate`, bot never
+    negotiates). `leadBrain.mjs` tool returns `intent` (precio/ubicacion/saludsa/seguros/adolescentes/duracion/
+    horarios/psiquiatra/pareja/pago/objecion_precio/saludo/libre) + literal few-shots + style rules; **temperature 0**.
+    Only `intent==='libre'` lets Claude author (from the fact sheet). Keyword fallback maps to the same CANNED
+    (`KW_TO_CANNED`) — no second paraphrased copy anywhere (the two copies are leadBrain few-shots [for the model]
+    and leadBot CANNED [what's sent]; **CANNED always wins**).
+  - **10-reason list** (`funnel_categorias` reseeded, `descripcion` column added, old 8 deactivated=recoverable):
+    hijo/ruptura/problemas_pareja/depresion_ansiedad/consumo/terapia_pareja/diagnostico/trauma/varios/otro.
+    Provisional routing (unchanged from spec). `especial`: `hijo` (kids line), `diagnostico`/`varios` (free-text
+    prompt → `matchFlow` → `matchTherapistsForText` in leadBrain picks ≤3 from the roster or derives on
+    audio/no-fit/eating-disorder/psychosis/bipolar/self-harm), `otro` (handoff). Reason 6 (terapia_pareja) = Carolina only.
+  - **Cards:** caption with the "Enfoque …" clause stripped (`captionSansEnfoque`) + bold `*Puedes agendar una
+    llamada gratuita para conocerl{o/a}*` + gendered button `Quiero conocerl{o/a}` (`therapists.genero`, M=Francisco).
+    Pick (`pick:`) → gendered call-explanation (`chooseTherapist`, + the kids line only when `categoria==='hijo'`)
+    + [Ver horarios] (`horarios:`) → `showSlots` → booking (unchanged).
+  - **Handoff window (`isNightGYE`, GYE=UTC-5):** 07:00–23:00 → NO bot text, just push + `bot_paused` (`handoff`
+    only sends a line at night). 23:00–07:00 → one line (bot-question vs general variant). URGENTE + ECU 911 ONLY
+    on explicit life-risk; ordinary emotional disclosure now derives as `motivo:"emocional"` = **silent daytime
+    handoff** (leadBrain rules 2/3 split urgent from emotional). Neutral nudges: "Seguimos aquí si tienes alguna otra pregunta".
+  - **20s delay + typing:** webhook 200s Meta immediately; for a lead's **text** it marks-read + shows the typing
+    indicator (`waSend.sendReadReceipt(msgId,{typing:true})`) and defers the reply to **`netlify/functions/
+    lead-reply-background.mjs`** (fixed 20s sleep → `runBot`), gated by an `x-lead-verify` header = `WA_CLOUD_VERIFY_TOKEN`.
+    Button **taps** run inline in the webhook (immediate). `isTap(msg)` exported from leadBot.
+  - **Fact sheet (`funnel_knowledge`) additions:** couples (Carolina 90min $50, pack 4×$42), package upfront,
+    Dr. Camino, Mon–Sat 8–20, 60min/7–15d, Saludsa/Ecuasanitas cubren por reembolso (según plan), Bupa tope anual
+    según plan, others→handoff, no home visits.
+  - **LIVE test 2026-09-27** (real phone `593968029896`): 4 questions → all classified correctly (precio/ubicacion/
+    saludsa/psiquiatra), `[canned:*]` fired, `used_fallback=false`, sonnet 2.5–4.5s. Timing verified: text ~25s
+    (20s + latency), tap instant. Typing indicator accepted by Dualhook (no fallback). Audit in Marketing → Embudo.
+  - **Known follow-ups (both since resolved 2026-10-01):** felt delay ~25s (sleep before the Claude call) and the
+    `recentInbound` `created_at`→`received_at` bug — see EFIMERAMENTE_STATE Completed Features.
 - [x] **Lead bot #24 — three-tier free-text handling: Claude (Anthropic Sonnet) + fact sheet + derive**
   (2026-09-27, Opus 4.8). Commit `fdf9f67`. Migration `lead_funnel_04_knowledge_and_ai_log`
   (`supabase/lead-funnel-04-knowledge.sql`). Supersedes section B of the 2026-09-26 entry below.

@@ -77,6 +77,25 @@ async function hasEarlierInbound(supabase, from) {
   return !!(data && data.length)
 }
 
+// We contacted this number FIRST: an outbound message to them (a manual
+// smb_message_echo stored by handleEchoes, or a template) exists BEFORE their
+// first inbound → they're a known contact, NOT a lead. This is the second
+// "not a lead" bug: Nicolás wrote payment details by hand, the person replied,
+// and the bot read the reply as a brand-new lead. Compared against the current
+// inbound's own timestamp (+1s skew), so a reply that arrives seconds before the
+// echo is forwarded still counts us as having spoken first.
+async function hasEarlierOutbound(supabase, from, beforeMs) {
+  const digits = String(from || '').replace(/\D/g, '')
+  if (!digits) return false
+  const { data } = await supabase.from('whatsapp_messages')
+    .select('received_at').eq('direccion', 'outbound')
+    .eq('raw_payload->>to_digits', digits)
+    .order('received_at', { ascending: true }).limit(1)
+  if (!data || !data.length) return false
+  if (beforeMs == null) return true
+  return new Date(data[0].received_at).getTime() <= beforeMs + 1000
+}
+
 // Create the lead row on first contact, or return the existing one. Measurement
 // only — sends nothing. Returns { lead, isNew } or null.
 export async function recordLead(supabase, { msg, contact }) {
@@ -100,9 +119,16 @@ export async function recordLead(supabase, { msg, contact }) {
     return { lead: existing, isNew: false }
   }
 
-  if (source === 'whatsapp_organico' && await hasEarlierInbound(supabase, msg.from)) {
-    console.log(`[lead] skip — organic known contact phone=${phone}`)
-    return null
+  if (source === 'whatsapp_organico') {
+    if (await hasEarlierInbound(supabase, msg.from)) {
+      console.log(`[lead] skip — organic known contact phone=${phone}`)
+      return null
+    }
+    const beforeMs = msg.timestamp ? Number(msg.timestamp) * 1000 : null
+    if (await hasEarlierOutbound(supabase, msg.from, beforeMs)) {
+      console.log(`[lead] skip — we messaged first (outbound before inbound) phone=${phone}`)
+      return null
+    }
   }
   const row = { phone, wa_name: contact?.profile?.name || null, source, ad_source_id, ad_headline, ctwa_clid, stage: 'nuevo' }
   const { data, error } = await supabase.from('leads').insert(row).select('*').single()
@@ -116,15 +142,34 @@ export async function recordLead(supabase, { msg, contact }) {
   return { lead: data, isNew: true }
 }
 
+function echoSummary(e) {
+  if (e?.type === 'text') return `[saliente] ${e.text?.body || ''}`.trim()
+  return `[saliente ${e?.type || 'desconocido'}]`
+}
+
 // smb_message_echoes: a manual send from the business number → hard pause for that
-// lead forever. Also the litmus test that Dualhook forwards echoes at all.
+// lead forever. Also the litmus test that Dualhook forwards echoes at all. Each echo
+// is ALSO persisted as an `outbound` whatsapp_messages row keyed by the recipient's
+// digits, so hasEarlierOutbound() can later answer "did we message this number
+// before their first inbound?" (the second not-a-lead rule).
 export async function handleEchoes(supabase, value) {
   const echoes = value?.message_echoes
   if (!Array.isArray(echoes) || echoes.length === 0) return 0
   let paused = 0
+  const rows = []
   for (const e of echoes) {
     const to = normalizePhone(e.to)
+    const toDigits = String(e.to || '').replace(/\D/g, '')
     console.log(`[wa-cloud] SMB ECHO forwarded by Dualhook — to=${e.to} type=${e.type}`)
+    if (toDigits) {
+      rows.push({
+        direccion: 'outbound',
+        twilio_sid: e.id || null, // echo wamid → dedupe (Meta retries redeliver echoes too)
+        cuerpo: echoSummary(e),
+        raw_payload: { echo: e, to: e.to, to_digits: toDigits, metadata: value.metadata || null },
+        ...(e.timestamp ? { received_at: new Date(Number(e.timestamp) * 1000).toISOString() } : {}),
+      })
+    }
     if (!to) continue
     const { data: lead } = await supabase.from('leads').select('id, bot_paused').eq('phone', to).maybeSingle()
     if (lead && !lead.bot_paused) {
@@ -132,6 +177,11 @@ export async function handleEchoes(supabase, value) {
       paused++
       console.log(`[lead] ${lead.id} bot_paused — manual reply detected`)
     }
+  }
+  if (rows.length) {
+    const { error } = await supabase.from('whatsapp_messages')
+      .upsert(rows, { onConflict: 'twilio_sid', ignoreDuplicates: true })
+    if (error) console.warn('[wa-cloud] echo store failed (non-blocking):', error.message)
   }
   return paused
 }

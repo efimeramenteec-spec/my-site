@@ -99,6 +99,40 @@ spec #24 — DONE 2026-09-27 (Claude/Sonnet + fact sheet + derive; see top of Co
 answer flow is now only the fallback.** WhatsApp reply buttons are still single-use (grey out after one tap).
 
 ## Completed Features
+- [x] **Lead bot — second "not a lead" bug: outbound-first senders + payment receipts** (2026-10-01, Opus 4.8).
+  Two senders were wrongly greeted as new leads (bot asked "¿motivo de consulta?"): (A) +593985506258 — Nicolás
+  wrote him payment details by hand first, he replied with a transfer screenshot; (B) the general case where
+  we message someone first and they reply by text. Three surgical fixes, no destructive DDL:
+  - **(1) Store outbound echoes.** `handleEchoes` (`netlify/lib/leadBot.mjs`) now, besides pausing existing
+    leads, persists each `smb_message_echo` as an `outbound` `whatsapp_messages` row — keyed by the recipient's
+    digits at `raw_payload->>'to_digits'`, `twilio_sid`=echo wamid (dedupe via the existing unique index +
+    `upsert onConflict twilio_sid ignoreDuplicates`), `received_at`=echo timestamp. Previously echoes were only
+    used to flip `bot_paused` and were never stored, so "did we write this number first?" was unanswerable.
+  - **(2) Not-a-lead rule.** New `hasEarlierOutbound(supabase, from, beforeMs)` in leadBot; `recordLead` now
+    skips (returns null — no lead row, bot silent) for an ORGANIC sender when EITHER an earlier inbound OR an
+    earlier outbound to them exists before their current inbound's timestamp (+1s skew). Ad-click leads
+    (`meta_ctwa`) still always create a row, same as before.
+  - **(3) Receipts bypass the funnel.** `whatsapp-cloud-webhook.mjs`: the lead block is now gated with
+    `isReceiptMedia = msg.type === 'image' || 'document'` → images/PDFs never create a lead or trigger the bot.
+    The comprobante flow (#2) already OCRs every inbound image+document, so nothing is lost. In
+    `proofReconcile.mjs#decideAutoReconcile`, a non-receipt (`ex.is_payment_proof === false`) is now `skip`ped
+    SILENTLY (checked before the unmatched/extraction branches) so random photos don't spam Nicolás; and
+    `MOTIVO.unmatched` reworded to **"comprobante de número desconocido"** (the alert already carries the OCR
+    sender name + amount). Unknown-number alert still requires `COMPROBANTES_AUTO_LIVE=true`.
+  - **Index:** `supabase/whatsapp-messages-outbound-to-idx.sql` (partial index on `(raw_payload->>'to_digits')
+    WHERE direccion='outbound'`) — applied via `apply_migration whatsapp_messages_outbound_to_idx`.
+  - **Part 3 verified, no change:** the 30 Sep +593984765268 "saludo" misclassifications (agendar / named
+    therapist Carolina) are already fixed by commit `b23a353` (today 10:12) — the deterministic
+    `isAgendarText` / `matchTherapistInText` layer + the `agendar`/`terapeuta_nombrado` intents. Those decisions
+    predate the commit.
+  - **Tests for Nicolás (not runnable from here — need his phone):** reset his test number 593968029896 to a
+    clean slate (deleted its lead / lead_ai_decisions / whatsapp_messages). (a) from 9933 write to 593968029896
+    by hand first, then send a text from that phone → bot must NOT reply (needs his number in
+    `LEAD_BOT_TEST_PHONES` or `LEAD_BOT_LIVE=true` for the test to be meaningful). (b) send a transfer-receipt
+    image from a NEW number → no greeting; comprobante alert fires only if `COMPROBANTES_AUTO_LIVE=true`.
+  - Build green; `leadBot.mjs`/`proofReconcile.mjs`/`whatsapp-cloud-webhook.mjs` `node --check` clean. Not touched
+    (per instruction): routing, CAPI, the reply delay. Historical false lead db066c09 (+593985506258) left in
+    place (already `bot_paused`); delete manually if funnel metrics need it.
 - [x] **Lead bot — burst coalesce + tighter felt delay** (2026-10-01, Opus 4.8). Both #27/#30 follow-ups,
   entirely inside **`netlify/functions/lead-reply-background.mjs`** (the delayed-reply background fn); no
   schema change, no change to the webhook's fire-per-message flow (only its stale "FIXED 20s" comments updated).
@@ -239,52 +273,13 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   gets none. **LIVE test** (`593968029896`, row reset first): (3a) "hola, es para mi hijo de 15" →
   `intent=adolescentes, categoria=hijo`, tap "Sí" → **skipped reasons list, jumped to hijo cards** (next msg
   logged `step:"cards"`). ✅ (3b/3c) surfaced two tuning items — see Pending / Backlog.
-- [x] **Lead funnel v2 (#27) — "answer first, then offer" + VERBATIM canned answers** (2026-09-27,
-  Opus 4.8). Commits `8574b58` (v2) `115063f` (greeting/handoff fixes) `80025d6` (verbatim/classifier).
-  Migration `funnel_v2_schema` + data reseed, mirror `supabase/lead-funnel-05-v2.sql`. Spec:
-  `PERMANENT TO-DO.md` → "#27 Funnel v2". Supersedes the opening (Message 1) of the #4/#24 entries below.
-  - **Opening:** Message 1 (price + "Elegir terapeuta") REMOVED. A **bare** greeting/ad text (`isBareGreeting`
-    in leadBot) → "Hola! Qué gusto que nos escribas" + the 10-reason list. A real question → Claude answers,
-    then the **one-time** invitation `*Te gustaría ver a nuestros terapeutas disponibles?*` [Sí][Tengo otra
-    pregunta] (`leads.invitacion_enviada`, `sendInvitationOnce`). "Sí" (`inv_si`) skips the list when a reason
-    was detected from the conversation (Claude sets `categoria`); "Tengo otra pregunta" (`inv_otra`) → "Claro, dime".
-  - **VERBATIM answers — the key fix:** Claude no longer WRITES the common answers (it drifted). It only
-    **classifies an `intent`**; code sends the exact copy. Source of truth = **`CANNED` map in
-    `leadBot.mjs`** (`sendCanned`), one WhatsApp bubble per array item. Tails: `invite` (one-time invitation) /
-    `invite_custom` (adolescentes: the question itself carries the [Sí][Tengo otra pregunta] buttons) / `cards`
-    (pareja → Carolina card, no invitation) / `handoff` (objeción de precio → the line + `escalate`, bot never
-    negotiates). `leadBrain.mjs` tool returns `intent` (precio/ubicacion/saludsa/seguros/adolescentes/duracion/
-    horarios/psiquiatra/pareja/pago/objecion_precio/saludo/libre) + literal few-shots + style rules; **temperature 0**.
-    Only `intent==='libre'` lets Claude author (from the fact sheet). Keyword fallback maps to the same CANNED
-    (`KW_TO_CANNED`) — no second paraphrased copy anywhere (the two copies are leadBrain few-shots [for the model]
-    and leadBot CANNED [what's sent]; **CANNED always wins**).
-  - **10-reason list** (`funnel_categorias` reseeded, `descripcion` column added, old 8 deactivated=recoverable):
-    hijo/ruptura/problemas_pareja/depresion_ansiedad/consumo/terapia_pareja/diagnostico/trauma/varios/otro.
-    Provisional routing (unchanged from spec). `especial`: `hijo` (kids line), `diagnostico`/`varios` (free-text
-    prompt → `matchFlow` → `matchTherapistsForText` in leadBrain picks ≤3 from the roster or derives on
-    audio/no-fit/eating-disorder/psychosis/bipolar/self-harm), `otro` (handoff). Reason 6 (terapia_pareja) = Carolina only.
-  - **Cards:** caption with the "Enfoque …" clause stripped (`captionSansEnfoque`) + bold `*Puedes agendar una
-    llamada gratuita para conocerl{o/a}*` + gendered button `Quiero conocerl{o/a}` (`therapists.genero`, M=Francisco).
-    Pick (`pick:`) → gendered call-explanation (`chooseTherapist`, + the kids line only when `categoria==='hijo'`)
-    + [Ver horarios] (`horarios:`) → `showSlots` → booking (unchanged).
-  - **Handoff window (`isNightGYE`, GYE=UTC-5):** 07:00–23:00 → NO bot text, just push + `bot_paused` (`handoff`
-    only sends a line at night). 23:00–07:00 → one line (bot-question vs general variant). URGENTE + ECU 911 ONLY
-    on explicit life-risk; ordinary emotional disclosure now derives as `motivo:"emocional"` = **silent daytime
-    handoff** (leadBrain rules 2/3 split urgent from emotional). Neutral nudges: "Seguimos aquí si tienes alguna otra pregunta".
-  - **20s delay + typing:** webhook 200s Meta immediately; for a lead's **text** it marks-read + shows the typing
-    indicator (`waSend.sendReadReceipt(msgId,{typing:true})`) and defers the reply to **`netlify/functions/
-    lead-reply-background.mjs`** (fixed 20s sleep → `runBot`), gated by an `x-lead-verify` header = `WA_CLOUD_VERIFY_TOKEN`.
-    Button **taps** run inline in the webhook (immediate). `isTap(msg)` exported from leadBot.
-  - **Fact sheet (`funnel_knowledge`) additions:** couples (Carolina 90min $50, pack 4×$42), package upfront,
-    Dr. Camino, Mon–Sat 8–20, 60min/7–15d, Saludsa/Ecuasanitas cubren por reembolso (según plan), Bupa tope anual
-    según plan, others→handoff, no home visits.
-  - **LIVE test 2026-09-27** (real phone `593968029896`): 4 questions → all classified correctly (precio/ubicacion/
-    saludsa/psiquiatra), `[canned:*]` fired, `used_fallback=false`, sonnet 2.5–4.5s. Timing verified: text ~25s
-    (20s + latency), tap instant. Typing indicator accepted by Dualhook (no fallback). Audit in Marketing → Embudo.
-  - **Known follow-ups (not blocking):** (1) felt delay ~25s not 20s because the sleep is BEFORE the Claude call —
-    classify-then-wait-remainder would tighten it. (2) Latent pre-existing bug: `recentInbound` selects a
-    non-existent `created_at` (table has `received_at`) → Claude gets no prior-message history; harmless for
-    single-question turns, worth a one-word fix for multi-turn context.
+- [x] **Lead funnel v2 (#27) — "answer first, then offer" + VERBATIM canned answers** (2026-09-27) —
+  **moved to `CHANGELOG.md`** on 2026-10-01. TL;DR: Message 1 removed; bare greeting → welcome + 10-reason list,
+  a question → Claude answers then the one-time invitation. Claude only CLASSIFIES an `intent`; code sends the
+  verbatim `CANNED` map in `leadBot.mjs` (`sendCanned`). `funnel_categorias` reseeded (10 reasons, `descripcion`
+  col); `funnel_knowledge` fact sheet; night/day handoff via `isNightGYE`; 20s delay + typing in
+  `lead-reply-background.mjs`. Commits `8574b58`/`115063f`/`80025d6`, migration `funnel_v2_schema`
+  (`supabase/lead-funnel-05-v2.sql`).
 - [x] **Lead bot #24 — three-tier free-text handling (Claude Sonnet + fact sheet + derive)** (2026-09-27,
   `fdf9f67`) — **moved to `CHANGELOG.md`** on 2026-10-01. TL;DR: T2 free text → `netlify/lib/leadBrain.mjs`
   `decideFreeText()` (Anthropic Messages API, `claude-sonnet-4-6`, raw fetch, forced tool-call); fact sheet in
@@ -308,6 +303,11 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ## Pending / Backlog
 
 ### Lead bot — surfaced 2026-09-26/27
+- [x] ~~Second "not a lead" bug: outbound-first senders + payment receipts greeted as leads~~ — **FIXED
+      2026-10-01** (Opus 4.8). Echoes now stored as `outbound` whatsapp_messages rows; `recordLead` skips when
+      we messaged first; images/PDFs bypass the funnel (→ comprobante flow #2); unknown-number receipt alert
+      reworded. Migration `whatsapp-messages-outbound-to-idx.sql`. See top of Completed Features. **Awaiting
+      Nicolás's two manual phone tests** (reset number 593968029896 is clean-slated).
 - [x] ~~Booking intents misclassified as `saludo` (repeated greetings, 8h silence)~~ — **FIXED 2026-10-01**
       (Opus 4.8). Deterministic named-therapist + `agendar` layer before the model; `saludo` tightened; greeting
       unified + sent once; dedup + 3 safety-net pushes to Nicolás. Migration `lead-funnel-07-greeting-dedup.sql`.

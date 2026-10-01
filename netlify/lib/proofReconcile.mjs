@@ -39,7 +39,7 @@ const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100
 // Nicolás (spec #2 additions: alert on mismatch / ambiguity / suspicion). Every
 // withhold reason maps to one — a held proof always means a human is needed.
 const MOTIVO = {
-  unmatched: 'remitente no identificado',
+  unmatched: 'comprobante de número desconocido',
   recipient_mismatch: 'el destinatario no es Mariana',
   no_unpaid_sessions: 'no hay sesiones pendientes que coincidan',
   amount_no_match: 'el monto no coincide con ninguna sesión',
@@ -109,9 +109,14 @@ const montoOf = (unpaid, id) => Number((unpaid.find((s) => s.id === id) || {}).m
 // credit = the patient's total open saldo a favor. Does NOT check reused-reference (DB, runner).
 export function decideAutoReconcile(proof, ex, unpaidSessions, ctx = {}) {
   if (proof.reconciled_at) return { action: 'skip', reason: 'already_reconciled' }
+  // Not a receipt at all (a random photo/screenshot) → skip SILENTLY, no alert.
+  // This is checked BEFORE the unmatched/extraction branches so a non-receipt image
+  // from an unknown number can't spam Nicolás with a "comprobante" alert (#2): only
+  // something that actually reads as a payment proof is worth flagging.
+  if (ex && ex.is_payment_proof === false) return { action: 'skip', reason: 'not_payment_proof' }
   if (!proof.patient_id) return { action: 'withhold', reason: 'unmatched' }
   if (proof.extraction_status !== 'ok') return { action: 'withhold', reason: `extraction_${proof.extraction_status || 'pending'}` }
-  if (!ex || ex.is_payment_proof === false) return { action: 'withhold', reason: 'not_payment_proof' }
+  if (!ex) return { action: 'withhold', reason: 'not_payment_proof' }
   if (ex.confidence === 'low') return { action: 'withhold', reason: 'low_confidence' }
   if (ex.recipient_name && !/mariana/i.test(ex.recipient_name)) return { action: 'withhold', reason: 'recipient_mismatch' }
   const amount = ex.amount
