@@ -135,7 +135,7 @@ async function fetchEligible(supabase, { ignoreFloor = false } = {}) {
       patient:patients!inner (
         id, nombre, apellido, tipo_paciente, nombre_2, apellido_2,
         cedula, contifico_id, diagnostico_codigo, diagnostico_texto,
-        facturacion_obligatoria,
+        facturacion_obligatoria, nombre_factura,
         payer:payers ( id, nombre, apellido, cedula, contifico_id,
                        razon_social, email, telefono )
       )
@@ -159,6 +159,10 @@ async function fetchEligible(supabase, { ignoreFloor = false } = {}) {
 // The patient's own display name (always names the PATIENT in the descripcion,
 // even when billing goes to a payer). For a menor the patient is the child.
 function patientDisplayName(p) {
+  // Owner-set override (patients.nombre_factura) wins. Used when two patients
+  // share a payer and must stay distinguishable — e.g. mother and daughter both
+  // billed to Dorian Solis: "Cecilia Saltos" vs "Valentina Loor" (Nicolás 2026-10-02).
+  if (p.nombre_factura && p.nombre_factura.trim()) return p.nombre_factura.trim()
   if (p.tipo_paciente === 'menor' && p.nombre_2) {
     // person 1 = tutor, person 2 = the minor (the actual patient).
     return `${p.nombre_2} ${p.apellido_2 || ''}`.trim()
@@ -268,6 +272,7 @@ function buildPayloadCore({ bill, precio, fecha, descripcion }) {
       cedula: key,
       razon_social: (bill.razon_social || bill.nombre || '').toUpperCase(),
       telefonos: bill.telefono || '',
+      // RULE (Nicolás 2026-10-02): every factura's dirección is Quito. Keep it.
       direccion: bill.direccion || 'Quito',
       email: bill.email || '',
       es_extranjero: false,
