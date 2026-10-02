@@ -99,6 +99,14 @@ spec #24 — DONE 2026-09-27 (Claude/Sonnet + fact sheet + derive; see top of Co
 answer flow is now only the fallback.** WhatsApp reply buttons are still single-use (grey out after one tap).
 
 ## Completed Features
+- [x] **First QualifiedLead / CAPI Meta campaign LAUNCHED** (2026-10-01, Opus 4.8) — *marketing ops, no repo code; built in Ads Manager via browser automation.* First campaign feeding the #22 CAPI.
+  - **Account correction (important):** the real Efimeramente ad account is **`2663225010700511`** ("Efimeramente 2da Cuenta"), business portfolio `1077659662089797`, dataset/pixel `1131866282506788`, WhatsApp `+593 96 845 9933`. The `2199122680304491` written in the ad brief is **WRONG/empty** (only a leftover Reach draft). Saved as memory `meta-ad-account.md`.
+  - **Campaign** `Efimeramente · Embudo v2 · QL · 2026-10-01` (id `120255397227890119`): objective **Clientes potenciales (Leads)**, Auction, **CBO off** (ad-set budgets), 20%-share off. Two A/B ad sets, **$10/day each ($20/day)**.
+    - Ad set A `120255397227900119` → ad A `120255397227910119`: video **Stutz-Inversión-Final.MOV**, copy on Stutz's *Inversión del Deseo*.
+    - Ad set B `120255397432140119` → ad B `120255397432130119`: video **Gottman-Madera-Final.mov**, copy on Gottman's *4 jinetes*. Shared headline "Herramientas desde la 1ª sesión", CTA Enviar mensaje de WhatsApp.
+  - Both ad sets: conversion location **WhatsApp**, goal **"Maximizar el número de clientes potenciales"** (messaging/CAPI leads optimization), bid Volumen más alto, saved audience **"Publico Septiembre 2026 - arreglado"** (cloned from `TimBurton-Claymation2`, the old Interacción campaign used as baseline) + edad 25–40.
+  - **Gotchas for next time:** (1) **QualifiedLead has NO explicit event picker on WhatsApp conversion location** — that selector only exists in the Website-conversion flow; the WhatsApp leads optimization is fed by the messaging CAPI + WhatsApp Business lead labels (Nicolás approved this as the path). (2) Selecting "Maximizar clientes potenciales" from the dropdown **reverts to "conversaciones"** — you must click **"Aplicar"** on Meta's recommendation card to make it stick. (3) **Manual placements are gone** — Meta forces Advantage+ placements (all); can't replicate a manual placement list anymore. (4) **Ad account timezone = "Hora de Colombo" (GMT+5:30), not Ecuador** — pre-existing misconfig (TimBurton too); shifts daily-budget resets + reporting day boundaries. (5) Videos are 9:16 → tagged "Sin optimizar" for feed (Meta crops). (6) Video upload: the 64–74 MB files exceed the browser-automation 10 MB cap AND Downloads isn't a shared folder — **Nicolás had to upload them manually** via the Subir button.
+  - **Published by Nicolás** (campaign live, spending). Next: watch for `QualifiedLead` events in Events Manager (dataset `1131866282506788`) once real ad-clicks book via the bot — this is the live test of the #22 backlog item.
 - [x] **Lead bot — second "not a lead" bug: outbound-first senders + payment receipts** (2026-10-01, Opus 4.8).
   Two senders were wrongly greeted as new leads (bot asked "¿motivo de consulta?"): (A) +593985506258 — Nicolás
   wrote him payment details by hand first, he replied with a transfer screenshot; (B) the general case where
@@ -280,18 +288,8 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   col); `funnel_knowledge` fact sheet; night/day handoff via `isNightGYE`; 20s delay + typing in
   `lead-reply-background.mjs`. Commits `8574b58`/`115063f`/`80025d6`, migration `funnel_v2_schema`
   (`supabase/lead-funnel-05-v2.sql`).
-- [x] **Lead bot #24 — three-tier free-text handling (Claude Sonnet + fact sheet + derive)** (2026-09-27,
-  `fdf9f67`) — **moved to `CHANGELOG.md`** on 2026-10-01. TL;DR: T2 free text → `netlify/lib/leadBrain.mjs`
-  `decideFreeText()` (Anthropic Messages API, `claude-sonnet-4-6`, raw fetch, forced tool-call); fact sheet in
-  `funnel_knowledge`; every call logged to `lead_ai_decisions`; keyword path is now the fallback. Env
-  `ANTHROPIC_API_KEY` (functions). Migration `lead-funnel-04-knowledge.sql`.
-- [x] **Lead bot: known-organic-contact guard + answer-before-asking (Day-1-live bug fixes)** (2026-09-26) —
-  **moved to `CHANGELOG.md`** on 2026-10-01. TL;DR: `hasEarlierInbound` guard in `recordLead` (organic known
-  contacts aren't leads); section B canned-answer classifier SUPERSEDED by #24/#27 funnel v2 (now the fallback).
-- [x] **#4 + #20 Lead funnel WhatsApp bot — 4 phases + LIVE for real leads** (2026-09-26) — **moved to
-  `CHANGELOG.md`** on 2026-10-01 (full live record still in the "✅ Lead funnel" section above). TL;DR: new
-  `netlify/lib/{leadBot,waSend,booking,leadTemplates}.mjs` + followups/templates fns + MarketingFunnel page;
-  migrations `lead_funnel_0{1,2,3}_*`; gotcha `25ba446` (es_lead in patient cache select).
+> **Lead funnel #24/#27/#4+#20 full records → `CHANGELOG.md`** (2026-10-01). Live operational record still in
+> the "✅ Lead funnel" section near the top of this file.
 - [x] **#19 saldo a favor (comprobante→lote, net-of-credit matching/reminders, 4-pack retired, comprobante
   warning, Sesiones search fix)** (2026-09-26/27) + **Payment reminders + Comprobante auto-mark** (2026-09-24/25)
   + **/facturar REST rewrite** (2026-09-23) — all **moved to `CHANGELOG.md`**. Key env flags:
@@ -318,13 +316,16 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [x] ~~#24 + #27 funnel v2~~ — DONE 2026-09-27 (`fdf9f67`/`8574b58`/`115063f`/`80025d6`); #30 history fix
       2026-09-27 (`9284328`). All in Completed Features.
 - [x] ~~#22 Meta Conversions API~~ — **SHIPPED & LIVE 2026-09-27** (`5d7c02c`). See Completed Features.
-- [ ] **#22 manual follow-ups (surfaced 2026-09-27, not blocking):**
-  - **Switch the campaign performance goal to `QualifiedLead`** in Ads Manager (needs `ads_management` — the
-    system-user token doesn't have it; do it in the UI). Spec: do this "once events are flowing", separate step.
-  - **Cheap real test still pending:** click a real ad → book an intro call → confirm `QualifiedLead` in Events
-    Manager (outside test mode). NOTE it needs the lead to reach `agendo` — i.e. booked **via the bot** (web
-    `/agendar` doesn't stamp the lead's `agendo_at`). So CAPI stays dormant for real leads until they flow
-    through the live bot. For his own phone set `CAPI_ALLOW_TEST_PHONE=true` first (else the test phone is excluded).
+- [ ] **#22 manual follow-ups (surfaced 2026-09-27; campaign now LIVE 2026-10-01):**
+  - [x] ~~**Set the campaign performance goal for leads** in Ads Manager~~ — **DONE 2026-10-01** via the new
+    `Embudo v2 · QL` campaign (see top of Completed Features). NOTE: on WhatsApp conversion location there is **no
+    explicit `QualifiedLead` event picker** — it uses "Maximizar el número de clientes potenciales" (messaging/CAPI).
+  - **Cheap real test STILL pending (now in motion):** the `Embudo v2 · QL` campaign is live, so real ad-clicks
+    will start flowing. Confirm `QualifiedLead` fires in Events Manager (dataset `1131866282506788`) once a lead
+    **books via the bot** (web `/agendar` doesn't stamp `agendo_at`, so CAPI stays dormant until leads flow through
+    the live bot). For his own phone set `CAPI_ALLOW_TEST_PHONE=true` first (else the test phone is excluded).
+  - **Fix ad account timezone?** `2663225010700511` is on "Hora de Colombo" (GMT+5:30), not Ecuador — skews daily
+    budget resets + reporting. Changing it after spend is disruptive (resets learning); decide whether it's worth it.
 - [x] ~~Get real phone numbers for the 4 therapists still `telefono IS NULL`~~ — **DONE** (#26, 2026-09-27):
       Camila, Daniela, Ma. Gracia, Sophia numbers saved in `therapists.telefono`. All 7 now have a number.
 - [ ] **#27 follow-ups (surfaced 2026-09-27, none blocking):**
