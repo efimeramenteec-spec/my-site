@@ -228,7 +228,7 @@ no perder su historial de gasto en la tabla de campañas.
 | `src/pages/Marketing.jsx` | La página `/marketing` |
 | `src/lib/queries.js` § Marketing v2 | Lecturas/escrituras Supabase de la página |
 | `supabase/marketing-v2.sql` | Schema: `campaigns` + `campaign_weeks` (espejo de la migración) |
-| `~/.claude/commands/marketize.md` | El comando `/marketize` |
+| `.claude/commands/marketize.md` | El comando `/marketize` (en el repo → funciona también en sesiones cloud) |
 
 **Schema:** `campaigns` (nombre único = nombre exacto en Meta, ventana de atribución) y
 `campaign_weeks` (una fila por campaña por semana de reporte; upsert por

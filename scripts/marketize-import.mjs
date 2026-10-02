@@ -35,13 +35,17 @@ if (!csvPath) {
   process.exit(1)
 }
 
-const env = {}
-for (const line of readFileSync(resolve(ROOT, '.env'), 'utf8').split('\n')) {
-  const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.+?)\s*$/)
-  if (m) env[m[1]] = m[2]
-}
+// Secrets: process env first (cloud sessions set them in the environment
+// settings), then the local .env (terminal on the Mac). Either is enough.
+const env = { ...process.env }
+try {
+  for (const line of readFileSync(resolve(ROOT, '.env'), 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.+?)\s*$/)
+    if (m && !env[m[1]]) env[m[1]] = m[2]
+  }
+} catch { /* no .env (cloud session) — rely on process env */ }
 if (!env.VITE_SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) {
-  console.error('Faltan VITE_SUPABASE_URL / SUPABASE_SERVICE_KEY en .env')
+  console.error('Faltan VITE_SUPABASE_URL / SUPABASE_SERVICE_KEY (en .env o en las variables del entorno)')
   process.exit(1)
 }
 const supabase = createClient(env.VITE_SUPABASE_URL, env.SUPABASE_SERVICE_KEY)
