@@ -99,6 +99,24 @@ spec #24 — DONE 2026-09-27 (Claude/Sonnet + fact sheet + derive; see top of Co
 answer flow is now only the fallback.** WhatsApp reply buttons are still single-use (grey out after one tap).
 
 ## Completed Features
+
+### 2026-10-02 — /facturar go-live (cloud session)
+- **First real run:** 5 facturas emitted + SRI-authorized (293 pending, see backlog) — 293 Laura Vásquez,
+  294 Dorian Solis (Valentina Loor), 295 Germania Domínguez (Micaela Castro), 296 Laura Vásquez
+  (Raguel Conforme), 297 Gabriela Páliz (Thomas Quevedo). All marked `facturada`.
+- **SRI date rule:** `fecha_emision` is ALWAYS today (America/Guayaquil) — `todayEcuador()` in
+  `facturar.mjs`. The SRI rejects any other date (cod_error 1017). Session date stays in Observaciones.
+- **Dirección rule:** every factura's dirección is Quito (default kept on purpose, per Nicolás).
+- **`patients.nombre_factura`** (migration `supabase/patient-nombre-factura.sql`): optional override for the
+  name in Observaciones. Set for Cecilia Saltos (mother, "Cecilia Saltos") and her daughter's record
+  ("Valentina Loor") — both `facturacion_obligatoria`, both billed to new payer **Dorian Solis**
+  (cédula 1717217796).
+- **Guard token rotated:** `CONTIFICO_FACTURAR_TOKEN` (Netlify, production, secret) replaced 2026-10-02 —
+  the old value was unreadable. Not a Contífico credential; Contífico keys untouched (Nicolás: never rotate them).
+- **`/marketize`** moved into the repo (`.claude/commands/marketize.md`); importer reads secrets from env
+  too, so it runs in cloud sessions.
+- **Netlify env hygiene:** plaintext `dev`-context copies of SUPABASE_SERVICE_KEY + 4 Twilio vars blanked.
+  Still non-secret: VAPID_PRIVATE_KEY, LEAD_TOOLS_TOKEN, WA_CLOUD_VERIFY_TOKEN (connector can't flip them).
 - [x] **First QualifiedLead / CAPI Meta campaign LAUNCHED** (2026-10-01, Opus 4.8) — *marketing ops, no repo code; built in Ads Manager via browser automation.* First campaign feeding the #22 CAPI.
   - **Account correction (important):** the real Efimeramente ad account is **`2663225010700511`** ("Efimeramente 2da Cuenta"), business portfolio `1077659662089797`, dataset/pixel `1131866282506788`, WhatsApp `+593 96 845 9933`. The `2199122680304491` written in the ad brief is **WRONG/empty** (only a leftover Reach draft). Saved as memory `meta-ad-account.md`.
   - **Campaign** `Efimeramente · Embudo v2 · QL · 2026-10-01` (id `120255397227890119`): objective **Clientes potenciales (Leads)**, Auction, **CBO off** (ad-set budgets), 20%-share off. Two A/B ad sets, **$10/day each ($20/day)**.
@@ -299,6 +317,16 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 > It is deliberately not loaded into session context. Read it on demand.
 
 ## Pending / Backlog
+
+### 🔴 Contífico cleanup — surfaced 2026-10-02 (first real /facturar run)
+- [ ] **Delete the orphan draft FAC 001-001-000000292** in Contífico (id `y7aA5E2lMiP1YagZ`, Laura
+      Vásquez, $36, fecha 25/09/2026, estado P, NEVER authorized). Created by the first emit attempt,
+      which the SRI rejected (cod 1017 — fecha must be today). The session was re-invoiced correctly
+      as **293**. The function has no delete mode; remove it by hand in Contífico (or add a guarded
+      `DELETE /documento/<id>/` mode). Leaves a gap at 292 — fine, it was never sent to the SRI.
+- [ ] **Confirm 293 got SRI authorization** (Laura Vásquez, 25 Sep session): signed but still
+      `autorizacion:null` minutes after emission, unlike 294–297. Check
+      `mode=recon&resource=documento&id=KBe18knZMi0ERdXy`; if stuck, authorize it from the Contífico web UI.
 
 ### Lead bot — surfaced 2026-09-26/27
 - [x] ~~Second "not a lead" bug: outbound-first senders + payment receipts greeted as leads~~ — **FIXED
