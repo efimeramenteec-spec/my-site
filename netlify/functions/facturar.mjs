@@ -446,7 +446,11 @@ function rideRecipient(s) {
   const patientPhone = normalizePhone(p.telefono)
   const viaPayer = !!payerPhone
   const to = payerPhone || patientPhone
-  const nombre = firstWord(viaPayer ? p.payer.nombre : p.nombre)
+  // Greeting name: the payer's, else the patient record's person 1 — taken from
+  // nombre_factura when set on a non-menor (it's the clean spelling, e.g. "Cecilia"
+  // where the record says "Cecília").
+  const nombre = firstWord(viaPayer ? p.payer.nombre
+    : (p.tipo_paciente !== 'menor' && p.nombre_factura ? p.nombre_factura : p.nombre))
   const paciente = firstWord(patientDisplayName(p))
   const fecha = fechaTexto(s.fecha).toLowerCase()
   const detalle = plain(nombre) === plain(paciente)
