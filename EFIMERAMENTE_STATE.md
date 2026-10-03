@@ -113,6 +113,16 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   (cédula 1717217796).
 - **Guard token rotated:** `CONTIFICO_FACTURAR_TOKEN` (Netlify, production, secret) replaced 2026-10-02 —
   the old value was unreadable. Not a Contífico credential; Contífico keys untouched (Nicolás: never rotate them).
+- **WhatsApp the factura PDF (RIDE)** — `netlify/lib/facturaWhatsapp.mjs` + facturar modes `ride-template`,
+  `ride-template-status`, `send-rides` (plan by default; `&confirm=SEND-RIDES` sends; `&session_id=` for one).
+  Template **`factura_sesion_link`** (Meta id 1097153113160012, UTILITY): "Hola {{1}} 🌿 Te enviamos la factura
+  de {{2}}…" + **"Descargar factura"** URL button → the RIDE. The attached-PDF variant (`factura_sesion`)
+  is impossible via Dualhook (it 404s Meta's upload API). Recipient = **payer's phone, else patient's**
+  (Dorian Solis has none → Cecilia Saltos, by Nicolás's choice). New columns `sessions.contifico_doc_id`
+  (stamped on emit, backfilled for 293–297) + `factura_enviada_at` (no double sends) —
+  `supabase/sessions-factura-whatsapp.sql`. Template example is a generated placeholder PDF/fake URL —
+  never a real RIDE (diagnoses). **Next:** once APPROVED, test-send to Laura only (session 57b505f7 = FAC 296),
+  then the rest; then wire send-rides into `/facturar` step 5.
 - **`/marketize`** moved into the repo (`.claude/commands/marketize.md`); importer reads secrets from env
   too, so it runs in cloud sessions.
 - **Netlify env hygiene:** plaintext `dev`-context copies of SUPABASE_SERVICE_KEY + 4 Twilio vars blanked.
