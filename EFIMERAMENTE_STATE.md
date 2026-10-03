@@ -331,12 +331,18 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ## Pending / Backlog
 
 ### 🔴 Contífico cleanup — surfaced 2026-10-02 (first real /facturar run)
+- [ ] **FAC 298–302 stuck "not SRI-authorized"** (emitted 2026-10-03, signed, no error): 298/299 Valentina
+      5 & 15 Sep + 300 Cecilia 17 Sep (→ Dorian/Cecilia), 301 Emilie + 302 Raguel 18 Sep (→ Laura). Still
+      unauthorized 4h later (293 also took many hours). Authorize from Contífico web; then `send-rides`
+      (step 6) sends them — they're back-invoices, so use `&session_id=` per session (the floor hides them
+      from the plain plan). Emilie/Raguel sessions moved 19→18 Sep per Laura/Nicolás. Raguel 12 Sep
+      (paid, not invoiced) deliberately skipped for now.
 - [ ] **Delete the orphan draft FAC 001-001-000000292** in Contífico (id `y7aA5E2lMiP1YagZ`, Laura
       Vásquez, $36, fecha 25/09/2026, estado P, NEVER authorized). Created by the first emit attempt,
       which the SRI rejected (cod 1017 — fecha must be today). The session was re-invoiced correctly
       as **293**. The function has no delete mode; remove it by hand in Contífico (or add a guarded
       `DELETE /documento/<id>/` mode). Leaves a gap at 292 — fine, it was never sent to the SRI.
-- [ ] **Confirm 293 got SRI authorization** (Laura Vásquez, 25 Sep session): signed but still
+- [x] **Confirm 293 got SRI authorization** — authorized 2026-10-03 (took hours) and WhatsApp'd to Laura. (Laura Vásquez, 25 Sep session): signed but still
       `autorizacion:null` minutes after emission, unlike 294–297. Check
       `mode=recon&resource=documento&id=KBe18knZMi0ERdXy`; if stuck, authorize it from the Contífico web UI.
 
