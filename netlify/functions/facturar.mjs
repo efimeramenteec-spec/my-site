@@ -82,6 +82,14 @@ function fechaTexto(fechaStr) {
 }
 
 // 'YYYY-MM-DD' → 'DD/MM/YYYY' (Contífico fecha_emision format).
+// Today in Ecuador as 'YYYY-MM-DD'. The SRI only accepts electronic invoices whose
+// fecha_emision is the CURRENT day (cod_error 1017 otherwise), so every factura is
+// emitted with today's date; the session date stays in the Observaciones
+// ("… | Sesión 25 de Septiembre"). Rule set by Nicolás 2026-10-02.
+function todayEcuador() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(new Date())
+}
+
 function fechaDMY(fechaStr) {
   const [y, m, d] = String(fechaStr || '').split('-')
   if (!y || !m || !d) return String(fechaStr || '')
@@ -257,7 +265,8 @@ function buildPayloadCore({ bill, precio, fecha, descripcion }) {
     // for electronic docs Contífico auto-assigns the sequential from the POS's
     // establecimiento/punto de emisión, and the SRI clave is filled by PUT /sri/.
     pos: POS_TOKEN,
-    fecha_emision: fechaDMY(fecha),
+    // Always TODAY (SRI rule) — `fecha` (session date) is only used in descripcion.
+    fecha_emision: fechaDMY(todayEcuador()),
     tipo_documento: 'FAC',
     // electronico:true tells Contífico to generate the SRI clave de acceso itself
     // (via PUT /sri/). WITHOUT it, Contífico treats the doc as a recorded paper
