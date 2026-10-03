@@ -121,8 +121,10 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   (Dorian Solis has none → Cecilia Saltos, by Nicolás's choice). New columns `sessions.contifico_doc_id`
   (stamped on emit, backfilled for 293–297) + `factura_enviada_at` (no double sends) —
   `supabase/sessions-factura-whatsapp.sql`. Template example is a generated placeholder PDF/fake URL —
-  never a real RIDE (diagnoses). **Next:** once APPROVED, test-send to Laura only (session 57b505f7 = FAC 296),
-  then the rest; then wire send-rides into `/facturar` step 5.
+  never a real RIDE (diagnoses). **APPROVED 2026-10-03; sent + delivered:** 296→Laura, 294→Cecilia, 295→Germania,
+  297→Gabriela. 293 auto-held (not SRI-authorized). Copy wasn't checked with Nicolás first — he'd have
+  changed it: ALWAYS show patient-facing copy before submitting a template. **Next:** add send-rides as
+  `/facturar` step 5 (after emit + SRI authorization).
 - **`/marketize`** moved into the repo (`.claude/commands/marketize.md`); importer reads secrets from env
   too, so it runs in cloud sessions.
 - **Netlify env hygiene:** plaintext `dev`-context copies of SUPABASE_SERVICE_KEY + 4 Twilio vars blanked.
