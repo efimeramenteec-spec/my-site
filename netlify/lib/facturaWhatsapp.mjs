@@ -130,7 +130,7 @@ export async function submitFacturaTemplate(variant, sampleRideUrl) {
 
 // Current Meta status of both variants.
 export async function facturaTemplateStatus() {
-  const res = await fetch(`${TEMPLATES_URL}?fields=name,status,category,rejected_reason&limit=200`, {
+  const res = await fetch(`${TEMPLATES_URL}?fields=name,status,category,rejected_reason&limit=100`, {
     headers: { Authorization: `Bearer ${apiKey()}` },
   })
   const j = await readJson(res)
