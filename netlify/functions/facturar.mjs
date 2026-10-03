@@ -414,8 +414,8 @@ async function emitOne(supabase, item) {
 
 // ── WhatsApp delivery of the RIDE (factura PDF) ─────────────────────────────
 // Invoiced sessions whose PDF hasn't been WhatsApp'd yet (floor-bounded).
-async function fetchUnsentRides(supabase) {
-  const { data, error } = await supabase
+async function fetchUnsentRides(supabase, { ignoreFloor = false } = {}) {
+  let query = supabase
     .from('sessions')
     .select(`
       id, fecha, monto, contifico_doc_id, factura_enviada_at,
@@ -427,8 +427,9 @@ async function fetchUnsentRides(supabase) {
     .eq('facturada', true)
     .not('contifico_doc_id', 'is', null)
     .is('factura_enviada_at', null)
-    .gte('fecha', FACTURAR_SINCE)
     .order('fecha', { ascending: true })
+  if (!ignoreFloor) query = query.gte('fecha', FACTURAR_SINCE)
+  const { data, error } = await query
   if (error) throw new Error('supabase unsent-rides query failed: ' + error.message)
   return data || []
 }
@@ -456,7 +457,8 @@ function rideRecipient(s) {
 }
 
 async function ridePlan(supabase, onlyId) {
-  let rows = await fetchUnsentRides(supabase)
+  // A named session may predate the floor (an explicitly back-invoiced one).
+  let rows = await fetchUnsentRides(supabase, { ignoreFloor: !!onlyId })
   if (onlyId) rows = rows.filter((r) => r.id === onlyId)
   const plan = []
   for (const s of rows) {
@@ -614,7 +616,11 @@ export default async (req) => {
       }
       const sessionId = url.searchParams.get('session_id')
       if (!sessionId) return json({ error: 'emit-one requires ?session_id=<uuid>' }, 400)
-      const sessions = await fetchEligible(supabase)
+      // &before_floor=1 — invoice ONE named session dated before FACTURAR_SINCE (a missed
+      // one Nicolás asks for explicitly, e.g. 2026-10-03 backlog for Laura/Cecilia). Only
+      // emit-one honors it; batch always keeps the floor, so the backlog is never swept.
+      const beforeFloor = url.searchParams.get('before_floor') === '1'
+      const sessions = await fetchEligible(supabase, { ignoreFloor: beforeFloor })
       const items = assemble(sessions)
       const item = items.find((i) => i.session_id === sessionId)
       if (!item) return json({ error: 'session not found among current eligible set', session_id: sessionId }, 404)
