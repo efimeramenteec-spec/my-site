@@ -461,8 +461,9 @@ function rideRecipient(s) {
 }
 
 async function ridePlan(supabase, onlyId) {
-  // A named session may predate the floor (an explicitly back-invoiced one).
-  let rows = await fetchUnsentRides(supabase, { ignoreFloor: !!onlyId })
+  // No date floor for SENDING: contifico_doc_id is only ever set by this function's
+  // own emissions, so explicitly back-invoiced sessions (pre-floor) are included.
+  let rows = await fetchUnsentRides(supabase, { ignoreFloor: true })
   if (onlyId) rows = rows.filter((r) => r.id === onlyId)
   const plan = []
   for (const s of rows) {

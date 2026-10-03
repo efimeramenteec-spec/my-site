@@ -333,9 +333,8 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ### 🔴 Contífico cleanup — surfaced 2026-10-02 (first real /facturar run)
 - [ ] **FAC 298–302 stuck "not SRI-authorized"** (emitted 2026-10-03, signed, no error): 298/299 Valentina
       5 & 15 Sep + 300 Cecilia 17 Sep (→ Dorian/Cecilia), 301 Emilie + 302 Raguel 18 Sep (→ Laura). Still
-      unauthorized 4h later (293 also took many hours). Authorize from Contífico web; then `send-rides`
-      (step 6) sends them — they're back-invoices, so use `&session_id=` per session (the floor hides them
-      from the plain plan). Emilie/Raguel sessions moved 19→18 Sep per Laura/Nicolás. Raguel 12 Sep
+      unauthorized 4h later (293 also took many hours). Authorize from Contífico web; the next `/facturar`
+      step 6 (`send-rides`) picks them up automatically (sending has no date floor). Emilie/Raguel sessions moved 19→18 Sep per Laura/Nicolás. Raguel 12 Sep
       (paid, not invoiced) deliberately skipped for now.
 - [ ] **Delete the orphan draft FAC 001-001-000000292** in Contífico (id `y7aA5E2lMiP1YagZ`, Laura
       Vásquez, $36, fecha 25/09/2026, estado P, NEVER authorized). Created by the first emit attempt,
