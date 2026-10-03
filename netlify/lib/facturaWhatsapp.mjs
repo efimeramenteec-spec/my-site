@@ -44,12 +44,33 @@ async function readJson(res) {
   try { return JSON.parse(txt) } catch { return { raw: txt.slice(0, 500) } }
 }
 
-// Resumable Upload API: upload a sample PDF to Meta → header_handle for the
+// A one-page placeholder PDF ("Factura de ejemplo") used as the template's review
+// sample. NEVER upload a real RIDE here: it carries patient names and CIE diagnoses,
+// and Meta's reviewers would see it.
+function samplePdf() {
+  const objs = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    null, // content stream, filled below
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ]
+  const text = 'BT /F1 24 Tf 72 760 Td (Factura de ejemplo - Efimeramente) Tj ET'
+  objs[3] = `<< /Length ${text.length} >>\nstream\n${text}\nendstream`
+  let out = '%PDF-1.4\n'
+  const offsets = []
+  objs.forEach((o, i) => { offsets.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n` })
+  const xref = out.length
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`
+  for (const off of offsets) out += `${String(off).padStart(10, '0')} 00000 n \n`
+  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  return Buffer.from(out, 'latin1')
+}
+
+// Resumable Upload API: upload the placeholder PDF to Meta → header_handle for the
 // DOCUMENT-header template example. Returns { ok, handle | error, step }.
-async function uploadSampleHandle(sampleUrl) {
-  const pdf = await fetch(sampleUrl)
-  if (!pdf.ok) return { ok: false, step: 'fetch-sample', error: `sample RIDE ${pdf.status}` }
-  const bytes = Buffer.from(await pdf.arrayBuffer())
+async function uploadSampleHandle() {
+  const bytes = samplePdf()
   const auth = { Authorization: `Bearer ${apiKey()}` }
   const start = await fetch(
     `${DUALHOOK_BASE}/app/uploads?file_name=factura.pdf&file_length=${bytes.length}&file_type=application/pdf`,
@@ -73,9 +94,9 @@ async function createTemplate(body) {
   return { status: res.status, body: await readJson(res) }
 }
 
-// Submit a template variant for Meta review. `sampleRideUrl` = a real RIDE url
-// (the DOCUMENT variant uploads it as the example; the LINK variant derives its
-// fixed URL prefix from it).
+// Submit a template variant for Meta review. `sampleRideUrl` = a real RIDE url,
+// used ONLY to derive the LINK variant's fixed URL prefix (its example is a fake
+// suffix; the DOCUMENT variant's example is the placeholder PDF).
 export async function submitFacturaTemplate(variant, sampleRideUrl) {
   if (variant === 'link') {
     const m = String(sampleRideUrl).match(/^(https:\/\/[^/]+\/sistema\/registro\/documento\/ride\/)(.+)$/)
@@ -85,13 +106,13 @@ export async function submitFacturaTemplate(variant, sampleRideUrl) {
       components: [
         { type: 'BODY', text: BODY_TEXT, example: { body_text: BODY_EXAMPLE } },
         { type: 'BUTTONS', buttons: [
-          { type: 'URL', text: 'Descargar factura', url: `${m[1]}{{1}}`, example: [sampleRideUrl] },
+          { type: 'URL', text: 'Descargar factura', url: `${m[1]}{{1}}`, example: [`${m[1]}EJEMPLO.pdf`] },
         ] },
       ],
     })
     return { ok: r.status < 300, variant, name: LINK_TEMPLATE, ...r }
   }
-  const up = await uploadSampleHandle(sampleRideUrl)
+  const up = await uploadSampleHandle()
   if (!up.ok) return { ok: false, variant: 'document', ...up,
     hint: 'Dualhook may not proxy the upload API — submit variant=link instead' }
   const r = await createTemplate({
