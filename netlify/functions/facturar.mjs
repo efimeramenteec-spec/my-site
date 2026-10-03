@@ -30,8 +30,16 @@
 //              Zero Contífico calls. Flags every data gap; emits nothing.
 //   emit-one — ?session_id=<uuid>&confirm=EMIT-ONE — emit exactly one invoice.
 //   batch    — ?confirm=EMIT-BATCH — emit every ready-and-eligible session.
+//   ride-template        — ?variant=document|link&confirm=SUBMIT-TEMPLATE — submit the
+//                          WhatsApp factura template for Meta review (lib/facturaWhatsapp.mjs).
+//   ride-template-status — Meta review status of the factura templates.
+//   send-rides           — WhatsApp each invoiced session's PDF (RIDE) to the billing
+//                          party. Plan-only by default; ?confirm=SEND-RIDES sends
+//                          (optionally ?session_id=<uuid> for just one). Stamps
+//                          sessions.factura_enviada_at so nobody gets one twice.
 
-import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
+import { getSupabaseAdmin, normalizePhone } from '../lib/whatsapp.mjs'
+import { submitFacturaTemplate, facturaTemplateStatus, sendFactura } from '../lib/facturaWhatsapp.mjs'
 
 // Guard token lives ONLY in the Netlify env (CONTIFICO_FACTURAR_TOKEN, secret,
 // production/functions) — NOT in git. This function is permanent and emits legal
@@ -391,7 +399,7 @@ async function emitOne(supabase, item) {
   // 3) Mark facturada IMMEDIATELY. An emitted-but-unmarked invoice risks a
   //    duplicate next run — treat any failure here as CRITICAL and shout it.
   const { error: markErr } = await supabase
-    .from('sessions').update({ facturada: true }).eq('id', item.session_id)
+    .from('sessions').update({ facturada: true, contifico_doc_id: em.contifico_id }).eq('id', item.session_id)
   if (markErr) {
     return { session_id: item.session_id, emitted: true, contifico_id: em.contifico_id,
       marked_facturada: false,
@@ -401,6 +409,73 @@ async function emitOne(supabase, item) {
 
   return { session_id: item.session_id, emitted: true, contifico_id: em.contifico_id,
     marked_facturada: true, urls: em.urls }
+}
+
+
+// ── WhatsApp delivery of the RIDE (factura PDF) ─────────────────────────────
+// Invoiced sessions whose PDF hasn't been WhatsApp'd yet (floor-bounded).
+async function fetchUnsentRides(supabase) {
+  const { data, error } = await supabase
+    .from('sessions')
+    .select(`
+      id, fecha, monto, contifico_doc_id, factura_enviada_at,
+      patient:patients!inner (
+        id, nombre, apellido, tipo_paciente, nombre_2, apellido_2, nombre_factura, telefono,
+        payer:payers ( id, nombre, apellido, telefono )
+      )
+    `)
+    .eq('facturada', true)
+    .not('contifico_doc_id', 'is', null)
+    .is('factura_enviada_at', null)
+    .gte('fecha', FACTURAR_SINCE)
+    .order('fecha', { ascending: true })
+  if (error) throw new Error('supabase unsent-rides query failed: ' + error.message)
+  return data || []
+}
+
+const firstWord = (v) => String(v || '').trim().split(/\s+/)[0] || ''
+const plain = (v) => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+// Recipient = payer (if it has a phone), else the patient record's phone.
+// detalle = "tu sesión del 25 de septiembre" when the recipient IS the patient,
+// else "la sesión de {Paciente} del …" (e.g. Laura receiving Raguel's invoice).
+function rideRecipient(s) {
+  const p = s.patient
+  const payerPhone = normalizePhone(p.payer?.telefono)
+  const patientPhone = normalizePhone(p.telefono)
+  const viaPayer = !!payerPhone
+  const to = payerPhone || patientPhone
+  const nombre = firstWord(viaPayer ? p.payer.nombre : p.nombre)
+  const paciente = firstWord(patientDisplayName(p))
+  const fecha = fechaTexto(s.fecha).toLowerCase()
+  const detalle = plain(nombre) === plain(paciente)
+    ? `tu sesión del ${fecha}`
+    : `la sesión de ${paciente} del ${fecha}`
+  return { to, nombre, detalle, via: viaPayer ? 'payer' : 'patient',
+    to_last4: to ? to.slice(-4) : null }
+}
+
+async function ridePlan(supabase, onlyId) {
+  let rows = await fetchUnsentRides(supabase)
+  if (onlyId) rows = rows.filter((r) => r.id === onlyId)
+  const plan = []
+  for (const s of rows) {
+    const r = rideRecipient(s)
+    const d = await cfGet(`/documento/${encodeURIComponent(s.contifico_doc_id)}/`)
+    const doc = d.ok ? d.body : null
+    const blocking = []
+    if (!d.ok) blocking.push(`contifico lookup ${d.status}`)
+    if (doc && !doc.autorizacion) blocking.push('not yet SRI-authorized')
+    if (doc && !doc.url_ride) blocking.push('no RIDE url')
+    if (!r.to) blocking.push('no phone on payer or patient')
+    plan.push({
+      session_id: s.id, fecha: s.fecha, patient: patientDisplayName(s.patient),
+      documento: doc?.documento || null, ride: doc?.url_ride || null,
+      recipient: { nombre: r.nombre, via: r.via, to_last4: r.to_last4 }, detalle: r.detalle,
+      _to: r.to, ready: blocking.length === 0, blocking,
+    })
+  }
+  return plan
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -569,6 +644,56 @@ export default async (req) => {
         blocked: blocked.map((i) => ({ session_id: i.session_id, patient: i.patient, blocking: i.blocking })),
         results,
       })
+    }
+
+    // ── WhatsApp factura template: submit + status ───────────────────────────
+    if (mode === 'ride-template') {
+      if (url.searchParams.get('confirm') !== 'SUBMIT-TEMPLATE') {
+        return json({ error: 'refused: ride-template requires ?confirm=SUBMIT-TEMPLATE' }, 400)
+      }
+      const variant = url.searchParams.get('variant') === 'link' ? 'link' : 'document'
+      const { data: last } = await supabase.from('sessions').select('contifico_doc_id')
+        .not('contifico_doc_id', 'is', null).order('fecha', { ascending: false }).limit(1)
+      const docId = last?.[0]?.contifico_doc_id
+      if (!docId) return json({ error: 'no emitted invoice to use as the sample PDF' }, 400)
+      const d = await cfGet(`/documento/${encodeURIComponent(docId)}/`)
+      if (!d.ok || !d.body?.url_ride) return json({ error: 'sample RIDE not available', status: d.status }, 502)
+      return json({ mode, ...(await submitFacturaTemplate(variant, d.body.url_ride)) })
+    }
+    if (mode === 'ride-template-status') {
+      return json({ mode, ...(await facturaTemplateStatus()) })
+    }
+
+    // ── send-rides: WhatsApp each factura PDF to its billing party ───────────
+    if (mode === 'send-rides') {
+      const onlyId = url.searchParams.get('session_id') || null
+      const plan = await ridePlan(supabase, onlyId)
+      const strip = ({ _to, ...rest }) => rest
+      if (url.searchParams.get('confirm') !== 'SEND-RIDES') {
+        return json({ mode, sent: 0, note: 'plan only — add ?confirm=SEND-RIDES to send',
+          totals: { pending: plan.length, ready: plan.filter((i) => i.ready).length },
+          plan: plan.map(strip) })
+      }
+      const results = []
+      for (const item of plan.filter((i) => i.ready)) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const wamid = await sendFactura(item._to, {
+            nombre: item.recipient.nombre, detalle: item.detalle, rideUrl: item.ride,
+            filename: `Factura ${item.documento}.pdf`,
+          })
+          // eslint-disable-next-line no-await-in-loop
+          const { error: e } = await supabase.from('sessions')
+            .update({ factura_enviada_at: new Date().toISOString() }).eq('id', item.session_id)
+          results.push({ session_id: item.session_id, documento: item.documento, sent: true, wamid,
+            stamped: !e, ...(e ? { error: 'SENT but factura_enviada_at stamp FAILED — stamp by hand: ' + e.message } : {}) })
+        } catch (err) {
+          results.push({ session_id: item.session_id, documento: item.documento, sent: false, error: String(err.message || err) })
+        }
+      }
+      return json({ mode, totals: { pending: plan.length, sent: results.filter((r) => r.sent).length,
+        failed: results.filter((r) => !r.sent).length, skipped: plan.filter((i) => !i.ready).length },
+        skipped: plan.filter((i) => !i.ready).map(strip), results })
     }
 
     return json({ error: 'unknown mode', mode }, 400)
