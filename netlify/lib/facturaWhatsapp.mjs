@@ -11,7 +11,10 @@
 //                          (Resumable Upload API → header_handle).
 //   factura_sesion_link  — fallback if that upload isn't possible through Dualhook:
 //                          a "Descargar factura" URL button that opens the RIDE.
-// FACTURA_WA_TEMPLATE (env) picks the variant to send; default `factura_sesion`.
+// FACTURA_WA_TEMPLATE (env) picks the variant to send; default `factura_sesion_link`.
+// 2026-10-02: Dualhook 404s the upload API (/app/uploads), so the DOCUMENT variant
+// can't be submitted through it. factura_sesion_link (Meta id 1097153113160012) is
+// the one in use.
 //
 // Recipient rule (Nicolás 2026-10-02): the PAYER gets it; if the payer has no phone,
 // the patient's phone (e.g. Dorian Solis → Cecilia Saltos). Resolved in facturar.mjs.
@@ -137,7 +140,7 @@ export async function facturaTemplateStatus() {
 
 // Send the factura to one recipient. Returns the wamid. Throws on failure.
 export async function sendFactura(toE164, { nombre, detalle, rideUrl, filename }) {
-  const template = process.env.FACTURA_WA_TEMPLATE || DOC_TEMPLATE
+  const template = process.env.FACTURA_WA_TEMPLATE || LINK_TEMPLATE
   const text = (v) => ({ type: 'text', text: String(v || '').trim() || '—' })
   const components = [{ type: 'body', parameters: [text(nombre), text(detalle)] }]
   if (template === LINK_TEMPLATE) {
