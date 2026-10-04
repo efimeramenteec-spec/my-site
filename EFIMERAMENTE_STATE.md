@@ -100,6 +100,35 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-04 — #37 bot copy/flow polish + #40 new CAPI LeadSubmitted signal (executor, 80615a7 + cb967de)
+- **Style rule (hard):** no emojis, no opening ¡ ¿ in patient-facing bot text; the bot speaks as "Nico".
+  Enforced by `cleanBotText()` in `netlify/lib/waSend.mjs` on EVERY session send (text, button/list/card
+  body/header/titles; ids untouched). waSend's send fns are imported ONLY by `leadBot.mjs` → templates /
+  payment reminders / invoices never pass through it. Source strings + leadBrain SYSTEM_RULES cleaned too.
+- **First question everywhere** = `showQuien()` (leadBot): "Hola, hablas con Nico. Cuéntame, para quién buscas
+  empezar terapia?" [Para mí][Mi pareja y yo][Mi hijo/a] (`quien:yo|pareja|hijo`; "Hola…" only if !saludo_enviado).
+  Replaces welcomeAndReasons/showReasonList-as-first on all paths (bare greeting, prefill, isAgendarText, intent
+  agendar, unresolved terapeuta, invitation Sí w/o categoria, renderStep). New `leads.quien` column records the tap.
+- **Deterministic prefills** (`prefillKind()`, no model): "Me gustaría empezar terapia con ustedes" → quien;
+  "Quiero saber el precio" → CANNED.precio + invitation; "más información"/"info" → precio + ubicacion + invitation.
+- **Para mí** → list "Perfecto. Qué te trae a terapia?" / "Ver opciones" (funnel_categorias `hijo`,
+  `terapia_pareja` now activo=false; `chooseReason` no longer filters on activo). **Pareja** → CANNED.pareja +
+  Carolina card. **Hijo** → age buttons (`edad:nino|adolescente|adulto`) → hidden rows `hijo_nino`,
+  `hijo_adolescente`, `hijo_adulto` (activo=false). Any path landing on categoria `hijo` asks the age.
+  ⚠️ resolveCards still caps at 3 cards → adolescente drops Carolina, adulto drops Ma. Gracia + Carolina.
+- **Nudge:** ONE at +22h (`NUDGE_TEXT`, "…Att: Nico"), then stage frio (lead-followups `lt('nudges_sent',1)`).
+- **#40 CAPI:** `leads.precio_visto_at` stamped on CANNED.precio/pareja, a Claude "libre" answer with `$<d>`,
+  and Nicolás's manual echo with `$<d>` (handleEchoes). `capi.mjs#leadSubmittedDecision()` (pure): fire when
+  ≥2 inbound after precio_visto_at (taps count; reaction/edit/revoke/unsupported don't) → event_time = 2nd msg,
+  OR eligio_terapeuta_at → that time; earliest fresh wins; >7 days old → skip (`summary.stale`), no stamp.
+  Old "categoria set" trigger removed. Migration `lead_funnel_09_precio_signal` (`supabase/lead-funnel-09-precio-signal.sql`).
+- **Backfill:** precio_visto_at set on 6 leads (lead_ai_decisions canned replies + outbound `$` echoes since 26 Sep);
+  sweep sent **1** new LeadSubmitted.
+- **Meta Step 0 (4 Oct, read-only):** B Gottman 6.904 impr / 4.984 reach / 10 results / $2,86 CPR / $28,62 spent;
+  A Stutz "En preparación", 0 impr, $0 — NOT delivering. Account shows "Revisar y publicar (12)" pending drafts.
+  Events Manager: LeadSubmitted 10 total, active, no warnings.
+- Harness (not committed): scratchpad stubs fetch + supabase, walks all flows; 0 emoji/¡¿ in 46 payloads.
+
 ### 2026-10-04 — #35 infra + director/executor split (cloud session, 1356ac2)
 - **Split from now on:** cloud session = **director only** (prioritizes, writes prompts, verifies read-only);
   Mac terminal Claude Code = **executor** (builds, migrations, deploys, /facturar; blanket permissions).
@@ -148,9 +177,10 @@ Migration `lead_funnel_08_panel_link`, mirror `supabase/lead-funnel-08-panel-lin
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
-- [ ] **#37 Bot drop-off at the reasons list** — 48 leads since 26 Sep: 18 stuck at `toco`, 2 chose a therapist,
-      2 booked. Diagnose from `leads` + `lead_ai_decisions`, propose copy/flow (show Nicolás first). NOT routing
-      (`funnel_categorias`), NOT the bot delay.
+- [ ] **#41 Resubmit Meta templates without emojis/¡¿** (recordatorio_llamada, resultado_llamada, rebook_llamada,
+      primera_sesion all carry 🌿 and/or ¿ — `leadTemplates.mjs`). Show Nicolás the copy first; new names, keep old until approved.
+- [ ] **A Stutz never delivered** ("En preparación", $0 since 1 Oct) — 12 unpublished drafts in Ads Manager. Director decides.
+- [ ] **Card cap 3 vs hijo_adolescente (4) / hijo_adulto (5)** — confirm with Nicolás whether to show all.
 - [ ] **#38 Drop the 4 unused functions** (SQL in the 2026-10-04 Completed entry) + add the key policy to CLAUDE.md.
 
 ### 🔴 Contífico / invoicing follow-ups — surfaced 2026-10-02→04
