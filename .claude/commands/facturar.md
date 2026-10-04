@@ -4,6 +4,21 @@ description: Emit Contífico facturas for eligible sessions via the REST API (Ne
 
 # /facturar — Contífico invoicing protocol (REST API)
 
+> **Normal path since 2026-10-04 (#16): no Claude session needed.** Every **Monday and Thursday
+> 09:00 GYE** `facturar-report` (cron `0 14 * * 1,4`) pushes Nicolás "Facturación pendiente" when
+> anything is ready or blocked. He writes **`facturas`** to the 9933 from his phone (owner number =
+> `ownerWhatsApp()`: env `OWNER_WHATSAPP`, default `+593968029896`) → the webhook runs this same
+> dry-run, freezes a `pendiente` snapshot in **`factura_aprobaciones`** (session_ids + total + the list
+> he saw) and replies with the list + **[Aprobar] [Ahora no]**. Aprobar → `facturar-aprobar-background`
+> claims the snapshot atomically (pendiente→aprobada, <48h — double taps are no-ops), re-checks each
+> snapshot session with the same eligibility rule, emits ONLY those still eligible (never one outside
+> the snapshot), WhatsApps their RIDEs, stores everything in `resultado` and replies
+> "Listo. Emitidas k de N…". A CRITICAL (emitted, not marked) replies `CRÍTICO: …` + push — fix it by
+> hand (step 4) before anything else. Code: `netlify/lib/facturarAprobacion.mjs` on top of
+> `netlify/lib/facturarCore.mjs` (the core this HTTP function also uses). Audit:
+> `select created_at, estado, total, resultado from factura_aprobaciones order by created_at desc;`
+> The manual HTTP protocol below stays for backfills, one-offs and debugging.
+
 Emit electronic facturas in Contífico for every eligible session, then mark each
 `facturada` in the app. This runs entirely through the **`facturar` Netlify function**
 (`netlify/functions/facturar.mjs`) — the old Chrome-automation protocol is retired.

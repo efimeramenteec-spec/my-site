@@ -29,6 +29,7 @@ import { getSupabaseAdmin, normalizePhone, resolveReplyEstado, applyInboundReply
 import { notifyTherapist } from '../lib/push.mjs'
 import { isTherapistOrPayer, recordLead, handleEchoes, runBot, handleTherapistResult, isTap, botAllowedForPhone } from '../lib/leadBot.mjs'
 import { sendReadReceipt } from '../lib/waSend.mjs'
+import { isOwnerPhone, isFacturasCommand, facturaTap, handleFacturasCommand, handleDescartar } from '../lib/facturarAprobacion.mjs'
 
 // Fire the delayed-reply background function (~20s + typing, burst-coalesced) for
 // a lead's free text. Returns fast (Netlify 202s a background invocation). The
@@ -42,6 +43,39 @@ async function invokeLeadReplyBackground(payload) {
       body: JSON.stringify(payload),
     })
   } catch (e) { console.warn('[wa-cloud] background invoke failed (non-blocking):', e.message) }
+}
+
+// Fire the factura-approval background function (#16) for an owner's [Aprobar]
+// tap. The emit loop can outlast a webhook request, so it runs there and replies
+// to the owner when done. Same shared-secret gate as lead-reply-background.
+async function invokeFacturarAprobar(snapshotId) {
+  const base = process.env.URL || 'https://efimeramente-panel.netlify.app'
+  await fetch(`${base}/.netlify/functions/facturar-aprobar-background`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-lead-verify': process.env.WA_CLOUD_VERIFY_TOKEN || '' },
+    body: JSON.stringify({ snapshot_id: snapshotId }),
+  })
+}
+
+// Owner invoicing commands (#16), consumed BEFORE estado/lead handling: "facturas"
+// → list + buttons; fac_ok → background emit; fac_no → descartada. A fac_* tap
+// from any other number is swallowed (never reaches the bot). Returns true when
+// the message was consumed.
+async function handleOwnerFacturar(supabase, msg) {
+  const tap = facturaTap(msg)
+  const owner = isOwnerPhone(msg.from)
+  if (tap && !owner) { console.warn(`[wa-cloud] fac_* tap from non-owner ${msg.from} — ignored`); return true }
+  if (!owner) return false
+  try {
+    if (isFacturasCommand(msg)) { await handleFacturasCommand(supabase, msg.from); return true }
+    if (tap?.action === 'ok') { await invokeFacturarAprobar(tap.snapshotId); return true }
+    if (tap?.action === 'no') { await handleDescartar(supabase, msg.from, tap.snapshotId); return true }
+  } catch (e) {
+    console.error('[wa-cloud] owner facturar command failed:', e.message)
+    try { await notifyTherapist(supabase, null, { title: 'Facturación: error', body: `El comando falló: ${e.message}`, url: '/' }) } catch {}
+    return true
+  }
+  return false
 }
 
 const text = (body, status = 200) => new Response(body, { status, headers: { 'Content-Type': 'text/plain' } })
@@ -210,6 +244,9 @@ export default async (req) => {
         })
         const who = patient ? `patient ${patient.id}` : `UNMATCHED ${msg.from}`
         console.log(`[wa-cloud] inbound ${msg.type} from ${who} (${msg.id})`)
+
+        // ── Owner invoicing (#16) — before estado + lead bot: no lead row, no bot reply.
+        if (await handleOwnerFacturar(supabase, msg)) continue
 
         // Confirmo / Cancelar → flip the matching session's estado. This is the
         // inbound HALF of the Dualhook reminder loop (the outbound half is
