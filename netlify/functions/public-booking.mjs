@@ -159,9 +159,10 @@ export default async (req) => {
       patient: { nombre, apellido, telefono: phone, email: email || undefined, motivo: motivo || undefined },
     })
     if (!result.ok) {
-      const status = result.error === 'slot_taken' || result.error === 'rooms_full' ? 409
+      const status = ['slot_taken', 'rooms_full', 'therapist_rule'].includes(result.error) ? 409
         : result.error === 'unavailable' ? 500 : 500
-      return json({ error: result.error }, status)
+      // therapist_rule carries a clean, patient-safe reason ("Mariana atiende de 10:00 a 20:00").
+      return json(result.message ? { error: result.error, message: result.message } : { error: result.error }, status)
     }
 
     // Confirmation echo only — no ids, no PII beyond what the booker typed.

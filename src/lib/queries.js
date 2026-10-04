@@ -167,13 +167,16 @@ export async function getSessionsData() {
   }
 }
 
-// The DB trigger enforce_presencial_room_cap raises a raw "ROOMS_FULL: …"
-// message; surface the same friendly copy the drawer already uses.
+// The DB triggers enforce_presencial_room_cap / enforce_therapist_rules raise raw
+// "ROOMS_FULL: …" / "MARIANA_RULE: …" messages; surface the friendly copy instead.
 function friendlySessionError(err, fallback) {
   const msg = err?.message || ''
   if (msg.includes('ROOMS_FULL')) {
     return 'No hay consultorio disponible: ya hay 3 sesiones presenciales en ese horario.'
   }
+  // enforce_therapist_rules (#43) raises "MARIANA_RULE: <friendly reason>".
+  const rule = /MARIANA_RULE:\s*(.+)/.exec(msg)
+  if (rule) return rule[1].trim()
   return msg || fallback
 }
 

@@ -5,6 +5,7 @@ import { PatientSelect } from './PatientSelect.jsx'
 import { dateKey, addDays, addMinutesToTime, formatTime, fullName } from '../../lib/format.js'
 import { TIPO_FORM, TIPO_PACIENTE, MODALIDAD, DURACION_MIN, TARIFA_DEFAULT, toOptions } from '../../lib/constants.js'
 import { findConflict, roomsFull, CONSULTORIOS } from '../../lib/conflicts.js'
+import { violatesRules, scheduleChanged, forcedModalidad, onlyModalidadCopy } from '../../lib/therapistRules.js'
 import { checkFreebusy } from '../../lib/queries.js'
 import { isAttended } from '../../lib/adherence.js'
 import { AllianceCheckin } from './AllianceCheckin.jsx'
@@ -102,6 +103,16 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
   }, [open, mode, initial])
 
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }))
+
+  // #43: a therapist restricted to one modalidad (Mariana: en línea) gets it
+  // pre-selected on NEW sessions. Edits keep the stored value (no silent change);
+  // a schedule change on a presencial row is then blocked by ruleError below.
+  const onlyModalidad = forcedModalidad(form.terapeuta_id)
+  useEffect(() => {
+    if (open && mode !== 'edit' && onlyModalidad && form.modalidad !== onlyModalidad) {
+      setForm((f) => ({ ...f, modalidad: onlyModalidad }))
+    }
+  }, [open, mode, onlyModalidad, form.modalidad])
   const setNp = (key, val) => setNewPatient((p) => ({ ...p, [key]: val }))
 
   // Create a patient inline, auto-assigned to the right therapist, then select
@@ -206,6 +217,19 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     mode === 'edit' && initial ? initial.id : null,
   )
 
+  // Per-therapist hard rules (#43 — Mariana: 10–20, starts ≥2h apart, max 3/day,
+  // en línea only). Edits are checked only when the schedule changes, mirroring the
+  // DB trigger, so re-saving a pre-rule session is never blocked.
+  const candidate = {
+    id: mode === 'edit' && initial ? initial.id : undefined,
+    terapeuta_id: form.terapeuta_id, fecha: form.fecha, modalidad: form.modalidad,
+    hora_inicio: form.hora_inicio ? form.hora_inicio + ':00' : '',
+    hora_fin: endTime ? endTime + ':00' : '',
+  }
+  const ruleError = scheduleChanged(mode === 'edit' ? initial : null, candidate)
+    ? violatesRules(candidate, sessions)
+    : null
+
   // Soft Google Calendar conflict check: once date, time and therapist are
   // chosen, ask that therapist's calendar whether the window is already busy.
   // Best-effort and NON-blocking — checkFreebusy swallows failures (returns []),
@@ -246,6 +270,10 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     }
     if (roomsBlocked) {
       setSubmitError(`No hay consultorio disponible: ya hay ${CONSULTORIOS} sesiones presenciales en ese horario.`)
+      return
+    }
+    if (ruleError) {
+      setSubmitError(ruleError)
       return
     }
     setSaving(true)
@@ -392,8 +420,21 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
             </div>
           )}
 
+          {ruleError && !conflict && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+              <p className="font-heading text-sm font-bold text-rose-700">{ruleError}</p>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
-            <Select label="Modalidad" options={toOptions(MODALIDAD)} value={form.modalidad} onChange={(e) => set('modalidad', e.target.value)} placeholder="Modalidad…" />
+            <Select
+              label="Modalidad"
+              options={toOptions(MODALIDAD).map((o) => ({ ...o, disabled: !!onlyModalidad && o.value !== onlyModalidad }))}
+              value={form.modalidad}
+              onChange={(e) => set('modalidad', e.target.value)}
+              placeholder="Modalidad…"
+              hint={onlyModalidadCopy(form.terapeuta_id) || undefined}
+            />
             <Field label="Tarifa (USD)" error={errors.monto}>
               <input type="number" min="0" step="1" className={nativeInput} value={form.monto} onChange={(e) => set('monto', e.target.value)} />
             </Field>
@@ -416,7 +457,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
 
         <div className="flex items-center justify-end gap-3 border-t border-stroke/60 px-6 py-4">
           <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button type="submit" variant="primary" disabled={saving || !!conflict || roomsBlocked}>
+          <Button type="submit" variant="primary" disabled={saving || !!conflict || roomsBlocked || !!ruleError}>
             {saving ? 'Guardando…' : mode === 'edit' ? 'Guardar cambios' : 'Crear sesión'}
           </Button>
         </div>

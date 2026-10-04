@@ -14,6 +14,9 @@
 import { normalizePhone } from './whatsapp.mjs'
 import { getCalendarClient, queryFreebusy } from './calendar.mjs'
 import { notifyTherapist } from './push.mjs'
+// Per-therapist hard rules (#43 — Mariana: 10–20, starts ≥2h apart, max 3/day,
+// en línea only). Single JS source shared with the app; DB trigger is the backstop.
+import { allowedWindow, forcedModalidad, violatesRules } from '../../src/lib/therapistRules.js'
 
 export const SLOT_STEP_MIN = 30
 export const CALL_MIN = 10
@@ -57,6 +60,7 @@ export async function computeSlots(supabase, therapist, date, durMin = CALL_MIN)
   const dayKey = DAY_KEYS[new Date(`${date}T00:00:00Z`).getUTCDay()]
   const windows = (therapist.booking_availability || {})[dayKey] || []
   if (!Array.isArray(windows) || windows.length === 0) return []
+  const clamp = allowedWindow(therapist.id) // [startMin, endMin] or null
 
   const { data: sessions, error: sErr } = await supabase
     .from('sessions')
@@ -64,6 +68,7 @@ export async function computeSlots(supabase, therapist, date, durMin = CALL_MIN)
     .eq('terapeuta_id', therapist.id)
     .eq('fecha', date)
   if (sErr) throw new Error(`sessions query failed: ${sErr.message}`)
+  const dayRows = (sessions || []).map((s) => ({ ...s, terapeuta_id: therapist.id, fecha: date }))
   const busy = (sessions || [])
     .filter((s) => s.estado !== 'cancelada' && s.estado !== 'no_show')
     .map((s) => [toMin(String(s.hora_inicio).slice(0, 5)), toMin(String(s.hora_fin).slice(0, 5))])
@@ -88,10 +93,19 @@ export async function computeSlots(supabase, therapist, date, durMin = CALL_MIN)
   for (const w of windows) {
     const [ws, we] = Array.isArray(w) ? w : []
     if (!HHMM.test(ws || '') || !HHMM.test(we || '')) continue
-    for (let s = toMin(ws); s + durMin <= toMin(we); s += SLOT_STEP_MIN) {
+    const from = clamp ? Math.max(toMin(ws), clamp[0]) : toMin(ws)
+    const to = clamp ? Math.min(toMin(we), clamp[1]) : toMin(we)
+    for (let s = from; s + durMin <= to; s += SLOT_STEP_MIN) {
       const e = s + durMin
       if (busy.some(([bs, be]) => s < be && e > bs)) continue
       if (dayStartMs + s * 60000 < minStartMs) continue
+      if (clamp !== null || forcedModalidad(therapist.id)) {
+        const candidate = {
+          terapeuta_id: therapist.id, fecha: date, hora_inicio: toHHMM(s), hora_fin: toHHMM(e),
+          modalidad: forcedModalidad(therapist.id) || 'en_linea',
+        }
+        if (violatesRules(candidate, dayRows)) continue
+      }
       slots.push(toHHMM(s))
     }
   }
@@ -127,6 +141,9 @@ export async function createBooking(supabase, {
   patient, esLead, fuente, notify = true,
 }) {
   const kind = KINDS[kindKey] || KINDS.llamada
+  // A therapist restricted to one modalidad (Mariana: en línea) can't be booked
+  // presencial on any path — force it before the room cap / insert.
+  modalidad = forcedModalidad(t.id) || modalidad
 
   let slots
   try { slots = await computeSlots(supabase, t, date, kind.durMin) }
@@ -180,7 +197,13 @@ export async function createBooking(supabase, {
       hora_inicio: `${startTime}:00`, hora_fin: `${endTime}:00`,
       tipo: kind.tipo, modalidad, estado: 'programada', monto, pagado: false,
     }).select('id').single()
-  if (sErr) { console.error('[booking] session insert:', sErr.message); return { ok: false, error: 'booking_failed' } }
+  if (sErr) {
+    console.error('[booking] session insert:', sErr.message)
+    // DB trigger enforce_therapist_rules raises "MARIANA_RULE: <reason>".
+    const m = /MARIANA_RULE:\s*(.+)/.exec(sErr.message || '')
+    if (m) return { ok: false, error: 'therapist_rule', message: m[1].trim() }
+    return { ok: false, error: 'booking_failed' }
+  }
 
   if (kindKey === 'sesion') {
     await supabase.from('patients').update({ es_lead: false }).eq('id', patientId).eq('es_lead', true)

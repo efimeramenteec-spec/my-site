@@ -5,6 +5,7 @@ import { Card } from '../components/Card/Card.jsx'
 import { Button } from '../components/Button/Button.jsx'
 import { Input } from '../components/Input/Input.jsx'
 import { Logo } from '../layout/Logo.jsx'
+import { forcedModalidad } from '../lib/therapistRules.js'
 
 // Public, unauthenticated booking page — the Calendly replacement. Two routes
 // share this component via the `kind` prop:
@@ -161,7 +162,7 @@ export default function PublicBooking({ kind = 'llamada' }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           kind,
-          modalidad: kind === 'sesion' ? modalidad : undefined,
+          modalidad: kind === 'sesion' ? (forcedModalidad(therapist.id) || modalidad) : undefined,
           therapist_id: therapist.id,
           date,
           start_time: slot,
@@ -183,7 +184,9 @@ export default function PublicBooking({ kind = 'llamada' }) {
         setNotice(
           data.error === 'rooms_full'
             ? 'Ese horario ya no tiene consultorio presencial disponible. Elige otro horario, o agéndala En línea.'
-            : 'Ese horario acaba de ocuparse. Elige otro, por favor.',
+            : data.error === 'therapist_rule' && data.message
+              ? `${data.message}. Elige otro horario, por favor.`
+              : 'Ese horario acaba de ocuparse. Elige otro, por favor.',
         )
         setStep('slot')
         fetchSlots(therapist, date)
@@ -336,7 +339,9 @@ export default function PublicBooking({ kind = 'llamada' }) {
                 <div className="flex flex-col gap-1.5">
                   <span className="font-heading text-sm font-bold text-content-secondary">Modalidad</span>
                   <div className="flex gap-2">
-                    {[['en_linea', 'En línea'], ['presencial', 'Presencial']].map(([value, label]) => (
+                    {[['en_linea', 'En línea'], ['presencial', 'Presencial']]
+                      .filter(([value]) => !forcedModalidad(therapist.id) || value === forcedModalidad(therapist.id))
+                      .map(([value, label]) => (
                       <button
                         key={value}
                         type="button"

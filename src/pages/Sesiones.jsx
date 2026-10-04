@@ -9,6 +9,7 @@ import { SesionDrawer } from '../features/sesiones/SesionDrawer.jsx'
 import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName, patientLabel, patientSearchText, formatTime } from '../lib/format.js'
 import { CONFIRMACION } from '../lib/constants.js'
 import { findConflict, roomsFull, CONSULTORIOS } from '../lib/conflicts.js'
+import { violatesRules, scheduleChanged } from '../lib/therapistRules.js'
 import { groupSessionsByPatient } from '../lib/conversion.js'
 import { IconChevronRight, IconPlus, IconDownload } from '../layout/icons.jsx'
 import { useAuth } from '../lib/auth.jsx'
@@ -127,6 +128,12 @@ export default function Sesiones() {
     // Only 3 consultorios: block a 4th overlapping presencial session.
     if (roomsFull(data?.sessions || [], payload, excludeId)) {
       return { ok: false, error: `No hay consultorio disponible: ya hay ${CONSULTORIOS} sesiones presenciales en ese horario.` }
+    }
+    // Per-therapist hard rules (#43 — Mariana). Edits are checked only when the
+    // schedule changes, like the DB trigger, so flag-only re-saves never block.
+    if (scheduleChanged(drawer.mode === 'edit' ? drawer.initial : null, payload)) {
+      const ruleError = violatesRules({ ...payload, id: excludeId }, data?.sessions || [])
+      if (ruleError) return { ok: false, error: ruleError }
     }
     const res = drawer.mode === 'edit' ? await updateSession(drawer.initial.id, payload) : await createSession(payload)
     if (res.ok) {
