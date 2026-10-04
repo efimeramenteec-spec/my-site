@@ -102,6 +102,29 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-04 — #43 Mariana back from maternity leave: hardcoded booking rules (executor, a4edfbb)
+- Rules (until further notice): R1 10:00–20:00 (start ≥10, end ≤20) · R2 starts ≥120 min apart · R3 max 3/day ·
+  R4 en línea only. Only non-cancelled (not cancelada/no_show) sessions count. Durations unchanged.
+  Applies to ALL her rows (llamadas too).
+- **One JS source:** `src/lib/therapistRules.js` (`THERAPIST_RULES` keyed by id, `MARIANA_ID`, `allowedWindow`,
+  `forcedModalidad`, `onlyModalidadCopy`, `violatesRules(session, sameDaySessions)` → friendly reason|null,
+  `scheduleChanged(prev, next)`). Imported by `netlify/lib/booking.mjs` (computeSlots clamps + filters R2/R3;
+  createBooking forces modalidad, maps trigger error → `therapist_rule` + message), `public-booking.mjs`
+  (409 `{error:'therapist_rule', message}`), `SesionDrawer.jsx` (Presencial disabled + hint, rose box, save
+  blocked), `Sesiones.jsx#handleSubmit` backstop, `PublicBooking.jsx` (only En línea pill for her).
+  `Select.jsx` now honors `opt.disabled`.
+- **DB trigger** `trg_enforce_therapist_rules` / `enforce_therapist_rules()` (migration
+  `therapist_rules_trigger_mariana`, mirror `supabase/therapist-rules-trigger.sql`): raises
+  `MARIANA_RULE: <reason>`; checked only on INSERT or when fecha/hora_inicio/hora_fin/modalidad/terapeuta_id
+  change (estado/pagado/facturada re-saves pass). Hardcodes her uuid — keep in sync with the JS file.
+  Room-cap trigger untouched. **Gap by spec:** reactivating a cancelled session (estado-only) is not checked.
+- Data: her `booking_availability` = mon–sat [["10:00","20:00"]]; recibe_nuevos=false, activo=true unchanged.
+- Verified: build; 8 helper cases + slot-engine cases (other therapist identical); trigger tests in a
+  rolled-back tx (R1–R4 raise, 15:00 after 13:00 OK, cancelled 4th OK, pagado/estado on old presencial OK).
+- **Pre-existing violation left untouched:** 2026-10-06 14:00 Mauro Baquero — PRESENCIAL (breaks R4). Any
+  reschedule of it will be blocked until it's switched to En línea.
+- To lift the rules: delete her entry in `THERAPIST_RULES` + `drop trigger trg_enforce_therapist_rules`.
+
 ### 2026-10-04 — CONTIFICO_FACTURAR_TOKEN re-synced: now NON-secret in Netlify (executor, 5f6e46d)
 - The Netlify value was secret/unreadable and ~/my-site/.env held a stale one (live endpoint 404'd it). Recreated
   per the backlog plan: deleted the var, upserted a fresh 48-hex value as **non-secret**, context production,
