@@ -102,6 +102,19 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-04 — #44 María Emilia Worm: must-invoice + retroactive from 1 Sep (executor, f55495b)
+- New column `patients.facturar_desde date NULL` (migration `patients_facturar_desde`, mirror
+  `supabase/patients-facturar-desde.sql`). `fetchEligible` (facturarCore.mjs) now filters in JS:
+  `fecha >= coalesce(patient.facturar_desde, FACTURAR_SINCE)` (the server-side `.gte` was removed; `?all=1`
+  still lifts it). FACTURAR_SINCE, eligibility rule and emission code unchanged. Old-vs-new core diffed
+  locally: identical for every other patient (0 with floor, 27 with `all=1`).
+- Her row: facturacion_obligatoria=true, facturar_desde=2026-09-01, cedula=contifico_id=1718551201.
+  No Contífico persona yet (recon empty) → created inline by the first POST, as for any new persona
+  (direccion **Quito** per the locked rule — Cumbayá NOT used; no email/phone, patient billing never sends them).
+  No existing Contífico doc for her cédula/name (303 checked).
+- Live dry-run: exactly 1 ready — 2026-09-07 $39 "Paciente María Emilia Worm | Sesión 7 de Septiembre"
+  (no CIE, no diagnosis). 1 Sep llamada + 21 Sep cancelada excluded. NOT emitted → goes in the Mon 5 Oct run.
+
 ### 2026-10-04 — #43 Mariana back from maternity leave: hardcoded booking rules (executor, a4edfbb)
 - Rules (until further notice): R1 10:00–20:00 (start ≥10, end ≤20) · R2 starts ≥120 min apart · R3 max 3/day ·
   R4 en línea only. Only non-cancelled (not cancelada/no_show) sessions count. Durations unchanged.
@@ -260,6 +273,7 @@ Migration `lead_funnel_08_panel_link`, mirror `supabase/lead-funnel-08-panel-lin
 ### 🔴 Contífico / invoicing follow-ups — surfaced 2026-10-02→04
 - [ ] **#16 first live run Mon 5 Oct 09:00** — watch: push arrives, "facturas" reply, Aprobar result,
       `select estado, resultado from factura_aprobaciones order by created_at desc limit 1;`.
+      Must include **María Emilia Worm 7 Sep $39** (#44, first invoice for her; new persona).
 - [ ] **Raguel Conforme 12 Sep** (paid, never invoiced) — skipped on Nicolás's instruction 2026-10-03; invoice with
       `emit-one&before_floor=1` if he asks.
 - [ ] **Factura WhatsApp copy** — Nicolás doesn't love `factura_sesion_link`'s wording. If he sends new copy:
