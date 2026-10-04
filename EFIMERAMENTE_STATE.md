@@ -68,7 +68,9 @@ from the business app; `handleEchoes` flipped that lead's `bot_paused` to true (
 manual-reply pause works: hand-reply in a lead's chat → bot goes silent for that lead forever. Full flow
 also tested end-to-end (Msg 1 → cards w/ photos → booking + Calendar sync) + FAQ path confirmed working.
 
-**Templates at Meta (submitted 2026-09-26 via the `submit-lead-templates` fn, guard env `LEAD_TOOLS_TOKEN`):**
+**Templates at Meta:** v1 (below, all 4 APPROVED by 2026-10-04) + `_v2` Nico-voice set (#41, submitted
+2026-10-04 — see Completed Features). Sends auto-switch to `_v2` per template once approved.
+**v1 (submitted 2026-09-26 via the `submit-lead-templates` fn, guard env `LEAD_TOOLS_TOKEN`):**
 - `recordatorio_llamada` — **APPROVED** (call reminder to lead; buttons Confirmo / Cambiar hora)
 - `resultado_llamada` — **PENDING** (call result to therapist; buttons Se hizo / No contestó)
 - `primera_sesion` — **PENDING** (48h first-session nudge; button Sí, quiero agendar) [added]
@@ -99,6 +101,19 @@ spec #24 — DONE 2026-09-27 (Claude/Sonnet + fact sheet + derive; see top of Co
 answer flow is now only the fallback.** WhatsApp reply buttons are still single-use (grey out after one tap).
 
 ## Completed Features
+
+### 2026-10-04 — #41 lead templates _v2 (Nico voice) + v1→v2 auto-switch (executor, f87944f)
+- `netlify/lib/leadTemplates.mjs`: new `TEMPLATES_V2` (`<base>_v2`, field `base`) — Nicolás's verbatim copy, no
+  emoji/¡¿, "Att: Nico"; examples + BUTTONS reused from v1 objects (identical texts → leadBot reply handlers match
+  on button text/payload + `resultado_llamada_wamid`, no change needed). v1 `TEMPLATES` untouched.
+- Auto-switch: `primeTemplateStatuses()` (one GET via `listTemplates()`, called at the top of each lead-followups
+  run; lazy w/ 15-min TTL for the webhook's rebook send) + `pickTemplateName(base, statuses)` → `_v2` only if
+  APPROVED **and in the category we requested**; PENDING/REJECTED/reclassified/fetch error → v1. `sendTemplate` resolves.
+- `submitTemplates()` default is now the `_v2` set (names may pick v1 or v2). Dualhook 429s after 2 creates —
+  submit one `?name=` at a time with ~60s gaps.
+- Status at close: `rebook_llamada_v2` APPROVED (MARKETING, live now); `recordatorio_llamada_v2` + `resultado_llamada_v2`
+  PENDING (UTILITY); `primera_sesion_v2` PENDING but **reclassified UTILITY→MARKETING** (v1 is MARKETING too) → the
+  switch keeps v1 for it until Nicolás decides (set its `category` to 'MARKETING' to accept).
 
 ### 2026-10-04 — #37 bot copy/flow polish + #40 new CAPI LeadSubmitted signal (executor, 80615a7 + cb967de)
 - **Style rule (hard):** no emojis, no opening ¡ ¿ in patient-facing bot text; the bot speaks as "Nico".
@@ -177,8 +192,9 @@ Migration `lead_funnel_08_panel_link`, mirror `supabase/lead-funnel-08-panel-lin
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
-- [ ] **#41 Resubmit Meta templates without emojis/¡¿** (recordatorio_llamada, resultado_llamada, rebook_llamada,
-      primera_sesion all carry 🌿 and/or ¿ — `leadTemplates.mjs`). Show Nicolás the copy first; new names, keep old until approved.
+- [ ] **#41 templates _v2** — submitted, auto-switch live (f87944f). Done once all 4 `_v2` APPROVED. Decide:
+      `primera_sesion_v2` reclassified MARKETING (ask Nicolás; accepting = change its category in TEMPLATES_V2).
+      Later: delete the v1 templates only after 7 days with no v1 sends.
 - [ ] **A Stutz never delivered** ("En preparación", $0 since 1 Oct) — 12 unpublished drafts in Ads Manager. Director decides.
 - [ ] **Card cap 3 vs hijo_adolescente (4) / hijo_adulto (5)** — confirm with Nicolás whether to show all.
 - [ ] **#38 Drop the 4 unused functions** (SQL in the 2026-10-04 Completed entry) + add the key policy to CLAUDE.md.
