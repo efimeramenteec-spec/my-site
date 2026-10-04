@@ -100,6 +100,19 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-04 — #35 infra + director split (cloud session)
+- **`CONTIFICO_FACTURAR_TOKEN` rotated** (Netlify, production, functions scope, secret) — live from the deploy of
+  this commit. Copies anywhere else (Mac `.env`, cloud env vars) must be replaced with the new value.
+- **Director docs:** `CLAUDE.md` "Director docs" section → Drive folder "Efimeramente · Claude"
+  (`PERMANENT TO-DO.md` = priorities). `/cierre` step 5 now replaces that file in Drive (create new + trash
+  old, since the connector can't overwrite content → its file id changes every time; find it by title).
+- **Split from now on:** cloud session = director only; Mac terminal = executor.
+- ⚠️ **DB leftovers to drop (terminal):** a duplicate #34 attempt here left 4 UNUSED functions with no
+  triggers — `link_lead_from_session()`, `link_lead_from_patient()`, `lead_link_rank(text)`, `phone_last9(text)`.
+  The live ones are `lead_link_from_*` + `trg_lead_link_from_*` (cb39f59). Harmless; drop with
+  `drop function if exists link_lead_from_session(), link_lead_from_patient(), lead_link_rank(text), phone_last9(text);`
+  (the cloud connector times out waiting for approval on destructive SQL).
+
 ### 2026-10-02 — #34 CAPI hole closed: hand-handled leads now link to the panel (Opus 4.8)
 Leads Nicolás takes over (`bot_paused`) and books by hand never advanced `leads.stage`, so the CAPI sweep
 never fired QualifiedLead/Purchase for them — the best leads. **Fix = two DB triggers** (chose triggers over

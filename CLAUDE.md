@@ -26,6 +26,17 @@ Calendar sync, and WhatsApp appointment reminders.
 **This file is the cold-start orientation.** For the live backlog / "what changed last
 session," read `EFIMERAMENTE_STATE.md`. For visual/design tokens, read `BRAND.md`.
 
+## Director docs (Google Drive)
+
+Since 2026-10-04 (pm): the **cloud session = director only** (prioritizes, scores, writes the prompts,
+verifies read-only via Drive/Supabase/Netlify); the **Mac terminal Claude Code = executor** (builds,
+migrations, deploys, /facturar — it has blanket permissions; `git pull` first). Priorities live in
+Google Drive, folder **"Efimeramente · Claude"** (id `16av_FWmaWjsw_WdyFwSuOqwd-Yf893bI`), via the
+Drive connector: **`PERMANENT TO-DO.md`** (scored backlog, live state, decisions in force — source of
+truth for priorities; find it by title, its id changes on every replace), `MAPA DE CASOS.md` (therapist
+routing + education), `ASEGURADORAS - COBERTURA PSICOLOGIA.md`. No Drive connector → stop and say so.
+`/cierre` updates the TO-DO.
+
 ---
 
 ## Stack & infra
