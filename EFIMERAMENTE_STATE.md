@@ -102,6 +102,31 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-04 — #16 /facturar by WhatsApp approval: Mon+Thu push → "facturas" → Aprobar (executor, 0a8432d)
+- **Extraction:** `netlify/lib/facturarCore.mjs` = facturar.mjs's core moved verbatim (fetchEligible, assemble,
+  emitOne, emitPayload, ridePlan …) + new `dryRun()` and `sendRides()` (the send-rides loop). facturar.mjs is now
+  only the HTTP shell. Dry-run JSON diffed before/after (normal + `all=1`, 27 items): **byte-identical**.
+- **`facturar-report.mjs`** — SCHEDULED `0 14 * * 1,4` (Mon+Thu 09:00 GYE; confirmed in deploy `function_schedules`).
+  Dry-run only; ready=0 & blocked=0 → nothing; else owner push "Facturación pendiente / Hay N sesiones listas…
+  Escribe facturas al 9933…" (+ "M bloqueadas."). No snapshot.
+- **`netlify/lib/facturarAprobacion.mjs`** — `handleFacturasCommand` (owner texts "facturas", accent/case-insensitive:
+  older 'pendiente' → 'vencida', new 'pendiente' snapshot w/ session_ids + total + `resultado.lista`, list ≤10 per
+  message, buttons `fac_ok:<id>`/`fac_no:<id>` on the last), `runAprobacion` (atomic `update … where estado=
+  'pendiente' and created_at>=now-48h returning`; duplicate tap = silent no-op; re-checks each snapshot id via
+  dryRun → emitOne only if still ready; never adds ids; RIDE send for exactly those, 4 attempts 15s apart for SRI
+  auth; stores emitidas/omitidas/rides in `resultado`; "Listo. Emitidas k de N. Enviadas por WhatsApp s." +
+  failure lines; CRÍTICO line + owner push), `handleDescartar`, `runReport`. All effects go through `deps` (harness).
+- **`facturar-aprobar-background.mjs`** — runs runAprobacion (15-min budget). Gate: `x-lead-verify` =
+  WA_CLOUD_VERIFY_TOKEN, same as lead-reply-background.
+- **Webhook:** `handleOwnerFacturar` runs right after logging, BEFORE estado flip / therapist result / lead bot.
+  Owner = `ownerWhatsApp()` (env OWNER_WHATSAPP, default +593968029896 — matches the task). fac_* taps from any
+  other number are swallowed (logged), never reach the bot.
+- **DB:** `factura_aprobaciones` (supabase/facturar-aprobaciones.sql, applied, owner-only RLS).
+- **Harness** (stubbed Contífico/Dualhook/push, in-memory DB): cron 0→no push; "facturas"→snapshot+split list+
+  buttons; Aprobar emits only snapshot ids (skips ineligible + vanished, ignores newly eligible); double tap no-op;
+  >48h → expired copy; non-owner tap ignored (webhook-level check too); CRITICAL path. All PASS. No real invoices.
+- First live run: **Mon 5 Oct 09:00** with Nicolás.
+
 ### 2026-10-04 — #41 lead templates _v2 (Nico voice) + v1→v2 auto-switch (executor, f87944f)
 - `netlify/lib/leadTemplates.mjs`: new `TEMPLATES_V2` (`<base>_v2`, field `base`) — Nicolás's verbatim copy, no
   emoji/¡¿, "Att: Nico"; examples + BUTTONS reused from v1 objects (identical texts → leadBot reply handlers match
@@ -200,6 +225,10 @@ Migration `lead_funnel_08_panel_link`, mirror `supabase/lead-funnel-08-panel-lin
 - [ ] **#38 Drop the 4 unused functions** (SQL in the 2026-10-04 Completed entry) + add the key policy to CLAUDE.md.
 
 ### 🔴 Contífico / invoicing follow-ups — surfaced 2026-10-02→04
+- [ ] **#16 first live run Mon 5 Oct 09:00** — watch: push arrives, "facturas" reply, Aprobar result,
+      `select estado, resultado from factura_aprobaciones order by created_at desc limit 1;`.
+- [ ] **Local `CONTIFICO_FACTURAR_TOKEN` in ~/my-site/.env is stale** (live endpoint 404s it) — #16 verify could
+      not hit the live dry-run. Not needed by the WhatsApp path (it never uses the HTTP token).
 - [ ] **`CONTIFICO_FACTURAR_TOKEN` is secret/unreadable in Netlify** (re-generated 2026-10-04). Not sensitive per
       Nicolás. Before the next /facturar the executor re-creates it as a NON-secret var (delete + add, redeploy).
 - [ ] **Raguel Conforme 12 Sep** (paid, never invoiced) — skipped on Nicolás's instruction 2026-10-03; invoice with
