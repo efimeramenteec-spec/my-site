@@ -112,7 +112,7 @@ export async function fetchEligible(supabase, { ignoreFloor = false } = {}) {
       patient:patients!inner (
         id, nombre, apellido, tipo_paciente, nombre_2, apellido_2,
         cedula, contifico_id, diagnostico_codigo, diagnostico_texto,
-        facturacion_obligatoria, nombre_factura,
+        facturacion_obligatoria, nombre_factura, facturar_desde,
         payer:payers ( id, nombre, apellido, cedula, contifico_id,
                        razon_social, email, telefono )
       )
@@ -123,14 +123,16 @@ export async function fetchEligible(supabase, { ignoreFloor = false } = {}) {
     .or('facturada.is.null,facturada.eq.false')
     .eq('patient.facturacion_obligatoria', true)
     .order('fecha', { ascending: true })
-  // NON-retroactive floor: never invoice the pre-go-live backlog. `ignoreFloor`
-  // (dry-run ?all=1) lifts it for inspection ONLY — dry-run makes no Contífico calls.
-  if (!ignoreFloor) query = query.gte('fecha', FACTURAR_SINCE)
   const { data, error } = await query
   if (error) throw new Error('supabase eligible query failed: ' + error.message)
   // patient.facturacion_obligatoria filter above scopes the embed; keep only rows
   // whose patient survived the inner join and the flag.
-  return (data || []).filter((s) => s.patient && s.patient.facturacion_obligatoria === true)
+  // NON-retroactive floor: never invoice the pre-go-live backlog. Per patient:
+  // floor = coalesce(patient.facturar_desde, FACTURAR_SINCE) — facturar_desde is set
+  // only for an explicit back-invoice (#44 María Emilia Worm). `ignoreFloor`
+  // (dry-run ?all=1) lifts it for inspection ONLY — dry-run makes no Contífico calls.
+  return (data || []).filter((s) => s.patient && s.patient.facturacion_obligatoria === true
+    && (ignoreFloor || s.fecha >= (s.patient.facturar_desde || FACTURAR_SINCE)))
 }
 
 // The patient's own display name (always names the PATIENT in the descripcion,
