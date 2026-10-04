@@ -331,7 +331,7 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ## Pending / Backlog
 
 ### 🔴 Contífico cleanup — surfaced 2026-10-02 (first real /facturar run)
-- [ ] **FAC 298–302 stuck "not SRI-authorized"** (emitted 2026-10-03, signed, no error): 298/299 Valentina
+- [x] **FAC 298–302 — authorized overnight, WhatsApp'd + delivered 2026-10-04 10:00.** Were stuck (emitted 2026-10-03, signed, no error): 298/299 Valentina
       5 & 15 Sep + 300 Cecilia 17 Sep (→ Dorian/Cecilia), 301 Emilie + 302 Raguel 18 Sep (→ Laura). Still
       unauthorized 4h later (293 also took many hours). Authorize from Contífico web; the next `/facturar`
       step 6 (`send-rides`) picks them up automatically (sending has no date floor). Emilie/Raguel sessions moved 19→18 Sep per Laura/Nicolás. Raguel 12 Sep
