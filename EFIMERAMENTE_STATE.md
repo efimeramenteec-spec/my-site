@@ -100,6 +100,27 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-02 — #34 CAPI hole closed: hand-handled leads now link to the panel (Opus 4.8)
+Leads Nicolás takes over (`bot_paused`) and books by hand never advanced `leads.stage`, so the CAPI sweep
+never fired QualifiedLead/Purchase for them — the best leads. **Fix = two DB triggers** (chose triggers over
+server code: `queries.js` is client-side and `leads` RLS is owner-only, so a therapist's session write can't
+touch `leads`; `public-booking` is another path; a `SECURITY DEFINER` trigger catches every path + bypasses RLS).
+Migration `lead_funnel_08_panel_link`, mirror `supabase/lead-funnel-08-panel-link.sql`:
+- `lead_link_from_session()` / `trg_lead_link_from_session` (AFTER INSERT OR UPDATE OF patient_id,tipo,pagado ON
+  sessions): matches the session's patient to a lead by **last-9 phone digits**; backfills `leads.patient_id`
+  (→ Purchase); `tipo='llamada'` → sets `session_id` + advances stage→`agendo` (`agendo_at`) → QualifiedLead;
+  **paid** non-llamada → stage→`paciente`. `lead_stage_rank()` makes stage move **forward only**. All patches
+  only-if-null / only-forward → idempotent (safe alongside the bot's own linking).
+- `lead_link_from_patient()` / `trg_lead_link_from_patient` (AFTER INS/UPD OF telefono ON patients): panel-created patient matching an unlinked lead → sets `leads.patient_id`.
+- **Backfill** (leads since 2026-09-26): linked **1 lead** (`73940c73`, was `bot_paused`+stuck at `toco` with a
+  hand-booked llamada → now `agendo`; organic, no `ctwa_clid`, so sweep won't report it but funnel is honest).
+- **Stop-condition clear:** no lead matches >1 patient by last-9 (leads unique by last-9). Verified end-to-end on
+  the test number (seeded `toco`+paused+`ctwa_clid` lead → hand-booked llamada → advanced to `agendo`, links set,
+  `capi_schedule_sent_at` null = valid sweep target); test rows cleaned up.
+- **Gotchas:** (1) `leads.session_id` FK has **no `ON DELETE SET NULL`** — hard-deleting a linked session errors
+  (delete the lead first); pre-existing, now more common. (2) Meta "Test Events" leg NOT run — `CAPI_TEST_CODE`
+  unset (events route to production) + `CAPI_ALLOW_TEST_PHONE` off; manual recipe in the #22 backlog bullet below.
+
 ### 2026-10-02 → 10-04 — /facturar go-live + WhatsApp invoices (cloud session)
 - **First real run:** 5 facturas emitted + SRI-authorized (293 pending, see backlog) — 293 Laura Vásquez,
   294 Dorian Solis (Valentina Loor), 295 Germania Domínguez (Micaela Castro), 296 Laura Vásquez
@@ -286,23 +307,15 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
     `WA_CLOUD_APP_SECRET` is unset; `LEAD_BOT_TEST_PHONES` already held the number): reason 1 → cards/hijo,
     reason 4 → cards/depresion_ansiedad, reason 7 "tengo TDAH" → **`match_diagnostico: Maria Gracia, Francisco`**
     (2.0s, `used_fallback:false`). Two names not three is CORRECT — TDAH is ✗ for the other four.
-- [x] **#22 Meta CAPI (2026-09-27)** + **#30 `recentInbound` fix (2026-09-27)** — **moved to `CHANGELOG.md`**
-  2026-10-04. TL;DR: CAPI for Business Messaging live (`capi-admin` modes status/discover/sweep/test-event);
-  `recentInbound` queries `received_at` (whatsapp_messages has no `created_at`).
-- [x] **Lead funnel v2 (#27) — "answer first, then offer" + VERBATIM canned answers** (2026-09-27) —
-  **moved to `CHANGELOG.md`** on 2026-10-01. TL;DR: Message 1 removed; bare greeting → welcome + 10-reason list,
-  a question → Claude answers then the one-time invitation. Claude only CLASSIFIES an `intent`; code sends the
-  verbatim `CANNED` map in `leadBot.mjs` (`sendCanned`). `funnel_categorias` reseeded (10 reasons, `descripcion`
-  col); `funnel_knowledge` fact sheet; night/day handoff via `isNightGYE`; 20s delay + typing in
-  `lead-reply-background.mjs`. Commits `8574b58`/`115063f`/`80025d6`, migration `funnel_v2_schema`
-  (`supabase/lead-funnel-05-v2.sql`).
-> **Lead funnel #24/#27/#4+#20 full records → `CHANGELOG.md`** (2026-10-01). Live operational record still in
-> the "✅ Lead funnel" section near the top of this file.
-- [x] **#19 saldo a favor (comprobante→lote, net-of-credit matching/reminders, 4-pack retired, comprobante
-  warning, Sesiones search fix)** (2026-09-26/27) + **Payment reminders + Comprobante auto-mark** (2026-09-24/25)
-  + **/facturar REST rewrite** (2026-09-23) — all **moved to `CHANGELOG.md`**. Key env flags:
-  `PAYMENT_REMINDERS_LIVE`, `COMPROBANTES_AUTO_LIVE`, `FACTURAR_SINCE`; files `saldo.mjs`/`proofReconcile.mjs`/
-  `facturar.mjs`. Backlog summaries still under "✅ DONE" below.
+- [x] **#22 Meta CAPI + #30 `recentInbound` fix** (2026-09-27) — **moved to `CHANGELOG.md`** 2026-10-04. TL;DR:
+  CAPI for Business Messaging live (`capi-admin` status/discover/sweep/test-event); `recentInbound` uses `received_at`.
+- [x] **Lead funnel v2 (#27) — "answer first, then offer" + VERBATIM canned answers** (2026-09-27) — **moved
+  to `CHANGELOG.md`** 2026-10-01. TL;DR: Msg 1 removed; greeting→welcome+10-reason list, question→Claude answers
+  then one-time invite; code sends verbatim `CANNED` (`sendCanned`). Migration `funnel_v2_schema` (`supabase/lead-funnel-05-v2.sql`).
+> **Lead funnel #22/#24/#27/#30/#4+#20 full records → `CHANGELOG.md`**. Live operational record still in the "✅ Lead funnel" section near the top of this file.
+- [x] **#19 saldo a favor + Payment reminders + Comprobante auto-mark + /facturar REST rewrite** (2026-09-23→27)
+  — all **moved to `CHANGELOG.md`**. Env flags `PAYMENT_REMINDERS_LIVE`/`COMPROBANTES_AUTO_LIVE`/`FACTURAR_SINCE`;
+  files `saldo.mjs`/`proofReconcile.mjs`/`facturar.mjs`. Backlog summaries still under "✅ DONE" below.
 > **Older completed work (2026-09-22 and earlier) lives in `CHANGELOG.md`.**
 > It is deliberately not loaded into session context. Read it on demand.
 
@@ -346,8 +359,14 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
     explicit `QualifiedLead` event picker** — it uses "Maximizar el número de clientes potenciales" (messaging/CAPI).
   - **Cheap real test STILL pending (now in motion):** the `Embudo v2 · QL` campaign is live, so real ad-clicks
     will start flowing. Confirm `QualifiedLead` fires in Events Manager (dataset `1131866282506788`) once a lead
-    **books via the bot** (web `/agendar` doesn't stamp `agendo_at`, so CAPI stays dormant until leads flow through
-    the live bot). For his own phone set `CAPI_ALLOW_TEST_PHONE=true` first (else the test phone is excluded).
+    books — **as of #34 (2026-10-02) this now includes leads booked by hand from the panel**, not only bot bookings
+    (`trg_lead_link_from_session` stamps `agendo_at` on any llamada write). For his own phone set
+    `CAPI_ALLOW_TEST_PHONE=true` first (else the test phone is excluded).
+  - **Manual "lands in Test Events" recipe** (needs the Events Manager **test code**): either (a) one-shot
+    `GET capi-admin?action=test-event&event=QualifiedLead&clid=<real ctwa_clid>&code=<TESTxxxx>&token=<WA_CLOUD_VERIFY_TOKEN>`
+    (shows regardless of clid validity); or (b) full path: set `CAPI_TEST_CODE=<TESTxxxx>` (⚠️ reroutes ALL events
+    to Test Events while set) + `CAPI_ALLOW_TEST_PHONE=true`, click a real ad, pause bot, book by hand, `?action=sweep`.
+    Clear both env vars after.
   - **Fix ad account timezone?** `2663225010700511` is on "Hora de Colombo" (GMT+5:30), not Ecuador — skews daily
     budget resets + reporting. Changing it after spend is disruptive (resets learning); decide whether it's worth it.
 - [x] ~~Get real phone numbers for the 4 therapists still `telefono IS NULL`~~ — **DONE** (#26, 2026-09-27):
