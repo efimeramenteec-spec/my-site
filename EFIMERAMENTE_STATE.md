@@ -100,18 +100,27 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
-### 2026-10-04 — #35 infra + director split (cloud session)
-- **`CONTIFICO_FACTURAR_TOKEN` rotated** (Netlify, production, functions scope, secret) — live from the deploy of
-  this commit. Copies anywhere else (Mac `.env`, cloud env vars) must be replaced with the new value.
-- **Director docs:** `CLAUDE.md` "Director docs" section → Drive folder "Efimeramente · Claude"
-  (`PERMANENT TO-DO.md` = priorities). `/cierre` step 5 now replaces that file in Drive (create new + trash
-  old, since the connector can't overwrite content → its file id changes every time; find it by title).
-- **Split from now on:** cloud session = director only; Mac terminal = executor.
-- ⚠️ **DB leftovers to drop (terminal):** a duplicate #34 attempt here left 4 UNUSED functions with no
-  triggers — `link_lead_from_session()`, `link_lead_from_patient()`, `lead_link_rank(text)`, `phone_last9(text)`.
-  The live ones are `lead_link_from_*` + `trg_lead_link_from_*` (cb39f59). Harmless; drop with
+### 2026-10-04 — #35 infra + director/executor split (cloud session, 1356ac2)
+- **Split from now on:** cloud session = **director only** (prioritizes, writes prompts, verifies read-only);
+  Mac terminal Claude Code = **executor** (builds, migrations, deploys, /facturar; blanket permissions).
+- **Director docs:** `CLAUDE.md` "Director docs" → Drive folder "Efimeramente · Claude" (`PERMANENT TO-DO.md`
+  = priorities). `/cierre` step 5 replaces that file in Drive (create new + trash old — the connector can't
+  overwrite content, so its file id changes every time; find it by title).
+- **`CONTIFICO_FACTURAR_TOKEN` re-generated** in Netlify (production, functions) and deployed. It ended up
+  marked **secret** → unreadable. Nicolás (2026-10-04): this token is NOT sensitive, don't rotate it for
+  safety. If a session needs its value (e.g. for /facturar), the executor re-creates it as a NON-secret var
+  (delete + add, redeploy) — that's the only way to read it again.
+- **Key policy (Nicolás):** never ask him to save/copy/handle keys. Netlify env is the only key store;
+  `VAPID_PRIVATE_KEY` / `LEAD_TOOLS_TOKEN` / `WA_CLOUD_VERIFY_TOKEN` stay **non-secret on purpose** (sessions read
+  them via the Netlify connector). The cloud session's auto-mode classifier blocked copying keys to Drive and
+  editing CLAUDE.md with this rule → the executor should add it to CLAUDE.md "Environment variables".
+- ⚠️ **DB leftovers to drop (executor):** a duplicate #34 attempt left 4 UNUSED functions, no triggers —
+  `link_lead_from_session()`, `link_lead_from_patient()`, `lead_link_rank(text)`, `phone_last9(text)`. Live ones
+  are `lead_link_from_*` + `trg_lead_link_from_*` (cb39f59). Drop:
   `drop function if exists link_lead_from_session(), link_lead_from_patient(), lead_link_rank(text), phone_last9(text);`
-  (the cloud connector times out waiting for approval on destructive SQL).
+  (the cloud Supabase connector waits for approval on destructive SQL and times out).
+- **Supabase connector gotcha (cloud):** any DROP/destructive statement hangs → 60s timeout; also a
+  pre-existing `lead_stage_rank(stage text)` exists in DB (used by the #34 triggers) — don't redefine it.
 
 ### 2026-10-02 — #34 CAPI hole closed: hand-handled leads now link to the panel (Opus 4.8)
 Leads Nicolás takes over (`bot_paused`) and books by hand never advanced `leads.stage`, so the CAPI sweep
@@ -134,210 +143,19 @@ Migration `lead_funnel_08_panel_link`, mirror `supabase/lead-funnel-08-panel-lin
   (delete the lead first); pre-existing, now more common. (2) Meta "Test Events" leg NOT run — `CAPI_TEST_CODE`
   unset (events route to production) + `CAPI_ALLOW_TEST_PHONE` off; manual recipe in the #22 backlog bullet below.
 
-### 2026-10-02 → 10-04 — /facturar go-live + WhatsApp invoices (cloud session)
-- **First real run:** 5 facturas emitted + SRI-authorized (293 pending, see backlog) — 293 Laura Vásquez,
-  294 Dorian Solis (Valentina Loor), 295 Germania Domínguez (Micaela Castro), 296 Laura Vásquez
-  (Raguel Conforme), 297 Gabriela Páliz (Thomas Quevedo). All marked `facturada`.
-- **SRI date rule:** `fecha_emision` is ALWAYS today (America/Guayaquil) — `todayEcuador()` in
-  `facturar.mjs`. The SRI rejects any other date (cod_error 1017). Session date stays in Observaciones.
-- **Dirección rule:** every factura's dirección is Quito (default kept on purpose, per Nicolás).
-- **`patients.nombre_factura`** (migration `supabase/patient-nombre-factura.sql`): optional override for the
-  name in Observaciones. Set for Cecilia Saltos (mother, "Cecilia Saltos") and her daughter's record
-  ("Valentina Loor") — both `facturacion_obligatoria`, both billed to new payer **Dorian Solis**
-  (cédula 1717217796).
-- **Guard token rotated:** `CONTIFICO_FACTURAR_TOKEN` (Netlify, production, secret) replaced 2026-10-02 —
-  the old value was unreadable. Not a Contífico credential; Contífico keys untouched (Nicolás: never rotate them).
-- **WhatsApp the factura PDF (RIDE)** — `netlify/lib/facturaWhatsapp.mjs` + facturar modes `ride-template`,
-  `ride-template-status`, `send-rides` (plan by default; `&confirm=SEND-RIDES` sends; `&session_id=` for one).
-  Template **`factura_sesion_link`** (Meta id 1097153113160012, UTILITY): "Hola {{1}} 🌿 Te enviamos la factura
-  de {{2}}…" + **"Descargar factura"** URL button → the RIDE. The attached-PDF variant (`factura_sesion`)
-  is impossible via Dualhook (it 404s Meta's upload API). Recipient = **payer's phone, else patient's**
-  (Dorian Solis has none → Cecilia Saltos, by Nicolás's choice). New columns `sessions.contifico_doc_id`
-  (stamped on emit, backfilled for 293–297) + `factura_enviada_at` (no double sends) —
-  `supabase/sessions-factura-whatsapp.sql`. Template example is a generated placeholder PDF/fake URL —
-  never a real RIDE (diagnoses). **APPROVED 2026-10-03; sent + delivered:** 296→Laura, 294→Cecilia, 295→Germania,
-  297→Gabriela. 293 auto-held (not SRI-authorized). Copy wasn't checked with Nicolás first — he'd have
-  changed it: ALWAYS show patient-facing copy before submitting a template. Wired into `/facturar` as
-  **step 6** (`.claude/commands/facturar.md`: plan → Nicolás's OK → send → confirm in `whatsapp_delivery_status`).
-- **Back-invoicing missed sessions (2026-10-03):** sessions before `FACTURAR_SINCE` were never invoiced by hand
-  (Laura's + Cecilia's chats). `emit-one&before_floor=1` invoices ONE named pre-floor session; `batch` keeps
-  the floor (backlog never swept). `send-rides` has **no date floor** (`contifico_doc_id` is only set by our own
-  emissions). Emitted + sent **298/299** (Valentina 5 & 15 Sep), **300** (Cecilia 17 Sep) → Cecilia; **301**
-  (Emilie) + **302** (Raguel) 18 Sep → Laura (sessions moved 19→18 Sep per Laura). Raguel 12 Sep skipped on purpose.
-- **SRI authorization lag:** 293 and 298–302 sat signed-but-unauthorized for hours (overnight) while 294–297
-  authorized in seconds — not batch-vs-single; SRI "offline" mode allows up to 24h. Just wait / re-check next day;
-  `send-rides` only sends authorized docs, so nothing goes out early.
-- **Greeting name:** `rideRecipient` greets non-menor patients with `nombre_factura`'s spelling ("Cecilia", not
-  the record's "Cecília").
-- **`/marketize`** moved into the repo (`.claude/commands/marketize.md`); importer reads secrets from env
-  too, so it runs in cloud sessions.
-- **Netlify env hygiene:** plaintext `dev`-context copies of SUPABASE_SERVICE_KEY + 4 Twilio vars blanked.
-  Still non-secret: VAPID_PRIVATE_KEY, LEAD_TOOLS_TOKEN, WA_CLOUD_VERIFY_TOKEN (connector can't flip them).
-- [x] **First QualifiedLead / CAPI Meta campaign LAUNCHED** (2026-10-01, Opus 4.8) — *marketing ops, no repo code; built in Ads Manager via browser automation.* First campaign feeding the #22 CAPI.
-  - **Account correction (important):** the real Efimeramente ad account is **`2663225010700511`** ("Efimeramente 2da Cuenta"), business portfolio `1077659662089797`, dataset/pixel `1131866282506788`, WhatsApp `+593 96 845 9933`. The `2199122680304491` written in the ad brief is **WRONG/empty** (only a leftover Reach draft). Saved as memory `meta-ad-account.md`.
-  - **Campaign** `Efimeramente · Embudo v2 · QL · 2026-10-01` (id `120255397227890119`): objective **Clientes potenciales (Leads)**, Auction, **CBO off** (ad-set budgets), 20%-share off. Two A/B ad sets, **$10/day each ($20/day)**.
-    - Ad set A `120255397227900119` → ad A `120255397227910119`: video **Stutz-Inversión-Final.MOV**, copy on Stutz's *Inversión del Deseo*.
-    - Ad set B `120255397432140119` → ad B `120255397432130119`: video **Gottman-Madera-Final.mov**, copy on Gottman's *4 jinetes*. Shared headline "Herramientas desde la 1ª sesión", CTA Enviar mensaje de WhatsApp.
-  - Both ad sets: conversion location **WhatsApp**, goal **"Maximizar el número de clientes potenciales"** (messaging/CAPI leads optimization), bid Volumen más alto, saved audience **"Publico Septiembre 2026 - arreglado"** (cloned from `TimBurton-Claymation2`, the old Interacción campaign used as baseline) + edad 25–40.
-  - **Gotchas for next time:** (1) **QualifiedLead has NO explicit event picker on WhatsApp conversion location** — that selector only exists in the Website-conversion flow; the WhatsApp leads optimization is fed by the messaging CAPI + WhatsApp Business lead labels (Nicolás approved this as the path). (2) Selecting "Maximizar clientes potenciales" from the dropdown **reverts to "conversaciones"** — you must click **"Aplicar"** on Meta's recommendation card to make it stick. (3) **Manual placements are gone** — Meta forces Advantage+ placements (all); can't replicate a manual placement list anymore. (4) **Ad account timezone = "Hora de Colombo" (GMT+5:30), not Ecuador** — pre-existing misconfig (TimBurton too); shifts daily-budget resets + reporting day boundaries. (5) Videos are 9:16 → tagged "Sin optimizar" for feed (Meta crops). (6) Video upload: the 64–74 MB files exceed the browser-automation 10 MB cap AND Downloads isn't a shared folder — **Nicolás had to upload them manually** via the Subir button.
-  - **Published by Nicolás** (campaign live, spending). Next: watch for `QualifiedLead` events in Events Manager (dataset `1131866282506788`) once real ad-clicks book via the bot — this is the live test of the #22 backlog item.
-- [x] **Lead bot — second "not a lead" bug: outbound-first senders + payment receipts** (2026-10-01, Opus 4.8).
-  Two senders were wrongly greeted as new leads (bot asked "¿motivo de consulta?"): (A) +593985506258 — Nicolás
-  wrote him payment details by hand first, he replied with a transfer screenshot; (B) the general case where
-  we message someone first and they reply by text. Three surgical fixes, no destructive DDL:
-  - **(1) Store outbound echoes.** `handleEchoes` (`netlify/lib/leadBot.mjs`) now, besides pausing existing
-    leads, persists each `smb_message_echo` as an `outbound` `whatsapp_messages` row — keyed by the recipient's
-    digits at `raw_payload->>'to_digits'`, `twilio_sid`=echo wamid (dedupe via the existing unique index +
-    `upsert onConflict twilio_sid ignoreDuplicates`), `received_at`=echo timestamp. Previously echoes were only
-    used to flip `bot_paused` and were never stored, so "did we write this number first?" was unanswerable.
-  - **(2) Not-a-lead rule.** New `hasEarlierOutbound(supabase, from, beforeMs)` in leadBot; `recordLead` now
-    skips (returns null — no lead row, bot silent) for an ORGANIC sender when EITHER an earlier inbound OR an
-    earlier outbound to them exists before their current inbound's timestamp (+1s skew). Ad-click leads
-    (`meta_ctwa`) still always create a row, same as before.
-  - **(3) Receipts bypass the funnel.** `whatsapp-cloud-webhook.mjs`: the lead block is now gated with
-    `isReceiptMedia = msg.type === 'image' || 'document'` → images/PDFs never create a lead or trigger the bot.
-    The comprobante flow (#2) already OCRs every inbound image+document, so nothing is lost. In
-    `proofReconcile.mjs#decideAutoReconcile`, a non-receipt (`ex.is_payment_proof === false`) is now `skip`ped
-    SILENTLY (checked before the unmatched/extraction branches) so random photos don't spam Nicolás; and
-    `MOTIVO.unmatched` reworded to **"comprobante de número desconocido"** (the alert already carries the OCR
-    sender name + amount). Unknown-number alert still requires `COMPROBANTES_AUTO_LIVE=true`.
-  - **Index:** `supabase/whatsapp-messages-outbound-to-idx.sql` (partial index on `(raw_payload->>'to_digits')
-    WHERE direccion='outbound'`) — applied via `apply_migration whatsapp_messages_outbound_to_idx`.
-  - **Part 3 verified, no change:** the 30 Sep +593984765268 "saludo" misclassifications (agendar / named
-    therapist Carolina) are already fixed by commit `b23a353` (today 10:12) — the deterministic
-    `isAgendarText` / `matchTherapistInText` layer + the `agendar`/`terapeuta_nombrado` intents. Those decisions
-    predate the commit.
-  - **Tests for Nicolás (not runnable from here — need his phone):** reset his test number 593968029896 to a
-    clean slate (deleted its lead / lead_ai_decisions / whatsapp_messages). (a) from 9933 write to 593968029896
-    by hand first, then send a text from that phone → bot must NOT reply (needs his number in
-    `LEAD_BOT_TEST_PHONES` or `LEAD_BOT_LIVE=true` for the test to be meaningful). (b) send a transfer-receipt
-    image from a NEW number → no greeting; comprobante alert fires only if `COMPROBANTES_AUTO_LIVE=true`.
-  - Build green; `leadBot.mjs`/`proofReconcile.mjs`/`whatsapp-cloud-webhook.mjs` `node --check` clean. Not touched
-    (per instruction): routing, CAPI, the reply delay. Historical false lead db066c09 (+593985506258) left in
-    place (already `bot_paused`); delete manually if funnel metrics need it.
-- [x] **Lead bot — burst coalesce + tighter felt delay** (2026-10-01, Opus 4.8). Both #27/#30 follow-ups,
-  entirely inside **`netlify/functions/lead-reply-background.mjs`** (the delayed-reply background fn); no
-  schema change, no change to the webhook's fire-per-message flow (only its stale "FIXED 20s" comments updated).
-  - **Tighter delay:** the up-front wait is now `WAIT_MS = REPLY_DELAY_MS(20s) − CLASSIFY_BUDGET_MS(5s)` = 15s,
-    so the Sonnet classify (~2.5–4.5s, 8s cap) overlaps the remainder and the Claude path lands near 20s instead
-    of ~25s (the old bug: a fixed 20s `sleep` ran BEFORE `runBot`→Claude). Deterministic paths (named therapist
-    / agendar / greeting, no model call) now reply a touch sooner (~15s) — acceptable.
-  - **Burst coalesce:** a lead firing N quick texts still spawns one background invocation each, but only the
-    LAST replies, and it replies to the WHOLE burst folded into one message. Coordination is stateless (separate
-    fn instances): after the wait, one newest-first query over `whatsapp_messages` (inbound, matched on
-    `raw_payload->message->>from` = phone digits, limit 15) serves both jobs — (a) **bail** if `rows[0].twilio_sid
-    !== msg.id` (a newer inbound landed during the wait → a later invocation, waking after its own wait, answers
-    the full set); (b) **gather** every inbound text with `received_at > lead.last_bot_at` (the unanswered burst),
-    strip media markers (`[`-prefixed), join chronologically, and pass a synthetic `{type:'text', text:{body}}`
-    to `runBot`. So the deterministic + Claude layers classify the full thought, not just the first line.
-  - **Why not literal "classify-first-then-wait" (the backlog wording):** classifying up front on each message
-    would do N model calls on fragments and reply to only the first line — it doesn't compose with coalesce.
-    Wait-then-classify-the-combined-text (shaved by the classify budget) gives both the ~20s delay and one
-    coherent answer. Single-message behaviour is byte-identical except the shorter wait (combined === myText ⇒
-    original `msg` is used; no bail since `rows[0]` is itself).
-  - **Edges handled:** `bot_paused` during the wait → early return (also caught by `runBot`); brand-new lead's
-    first burst → winner has `isNew=false` but `step_actual` still null ⇒ `firstTouch` true, welcome path intact;
-    media-tail burst → `myText` empty ⇒ falls back to original-msg handling (`renderStep`). Build green; both
-    fns `node --check` clean. **Not yet observed against a real multi-text burst in prod** — watch Marketing →
-    Embudo / function logs on the next live burst.
-- [x] **Lead-bot classifier fix — booking intents no longer read as greetings** (2026-10-01, Opus 4.8).
-  Live bug (lead +593984765268, 30 Sep): "me gustaría agendar mi primera cita" and "quiero empezar mi cita
-  con la Dra. Carolina Almeida" were classified `saludo` by the model → 3 identical "Hola! 🌿 Cuéntame, en qué
-  te puedo ayudar" bubbles + 8h silent. Fixed at the root with a **deterministic layer that runs before the
-  model** in `netlify/lib/leadBot.mjs#handleFreeText`, plus prompt tightening in `netlify/lib/leadBrain.mjs`.
-  - **The bad greeting text is GONE.** The ONLY greeting is now the spec one: `welcomeAndReasons()` sends
-    "Hola! Qué gusto que nos escribas" + the reason list ("Me dirías tu motivo de consulta?"). The two
-    `'Hola! 🌿 Cuéntame…'` dead-ends (old `handleFreeText` non-firstTouch + `applyDecision` saludo-no-categoria)
-    and the two `'Cuéntame, en qué te ayudo 🙂'` nudges (`renderStep` fallback + `runBot` media note) were
-    removed — those paths now fall through to `showReasonList`.
-  - **New `handleFreeText` priority order:** gracias → diagnostico/varios prompt steps → safety-net pushes →
-    **(1) named therapist** → **(2) bare greeting** → **(3) agendar** → **(4) Claude**. Order matters:
-    a therapist name beats a booking verb ("quiero empezar mi cita con la Dra. Carolina Almeida" → Carolina).
-  - **Named-therapist detection is deterministic + model-independent** (`matchTherapistInText` over
-    `allTherapists`, accent-insensitive, matches full name → apellido → ≥5-char first-name token on word
-    boundaries). This is why it catches Mariana/Daniela, whom the model never sees (they're `recibe_nuevos=false`
-    so absent from the fact sheet). `namedTherapist()`: always `pushNicolas` (safety net a), then if
-    `recibe_nuevos=false || id===MARIANA_ID` → handoff + pause, else render that one therapist's card
-    (`renderCards([t], {intro})`) with the normal "Quiero conocerla/o" button → existing pick flow.
-  - **`agendar`** (`isAgendarText`, no therapist named) → reason list directly, no greeting.
-  - **Classifier (`leadBrain.mjs`):** `saludo` is now ONLY a pure greeting; added intents `agendar` and
-    `terapeuta_nombrado` (+ a `terapeuta` output field the code resolves via `resolveTherapistByName`) to
-    `INTENTS`, the tool schema, `SYSTEM_RULES`, few-shots, and the `decideFreeText` return. The model is a
-    backstop; the deterministic layer is the authority. **Not a restructure** — enum + prompt lines only.
-  - **Dedup + safety nets** (migration `supabase/lead-funnel-07-greeting-dedup.sql`, applied;
-    `leads.saludo_enviado` / `last_bot_text` / `stuck_push_at`): `say()` never sends the same text twice in a
-    row; greeting sent once per lead (`saludo_enviado`). Pushes to Nicolás (owner-only, `notifyTherapist(null)`,
-    no pause): (a) any `terapeuta_nombrado`, (b) `maybeReengagePush` — lead writes again after >1h without
-    moving past `nuevo/toco/eligio_terapeuta`, (c) `maybeStuckPush` — ≥3 inbound and still on the starting step
-    (once, via `stuck_push_at`).
-  - **Verified** end-to-end against the LIVE DB with the WhatsApp send layer mocked (all 4 cases route without
-    touching the model): "buen día" → greeting once + list · "quiero agendar una cita" → list only, no re-greet
-    · "quiero una cita con Carolina Almeida" → Carolina card + push · "quiero con Mariana" → handoff + pause.
-    `lead_ai_decisions` logged `agendar` / `terapeuta_nombrado:Carolina` / `terapeuta_nombrado_cerrado:Mariana`
-    (model `regla`). Also broadened greeting detection so "buen día"/"buen dia" are caught (`classifyKeywords`
-    saludo regex + `isBareGreeting` strip).
-- [x] **#4b Funnel cards v2 + final routing + Mapa de casos matching — SHIPPED & LIVE** (2026-09-28, Opus 5).
-  Commits `800c3f0` → `77f838e` → `1241e8c`. Source of truth for all of it:
-  `~/Desktop/MD FILES - MISCELANEOUS/MAPA DE CASOS.md` (survey answered by the team 27–28 Sep).
-  - **Cards (`scripts/build-cards.mjs`, new):** renders `public/cards/<slug>.jpg` from a photo in `~/Downloads`
-    + the copy in the `CARDS` array. **Slugs are load-bearing** — they're what `therapists.funnel_card_url`
-    points at, so renaming one breaks the bot's image cards. Chrome headless screenshot at 2× → `sips`
-    downscale → JPEG q86. Webfont (DM Sans) is fetched at render time.
-    - The photo is shown **WHOLE — never cropped or zoomed** (Nicolás, 28 Sep: a face-crop v1 looked "crammed").
-      Width fixed at 989 so the set looks uniform in a chat; **height follows each photo's aspect**, so
-      Carolina (989×1690) and Sophia (989×1629) are taller than the other four (989×1410).
-    - Card carries ONLY: whole photo, name, one education line. **The 3 areas are NOT on the card** — they live
-      in `therapists.funnel_caption`, which `renderCards` already sends as the message text beside the image.
-    - `scripts/face-detect.swift` (macOS Vision) is still run but **only as a sanity check** — a portrait with
-      no detectable face means the wrong file was picked up. It no longer drives framing.
-    - **Gotcha:** the photos were "in Recents" in Finder, not a folder. `mtime`/`birthtime` are the ORIGINAL
-      shoot dates (Mar–Aug 2026) because macOS preserves them on download — the field that proves recency is
-      **`kMDItemDateAdded`** (`mdls`). Don't conclude "no new photos" from mtime again.
-  - **Captions:** `therapists.funnel_caption` rewritten to the 3 areas as `• `-prefixed lines, no Enfoque.
-    Multi-line captions broke the two prompts that list one therapist per line, so `leadBrain.mjs` now has
-    `oneLine()` and both `buildFactSheet` and `matchTherapistsForText` flatten before embedding.
-  - **Routing:** `funnel_categorias.terapeutas` set to the final ordered lists for all 7 active categories
-    (hijo / ruptura / problemas_pareja / depresion_ansiedad / consumo / terapia_pareja / trauma). Verified by
-    query that Francisco is in the visible top-3 everywhere he's listed; `terapia_pareja` is the one category
-    he's deliberately absent from (✗ for joint couples work). Daniela is stored but `recibe_nuevos=false`, so
-    she's filtered out of every list today. The "never bump Francisco" guard already lived in `resolveCards`.
-  - **Reasons 7 + 9 now match against the matrix (`netlify/lib/mapaCasos.json`, new):** motivos / poblaciones /
-    diagnósticos (★ ○ ✗) + each therapist's stated exclusions. Only the roster's rows are rendered into the
-    prompt (`mapaBlockFor`), so the model sees specialties and no-gos instead of marketing copy.
-    - Exclusions are enforced **in code, twice**: `matchTherapistsForText` pre-filters the roster (an excluded
-      therapist is never offered) and re-filters the model's answer (a hallucinated name can't slip past).
-      All candidates ruled out ⇒ `derivar` with motivo `sin_fit_exclusiones`, never an empty card list.
-    - `readSignals` reads **only what the lead states outright** — an explicit age, "adicción". **"mi hijo" with
-      no age does NOT hard-filter**; it's passed to the model as context, because silently dropping a good match
-      on a guessed age is worse. Age parsing excludes durations: "llevo 8 años de casado" is not an 8-year-old
-      (that bug would have dropped 4 therapists from a couples case — caught in testing, fixed before ship).
-    - `_mapa` is exported from `leadBrain.mjs` purely so the deterministic half can be checked without a
-      network call (no test runner in this repo).
-    - Self-harm / eating disorders / psychosis / bipolar keep deriving to Nicolás, unchanged.
-  - **esbuild note:** the JSON is imported with `with { type: 'json' }`; verified it bundles (esbuild 0.25,
-    `node_bundler = "esbuild"`) and inlines into the function.
-  - **Verified end-to-end** via synthetic Cloud-API webhooks from `593968029896` (no signature needed —
-    `WA_CLOUD_APP_SECRET` is unset; `LEAD_BOT_TEST_PHONES` already held the number): reason 1 → cards/hijo,
-    reason 4 → cards/depresion_ansiedad, reason 7 "tengo TDAH" → **`match_diagnostico: Maria Gracia, Francisco`**
-    (2.0s, `used_fallback:false`). Two names not three is CORRECT — TDAH is ✗ for the other four.
-- [x] **#22 Meta CAPI + #30 `recentInbound` fix** (2026-09-27) — **moved to `CHANGELOG.md`** 2026-10-04. TL;DR:
-  CAPI for Business Messaging live (`capi-admin` status/discover/sweep/test-event); `recentInbound` uses `received_at`.
-- [x] **Lead funnel v2 (#27) — "answer first, then offer" + VERBATIM canned answers** (2026-09-27) — **moved
-  to `CHANGELOG.md`** 2026-10-01. TL;DR: Msg 1 removed; greeting→welcome+10-reason list, question→Claude answers
-  then one-time invite; code sends verbatim `CANNED` (`sendCanned`). Migration `funnel_v2_schema` (`supabase/lead-funnel-05-v2.sql`).
-> **Lead funnel #22/#24/#27/#30/#4+#20 full records → `CHANGELOG.md`**. Live operational record still in the "✅ Lead funnel" section near the top of this file.
-- [x] **#19 saldo a favor + Payment reminders + Comprobante auto-mark + /facturar REST rewrite** (2026-09-23→27)
-  — all **moved to `CHANGELOG.md`**. Env flags `PAYMENT_REMINDERS_LIVE`/`COMPROBANTES_AUTO_LIVE`/`FACTURAR_SINCE`;
-  files `saldo.mjs`/`proofReconcile.mjs`/`facturar.mjs`. Backlog summaries still under "✅ DONE" below.
-> **Older completed work (2026-09-22 and earlier) lives in `CHANGELOG.md`.**
-> It is deliberately not loaded into session context. Read it on demand.
+### 2026-10-02 → 10-04 — /facturar go-live + WhatsApp invoices → moved to `CHANGELOG.md` (top) by /cierre 2026-10-04 pm.
 
 ## Pending / Backlog
 
+### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **#37 Bot drop-off at the reasons list** — 48 leads since 26 Sep: 18 stuck at `toco`, 2 chose a therapist,
+      2 booked. Diagnose from `leads` + `lead_ai_decisions`, propose copy/flow (show Nicolás first). NOT routing
+      (`funnel_categorias`), NOT the bot delay.
+- [ ] **#38 Drop the 4 unused functions** (SQL in the 2026-10-04 Completed entry) + add the key policy to CLAUDE.md.
+
 ### 🔴 Contífico / invoicing follow-ups — surfaced 2026-10-02→04
-- [ ] **Save `CONTIFICO_FACTURAR_TOKEN` in the cloud environment's variables** (Nicolás, env → Edit). The rotated
-      value only lived in a session scratchpad; a new session without it must rotate again (new Netlify value +
-      redeploy). Also `VITE_SUPABASE_URL` + `SUPABASE_SERVICE_KEY` were added there 2026-10-02 (for /marketize).
+- [ ] **`CONTIFICO_FACTURAR_TOKEN` is secret/unreadable in Netlify** (re-generated 2026-10-04). Not sensitive per
+      Nicolás. Before the next /facturar the executor re-creates it as a NON-secret var (delete + add, redeploy).
 - [ ] **Raguel Conforme 12 Sep** (paid, never invoiced) — skipped on Nicolás's instruction 2026-10-03; invoice with
       `emit-one&before_floor=1` if he asks.
 - [ ] **Factura WhatsApp copy** — Nicolás doesn't love `factura_sesion_link`'s wording. If he sends new copy:
