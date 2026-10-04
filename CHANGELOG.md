@@ -5,6 +5,87 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-04 -->
+- [x] **#22 Meta Conversions API (CAPI for Business Messaging) — SHIPPED & LIVE** (2026-09-27, Opus 4.8).
+  Commits `9091db5`→`5d7c02c`. Reports each Click-to-WhatsApp lead's funnel progress to Meta, keyed on its
+  `ctwa_clid`, so the campaign can optimize on real outcomes. **`CAPI_LIVE=true`** (rollback: unset it).
+  - **Data:** migration `supabase/lead-funnel-06-capi.sql` — `leads.ctwa_clid` + `capi_{lead,schedule,
+    purchase}_sent_at` + partial index. Backfilled `ctwa_clid` from `whatsapp_messages.raw_payload->message->
+    referral->ctwa_clid` (**11/11 ad leads**; 3 organic have none). `recordLead` (leadBot.mjs) captures it
+    going forward (`referralOf` returns it; backfills onto a known contact who later clicks an ad).
+  - **Transport = Plan B (the Dualhook proxy is messaging-only — it 404s the `/dataset` + `/events` edges).**
+    A Meta **system-user token** `efimeramente-capi` (portfolio `1077659662089797`, scopes
+    `whatsapp_business_management` + `whatsapp_business_manage_events`; **ads_management wasn't offered on the
+    "Efimeramente" app** — only needed for the campaign-goal switch, a manual step) lives in Netlify env
+    **`META_CAPI_TOKEN`** (production, secret, never-expires). `netlify/lib/capi.mjs` auto-switches to
+    `graph.facebook.com` when it's set, else falls back to Dualhook. **Dataset = `1131866282506788`**
+    (`META_DATASET_ID`, from `GET /{WABA 1857507018469524}/dataset`) — NOT the legacy Events-Manager one
+    (1722418552501748).
+  - **Events (business_messaging enum — web names 'Lead'/'Schedule' are REJECTED):** category picked →
+    `LeadSubmitted` · intro call booked → `QualifiedLead` (**optimize the campaign on this**) · first paid
+    real session → `Purchase` (value USD). Fired by the **`lead-followups` cron** (Phase E, `sweepCapiEvents`),
+    idempotent via the `capi_*_sent_at` cols + deterministic `event_id` (`<lead_id>:<event>`). Test phone
+    excluded unless `CAPI_ALLOW_TEST_PHONE=true`. Never touches `convirtio`.
+  - **Ops endpoint `netlify/functions/capi-admin.mjs`** (token-guarded by `WA_CLOUD_VERIFY_TOKEN`):
+    `status` / `discover` / `sweep` / `test-event`. (The arbitrary-Graph `raw` passthrough was removed after
+    the stop-condition probe.) **Validated:** all 3 event types returned `events_received:1` with test code
+    `TEST51990`. **Gotcha:** Meta shows the token once — copy via the dialog + `pbpaste`→`netlify env:set` in
+    ONE atomic call (clipboard can get swapped between calls). Netlify CLI installed + linked this session.
+- [x] **#30 — `recentInbound` history bug fixed: query `received_at`, not `created_at`** (2026-09-27,
+  Opus 4.8). Commit `9284328`, one-line fix in `netlify/lib/leadBot.mjs#recentInbound`. `whatsapp_messages`
+  has **no `created_at` column** (only `received_at`, default `now()`) → the old `.select('cuerpo,
+  created_at').order('created_at')` errored at PostgREST, `data` came back null, fn returned `[]`, so
+  **Claude got an EMPTY history on every T2 call** (`decideFreeText`, both classify + `libre`). Now uses
+  `received_at`; scoping/oldest-first/`limit(12)` unchanged. History reaches Claude as the "Mensajes
+  recientes del cliente" block (leadBrain.mjs L160) — **inbound lines only** by design; `matchTherapistsForText`
+  gets none. **LIVE test** (`593968029896`, row reset first): (3a) "hola, es para mi hijo de 15" →
+  `intent=adolescentes, categoria=hijo`, tap "Sí" → **skipped reasons list, jumped to hijo cards** (next msg
+  logged `step:"cards"`). ✅ (3b/3c) surfaced two tuning items — see Pending / Backlog.
+### ✅ DONE 2026-09-23 — /facturar REWRITTEN against the Contífico REST API
+- Full write-up moved to `CHANGELOG.md` (2026-09-27). TL;DR: `/facturar` runs entirely through
+  `netlify/functions/facturar.mjs` (Chrome protocol deleted); emit = `POST /documento/` → `PUT /sri/`;
+  eligibility `confirmada + pagado + NOT facturada + tipo<>llamada + facturacion_obligatoria + fecha ≥
+  FACTURAR_SINCE (2026-09-24)`, **non-retroactive**; Observaciones = `descripcion` (`Paciente {nombre} |
+  {CIE} {dx} | Sesión {fecha}`); token in Netlify env `CONTIFICO_FACTURAR_TOKEN`; backfill applied. **Go-live
+  parked (#16) — Nicolás flips it on manually.** All 20 obligatoria sessions dry-run READY.
+- **DualHook send-scope + templates + CUTOVER — ALL DONE (cutover 2026-09-22, see Completed
+  Features).** Send scope confirmed; `recordatorio_cita` **APPROVED**; **`deliverReminder` now POSTs
+  Dualhook and reminders send live via Dualhook.** Twilio is retired-but-dormant behind
+  `REMINDERS_PROVIDER` (default `dualhook`). (Payment-reminder templates + protocol shipped 09-24/25 —
+  see the top of Completed Features.)
+
+- [x] ~~**Build `/facturar` (browser automation, Protocol 2)**~~ — **REPLACED 2026-09-23** by the
+      REST-API rewrite (see the ✅ DONE entry at the top of this backlog + Completed Features). The
+      browser protocol, the Consumidor Final fallback, the Registrar Persona flow, and the
+      `facturacion_manual`/NEVER-INVOICE safety list are all deleted. `.claude/commands/facturar.md`
+      is the source of truth for the new API protocol.
+- [x] ~~**Eligible-session query for /facturar**~~ — superseded: eligibility now lives in
+      `netlify/functions/facturar.mjs` (`facturacion_obligatoria` + non-retroactive `FACTURAR_SINCE`
+      floor; no 7-day window, no `facturacion_manual`).
+- [x] ~~**Missing cédulas / diagnoses for the obligatoria patients**~~ — DONE 2026-09-23. All 10
+      backfilled; Andrés Gotta's cédula (1761043908) recovered from Contífico; diagnosis made optional
+      so Valentina Andrade invoices without one. Dry-run reports 0 blocked. Fill only with real data.
+- [x] ~~**Patient data hygiene**~~ — DONE 2026-07-17. Merged 2 duplicate patients created by phone-format
+      variants slipping past the `telefono` UNIQUE constraint: **Renata Hidalgo** (llamadas + real session were
+      split across 2 rows) and **Isabel Durán**. Repointed `sessions` + `whatsapp_messages` to the survivor,
+      then deleted the dup. Also normalized phones table-wide: **9 fixed** (stripped spaces/dashes/hidden
+      Unicode, dropped stray trunk-0s), 166 already clean. **6 flagged, can't auto-fix → `~/Downloads/
+      telefonos_por_revisar.csv`** (Juan Flores & M. de Lourdes Altamirano = missing digits; Micaela Castro =
+      collides with Germania Domínguez's number; Santiago Maldonado = ambiguous trailing `-2`; Daniel y Daniela
+      `8` & Michelle Tinajero `9` = garbage). NOT an error: the Conforme/Vásquez trio share `+593999643019`
+      (insurance family). Still-open cleanup: split the composite row "Daniel y Daniela" into individual
+      patients. ("Thomas (Gabriela P. y Matheo Q.)" and "Micaela Castro (Germania Dominguez)" were RESOLVED
+      2026-09-22 via the payers model — surnames cleaned to Thomas Quevedo / Micaela Castro, payer linked.)
+      NOTE: app-side, phones aren't normalized on write — spaces
+      bypass the UNIQUE constraint, so dups can recur until an input-normalization fix lands.
+- [x] ~~**Wire `/facturar` to the payer.**~~ — DONE 2026-09-23 in the API rewrite: `billingIdentity()`
+      issues to the `payers` row when `payer_id` is set (its cédula/razón_social/contifico_id), else the
+      patient; the descripcion always names the patient.
+- [x] ~~**Flag interaction — the 4 insurance patients**~~ — RESOLVED 2026-09-23: `facturacion_manual`
+      is no longer read by `/facturar` (eligibility keys off `facturacion_obligatoria` only). The API
+      produces the insurance format, so Sharian Narváez / Raguel & Emilie Conforme / Laura Vásquez are
+      now invoiced automatically like everyone else. The `facturacion_manual` column is left dormant.
+
 - [x] **Lead funnel v2 (#27) — "answer first, then offer" + VERBATIM canned answers** (2026-09-27,
   Opus 4.8). Commits `8574b58` (v2) `115063f` (greeting/handoff fixes) `80025d6` (verbatim/classifier).
   Migration `funnel_v2_schema` + data reseed, mirror `supabase/lead-funnel-05-v2.sql`. Spec:

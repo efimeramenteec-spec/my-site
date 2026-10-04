@@ -100,7 +100,7 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
-### 2026-10-02 — /facturar go-live (cloud session)
+### 2026-10-02 → 10-04 — /facturar go-live + WhatsApp invoices (cloud session)
 - **First real run:** 5 facturas emitted + SRI-authorized (293 pending, see backlog) — 293 Laura Vásquez,
   294 Dorian Solis (Valentina Loor), 295 Germania Domínguez (Micaela Castro), 296 Laura Vásquez
   (Raguel Conforme), 297 Gabriela Páliz (Thomas Quevedo). All marked `facturada`.
@@ -123,8 +123,18 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   `supabase/sessions-factura-whatsapp.sql`. Template example is a generated placeholder PDF/fake URL —
   never a real RIDE (diagnoses). **APPROVED 2026-10-03; sent + delivered:** 296→Laura, 294→Cecilia, 295→Germania,
   297→Gabriela. 293 auto-held (not SRI-authorized). Copy wasn't checked with Nicolás first — he'd have
-  changed it: ALWAYS show patient-facing copy before submitting a template. **Next:** add send-rides as
-  `/facturar` step 5 (after emit + SRI authorization).
+  changed it: ALWAYS show patient-facing copy before submitting a template. Wired into `/facturar` as
+  **step 6** (`.claude/commands/facturar.md`: plan → Nicolás's OK → send → confirm in `whatsapp_delivery_status`).
+- **Back-invoicing missed sessions (2026-10-03):** sessions before `FACTURAR_SINCE` were never invoiced by hand
+  (Laura's + Cecilia's chats). `emit-one&before_floor=1` invoices ONE named pre-floor session; `batch` keeps
+  the floor (backlog never swept). `send-rides` has **no date floor** (`contifico_doc_id` is only set by our own
+  emissions). Emitted + sent **298/299** (Valentina 5 & 15 Sep), **300** (Cecilia 17 Sep) → Cecilia; **301**
+  (Emilie) + **302** (Raguel) 18 Sep → Laura (sessions moved 19→18 Sep per Laura). Raguel 12 Sep skipped on purpose.
+- **SRI authorization lag:** 293 and 298–302 sat signed-but-unauthorized for hours (overnight) while 294–297
+  authorized in seconds — not batch-vs-single; SRI "offline" mode allows up to 24h. Just wait / re-check next day;
+  `send-rides` only sends authorized docs, so nothing goes out early.
+- **Greeting name:** `rideRecipient` greets non-menor patients with `nombre_factura`'s spelling ("Cecilia", not
+  the record's "Cecília").
 - **`/marketize`** moved into the repo (`.claude/commands/marketize.md`); importer reads secrets from env
   too, so it runs in cloud sessions.
 - **Netlify env hygiene:** plaintext `dev`-context copies of SUPABASE_SERVICE_KEY + 4 Twilio vars blanked.
@@ -276,41 +286,9 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
     `WA_CLOUD_APP_SECRET` is unset; `LEAD_BOT_TEST_PHONES` already held the number): reason 1 → cards/hijo,
     reason 4 → cards/depresion_ansiedad, reason 7 "tengo TDAH" → **`match_diagnostico: Maria Gracia, Francisco`**
     (2.0s, `used_fallback:false`). Two names not three is CORRECT — TDAH is ✗ for the other four.
-- [x] **#22 Meta Conversions API (CAPI for Business Messaging) — SHIPPED & LIVE** (2026-09-27, Opus 4.8).
-  Commits `9091db5`→`5d7c02c`. Reports each Click-to-WhatsApp lead's funnel progress to Meta, keyed on its
-  `ctwa_clid`, so the campaign can optimize on real outcomes. **`CAPI_LIVE=true`** (rollback: unset it).
-  - **Data:** migration `supabase/lead-funnel-06-capi.sql` — `leads.ctwa_clid` + `capi_{lead,schedule,
-    purchase}_sent_at` + partial index. Backfilled `ctwa_clid` from `whatsapp_messages.raw_payload->message->
-    referral->ctwa_clid` (**11/11 ad leads**; 3 organic have none). `recordLead` (leadBot.mjs) captures it
-    going forward (`referralOf` returns it; backfills onto a known contact who later clicks an ad).
-  - **Transport = Plan B (the Dualhook proxy is messaging-only — it 404s the `/dataset` + `/events` edges).**
-    A Meta **system-user token** `efimeramente-capi` (portfolio `1077659662089797`, scopes
-    `whatsapp_business_management` + `whatsapp_business_manage_events`; **ads_management wasn't offered on the
-    "Efimeramente" app** — only needed for the campaign-goal switch, a manual step) lives in Netlify env
-    **`META_CAPI_TOKEN`** (production, secret, never-expires). `netlify/lib/capi.mjs` auto-switches to
-    `graph.facebook.com` when it's set, else falls back to Dualhook. **Dataset = `1131866282506788`**
-    (`META_DATASET_ID`, from `GET /{WABA 1857507018469524}/dataset`) — NOT the legacy Events-Manager one
-    (1722418552501748).
-  - **Events (business_messaging enum — web names 'Lead'/'Schedule' are REJECTED):** category picked →
-    `LeadSubmitted` · intro call booked → `QualifiedLead` (**optimize the campaign on this**) · first paid
-    real session → `Purchase` (value USD). Fired by the **`lead-followups` cron** (Phase E, `sweepCapiEvents`),
-    idempotent via the `capi_*_sent_at` cols + deterministic `event_id` (`<lead_id>:<event>`). Test phone
-    excluded unless `CAPI_ALLOW_TEST_PHONE=true`. Never touches `convirtio`.
-  - **Ops endpoint `netlify/functions/capi-admin.mjs`** (token-guarded by `WA_CLOUD_VERIFY_TOKEN`):
-    `status` / `discover` / `sweep` / `test-event`. (The arbitrary-Graph `raw` passthrough was removed after
-    the stop-condition probe.) **Validated:** all 3 event types returned `events_received:1` with test code
-    `TEST51990`. **Gotcha:** Meta shows the token once — copy via the dialog + `pbpaste`→`netlify env:set` in
-    ONE atomic call (clipboard can get swapped between calls). Netlify CLI installed + linked this session.
-- [x] **#30 — `recentInbound` history bug fixed: query `received_at`, not `created_at`** (2026-09-27,
-  Opus 4.8). Commit `9284328`, one-line fix in `netlify/lib/leadBot.mjs#recentInbound`. `whatsapp_messages`
-  has **no `created_at` column** (only `received_at`, default `now()`) → the old `.select('cuerpo,
-  created_at').order('created_at')` errored at PostgREST, `data` came back null, fn returned `[]`, so
-  **Claude got an EMPTY history on every T2 call** (`decideFreeText`, both classify + `libre`). Now uses
-  `received_at`; scoping/oldest-first/`limit(12)` unchanged. History reaches Claude as the "Mensajes
-  recientes del cliente" block (leadBrain.mjs L160) — **inbound lines only** by design; `matchTherapistsForText`
-  gets none. **LIVE test** (`593968029896`, row reset first): (3a) "hola, es para mi hijo de 15" →
-  `intent=adolescentes, categoria=hijo`, tap "Sí" → **skipped reasons list, jumped to hijo cards** (next msg
-  logged `step:"cards"`). ✅ (3b/3c) surfaced two tuning items — see Pending / Backlog.
+- [x] **#22 Meta CAPI (2026-09-27)** + **#30 `recentInbound` fix (2026-09-27)** — **moved to `CHANGELOG.md`**
+  2026-10-04. TL;DR: CAPI for Business Messaging live (`capi-admin` modes status/discover/sweep/test-event);
+  `recentInbound` queries `received_at` (whatsapp_messages has no `created_at`).
 - [x] **Lead funnel v2 (#27) — "answer first, then offer" + VERBATIM canned answers** (2026-09-27) —
   **moved to `CHANGELOG.md`** on 2026-10-01. TL;DR: Message 1 removed; bare greeting → welcome + 10-reason list,
   a question → Claude answers then the one-time invitation. Claude only CLASSIFIES an `intent`; code sends the
@@ -330,20 +308,21 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Pending / Backlog
 
-### 🔴 Contífico cleanup — surfaced 2026-10-02 (first real /facturar run)
-- [x] **FAC 298–302 — authorized overnight, WhatsApp'd + delivered 2026-10-04 10:00.** Were stuck (emitted 2026-10-03, signed, no error): 298/299 Valentina
-      5 & 15 Sep + 300 Cecilia 17 Sep (→ Dorian/Cecilia), 301 Emilie + 302 Raguel 18 Sep (→ Laura). Still
-      unauthorized 4h later (293 also took many hours). Authorize from Contífico web; the next `/facturar`
-      step 6 (`send-rides`) picks them up automatically (sending has no date floor). Emilie/Raguel sessions moved 19→18 Sep per Laura/Nicolás. Raguel 12 Sep
-      (paid, not invoiced) deliberately skipped for now.
+### 🔴 Contífico / invoicing follow-ups — surfaced 2026-10-02→04
+- [ ] **Save `CONTIFICO_FACTURAR_TOKEN` in the cloud environment's variables** (Nicolás, env → Edit). The rotated
+      value only lived in a session scratchpad; a new session without it must rotate again (new Netlify value +
+      redeploy). Also `VITE_SUPABASE_URL` + `SUPABASE_SERVICE_KEY` were added there 2026-10-02 (for /marketize).
+- [ ] **Raguel Conforme 12 Sep** (paid, never invoiced) — skipped on Nicolás's instruction 2026-10-03; invoice with
+      `emit-one&before_floor=1` if he asks.
+- [ ] **Factura WhatsApp copy** — Nicolás doesn't love `factura_sesion_link`'s wording. If he sends new copy:
+      new template name (re-approval), keep the old one until approved; show him the copy BEFORE submitting.
+- [ ] **Lock 3 Netlify vars as secret** (Nicolás, dashboard): VAPID_PRIVATE_KEY, LEAD_TOOLS_TOKEN,
+      WA_CLOUD_VERIFY_TOKEN — the connector can't flip `is_secret` on existing vars.
 - [ ] **Delete the orphan draft FAC 001-001-000000292** in Contífico (id `y7aA5E2lMiP1YagZ`, Laura
       Vásquez, $36, fecha 25/09/2026, estado P, NEVER authorized). Created by the first emit attempt,
       which the SRI rejected (cod 1017 — fecha must be today). The session was re-invoiced correctly
       as **293**. The function has no delete mode; remove it by hand in Contífico (or add a guarded
       `DELETE /documento/<id>/` mode). Leaves a gap at 292 — fine, it was never sent to the SRI.
-- [x] **Confirm 293 got SRI authorization** — authorized 2026-10-03 (took hours) and WhatsApp'd to Laura. (Laura Vásquez, 25 Sep session): signed but still
-      `autorizacion:null` minutes after emission, unlike 294–297. Check
-      `mode=recon&resource=documento&id=KBe18knZMi0ERdXy`; if stuck, authorize it from the Contífico web UI.
 
 ### Lead bot — surfaced 2026-09-26/27
 - [x] ~~Second "not a lead" bug: outbound-first senders + payment receipts greeted as leads~~ — **FIXED
@@ -398,18 +377,7 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [ ] **14-day funnel check — Sat 10 Oct 2026:** lead→call vs the 8% baseline, target ≥25% (exclude test
       phone `593968029896`). If the answer-first opening moved it, keep; else revisit copy/routing.
 
-### ✅ DONE 2026-09-23 — /facturar REWRITTEN against the Contífico REST API
-- Full write-up moved to `CHANGELOG.md` (2026-09-27). TL;DR: `/facturar` runs entirely through
-  `netlify/functions/facturar.mjs` (Chrome protocol deleted); emit = `POST /documento/` → `PUT /sri/`;
-  eligibility `confirmada + pagado + NOT facturada + tipo<>llamada + facturacion_obligatoria + fecha ≥
-  FACTURAR_SINCE (2026-09-24)`, **non-retroactive**; Observaciones = `descripcion` (`Paciente {nombre} |
-  {CIE} {dx} | Sesión {fecha}`); token in Netlify env `CONTIFICO_FACTURAR_TOKEN`; backfill applied. **Go-live
-  parked (#16) — Nicolás flips it on manually.** All 20 obligatoria sessions dry-run READY.
-- **DualHook send-scope + templates + CUTOVER — ALL DONE (cutover 2026-09-22, see Completed
-  Features).** Send scope confirmed; `recordatorio_cita` **APPROVED**; **`deliverReminder` now POSTs
-  Dualhook and reminders send live via Dualhook.** Twilio is retired-but-dormant behind
-  `REMINDERS_PROVIDER` (default `dualhook`). (Payment-reminder templates + protocol shipped 09-24/25 —
-  see the top of Completed Features.)
+> ✅ /facturar REST rewrite (09-23) + DualHook cutover (09-22) — done; records in `CHANGELOG.md`.
 
 ### Design-flaws polish pass (started 2026-08-03) — see `DESIGN-FLAWS-TODO.md`
 Running list of small flaws/nice-to-haves now that all modules are built. Doc is the source
@@ -434,17 +402,6 @@ of truth; open items as of 2026-08-03:
       embedded/linked cross-origin (list currently mirrors `calendar.mjs`).
 
 ### Contífico invoicing — resume here
-- [x] ~~**Build `/facturar` (browser automation, Protocol 2)**~~ — **REPLACED 2026-09-23** by the
-      REST-API rewrite (see the ✅ DONE entry at the top of this backlog + Completed Features). The
-      browser protocol, the Consumidor Final fallback, the Registrar Persona flow, and the
-      `facturacion_manual`/NEVER-INVOICE safety list are all deleted. `.claude/commands/facturar.md`
-      is the source of truth for the new API protocol.
-- [x] ~~**Eligible-session query for /facturar**~~ — superseded: eligibility now lives in
-      `netlify/functions/facturar.mjs` (`facturacion_obligatoria` + non-retroactive `FACTURAR_SINCE`
-      floor; no 7-day window, no `facturacion_manual`).
-- [x] ~~**Missing cédulas / diagnoses for the obligatoria patients**~~ — DONE 2026-09-23. All 10
-      backfilled; Andrés Gotta's cédula (1761043908) recovered from Contífico; diagnosis made optional
-      so Valentina Andrade invoices without one. Dry-run reports 0 blocked. Fill only with real data.
 - [ ] **(Historical, low priority) Fill missing cédulas for non-obligatoria patients** — only matters
       if their `facturacion_obligatoria` is ever turned on. Original notes below:
 - [ ] **Fill the missing cédulas** — IN PROGRESS (session 2026-07-17). Mined `Sesiones_Consultorio (6).xlsx`
@@ -457,33 +414,13 @@ of truth; open items as of 2026-08-03:
       HAS-A-LEAD / BLANK / COMPOSITE / TEST-JUNK / NEVER-INVOICE). Hand the filled CSV back and Claude will
       checksum-validate + bulk-write. Verified all 4 NEVER-INVOICE patients are `facturacion_manual=true`
       (Emilie & Laura already have cédulas so they weren't in the missing set — that's why they looked absent).
-- [x] ~~**Patient data hygiene**~~ — DONE 2026-07-17. Merged 2 duplicate patients created by phone-format
-      variants slipping past the `telefono` UNIQUE constraint: **Renata Hidalgo** (llamadas + real session were
-      split across 2 rows) and **Isabel Durán**. Repointed `sessions` + `whatsapp_messages` to the survivor,
-      then deleted the dup. Also normalized phones table-wide: **9 fixed** (stripped spaces/dashes/hidden
-      Unicode, dropped stray trunk-0s), 166 already clean. **6 flagged, can't auto-fix → `~/Downloads/
-      telefonos_por_revisar.csv`** (Juan Flores & M. de Lourdes Altamirano = missing digits; Micaela Castro =
-      collides with Germania Domínguez's number; Santiago Maldonado = ambiguous trailing `-2`; Daniel y Daniela
-      `8` & Michelle Tinajero `9` = garbage). NOT an error: the Conforme/Vásquez trio share `+593999643019`
-      (insurance family). Still-open cleanup: split the composite row "Daniel y Daniela" into individual
-      patients. ("Thomas (Gabriela P. y Matheo Q.)" and "Micaela Castro (Germania Dominguez)" were RESOLVED
-      2026-09-22 via the payers model — surnames cleaned to Thomas Quevedo / Micaela Castro, payer linked.)
-      NOTE: app-side, phones aren't normalized on write — spaces
-      bypass the UNIQUE constraint, so dups can recur until an input-normalization fix lands.
 - [ ] **`contifico_id` is a marker (= core cédula), not the real Contífico persona id.** Fine for the
       cédula-based persona lookup in the API (`cliente.cedula`); upgrade to the real id only if needed.
 
 ### Payer / billing model follow-ups (surfaced 2026-09-22, after the `payers` foundation)
-- [x] ~~**Wire `/facturar` to the payer.**~~ — DONE 2026-09-23 in the API rewrite: `billingIdentity()`
-      issues to the `payers` row when `payer_id` is set (its cédula/razón_social/contifico_id), else the
-      patient; the descripcion always names the patient.
 - [ ] **Owner UI to manage billing fields.** `payer_id` and `facturacion_obligatoria` are deliberately
       NOT in `PATIENT_COLUMNS` (not writable via the Pacientes form) — they're DB/owner-tooling only for
       now. Build an owner-only control to assign a patient's payer and toggle `facturacion_obligatoria`.
-- [x] ~~**Flag interaction — the 4 insurance patients**~~ — RESOLVED 2026-09-23: `facturacion_manual`
-      is no longer read by `/facturar` (eligibility keys off `facturacion_obligatoria` only). The API
-      produces the insurance format, so Sharian Narváez / Raguel & Emilie Conforme / Laura Vásquez are
-      now invoiced automatically like everyone else. The `facturacion_manual` column is left dormant.
 - [ ] **Confirm Washington Andrade's WhatsApp** — his payer `telefono` was assumed = Valentina Andrade's
       `+593992738962` (per Nicolás 2026-09-22). Verify it's actually the number comprobantes arrive from.
 - [ ] **Data oddity:** Laura Vásquez (payer + patient) and Emilie Conforme share cédula `1718240995001`.
