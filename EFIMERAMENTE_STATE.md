@@ -102,6 +102,16 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-04 — CONTIFICO_FACTURAR_TOKEN re-synced: now NON-secret in Netlify (executor, 5f6e46d)
+- The Netlify value was secret/unreadable and ~/my-site/.env held a stale one (live endpoint 404'd it). Recreated
+  per the backlog plan: deleted the var, upserted a fresh 48-hex value as **non-secret**, context production,
+  scope functions; same value written to `.env` (gitignored). Redeploy via push 5f6e46d.
+- Verified: live `mode=dry-run` → 200 (0 ready); live `dry-run&all=1` (27 items) **identical** to the
+  pre-#16-extraction baseline → the core extraction is also confirmed in production.
+- From now on a stale local copy is fixed by READING the value (connector `manage-env-vars getAllEnvVars`), not
+  rotating. Cloud director sessions that cached the old value in their environment need the new one.
+- Also confirmed: `OWNER_WHATSAPP` is NOT set in Netlify → #16 owner = code default +593968029896 (no mismatch).
+
 ### 2026-10-04 — #16 /facturar by WhatsApp approval: Mon+Thu push → "facturas" → Aprobar (executor, 0a8432d)
 - **Extraction:** `netlify/lib/facturarCore.mjs` = facturar.mjs's core moved verbatim (fetchEligible, assemble,
   emitOne, emitPayload, ridePlan …) + new `dryRun()` and `sendRides()` (the send-rides loop). facturar.mjs is now
@@ -227,10 +237,6 @@ Migration `lead_funnel_08_panel_link`, mirror `supabase/lead-funnel-08-panel-lin
 ### 🔴 Contífico / invoicing follow-ups — surfaced 2026-10-02→04
 - [ ] **#16 first live run Mon 5 Oct 09:00** — watch: push arrives, "facturas" reply, Aprobar result,
       `select estado, resultado from factura_aprobaciones order by created_at desc limit 1;`.
-- [ ] **Local `CONTIFICO_FACTURAR_TOKEN` in ~/my-site/.env is stale** (live endpoint 404s it) — #16 verify could
-      not hit the live dry-run. Not needed by the WhatsApp path (it never uses the HTTP token).
-- [ ] **`CONTIFICO_FACTURAR_TOKEN` is secret/unreadable in Netlify** (re-generated 2026-10-04). Not sensitive per
-      Nicolás. Before the next /facturar the executor re-creates it as a NON-secret var (delete + add, redeploy).
 - [ ] **Raguel Conforme 12 Sep** (paid, never invoiced) — skipped on Nicolás's instruction 2026-10-03; invoice with
       `emit-one&before_floor=1` if he asks.
 - [ ] **Factura WhatsApp copy** — Nicolás doesn't love `factura_sesion_link`'s wording. If he sends new copy:
