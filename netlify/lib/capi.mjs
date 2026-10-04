@@ -8,7 +8,8 @@
 // ad-referral message). NOTE: the business_messaging action source only accepts a
 // fixed enum of event names (Purchase, LeadSubmitted, QualifiedLead, …) — the web
 // names "Lead"/"Schedule" are rejected — so the funnel steps map like this:
-//   • category picked          → LeadSubmitted  (leads.categoria set)
+//   • kept talking after price → LeadSubmitted  (#40: ≥2 inbound after
+//                                precio_visto_at, OR a therapist picked)
 //   • intro call booked        → QualifiedLead  (leads.agendo_at / session_id) ← optimize on this
 //   • first PAID real session  → Purchase       (value + currency USD)
 // Each fires at most once per lead (the leads.capi_*_sent_at columns) and carries a
@@ -131,12 +132,39 @@ function capiAllowedForPhone(phone) {
   return process.env.CAPI_LIVE === 'true'
 }
 
+// ── LeadSubmitted predicate (#40) ───────────────────────────────────────────
+// Pure. Fires when EITHER (a) the lead saw a price AND sent ≥2 inbound messages
+// after it (taps count) — event time = the 2nd such message; OR (b) picked a
+// therapist — event time = eligio_terapeuta_at. Earliest qualifying time wins.
+// Meta rejects events older than 7 days → skip (stale), stamp nothing.
+const SEVEN_DAYS_MS = 7 * 24 * 3600e3
+export function leadSubmittedDecision({ precioVistoAt, inboundAfterPrice = [], eligioAt, nowMs = Date.now() }) {
+  const cands = []
+  if (precioVistoAt && inboundAfterPrice.length >= 2) cands.push(new Date(inboundAfterPrice[1]).getTime())
+  if (eligioAt) cands.push(new Date(eligioAt).getTime())
+  const fresh = cands.filter((t) => Number.isFinite(t) && nowMs - t <= SEVEN_DAYS_MS).sort((a, b) => a - b)
+  if (fresh.length) return { fire: true, eventTime: Math.floor(fresh[0] / 1000) }
+  return { fire: false, stale: cands.length > 0 }
+}
+
+// Inbound messages from this lead strictly after the price was shown (oldest first, 2 max).
+async function inboundAfter(supabase, phone, sinceIso) {
+  const digits = String(phone || '').replace(/\D/g, '')
+  if (!digits || !sinceIso) return []
+  const { data } = await supabase.from('whatsapp_messages')
+    .select('received_at').eq('direccion', 'inbound')
+    .eq('raw_payload->message->>from', digits)
+    .gt('received_at', sinceIso)
+    .order('received_at', { ascending: true }).limit(2)
+  return (data || []).map((r) => r.received_at)
+}
+
 // ── The sweep ─────────────────────────────────────────────────────────────────
 // Idempotent reconciliation over leads that carry a ctwa_clid and still have an
 // unsent event. Called from the lead-followups cron (every 15 min) and from
 // capi-admin (?action=sweep). Never throws — logs and returns a summary.
 export async function sweepCapiEvents(supabase) {
-  const summary = { enabled: capiEnabled(), lead: 0, schedule: 0, purchase: 0, errors: 0, skipped: 0 }
+  const summary = { enabled: capiEnabled(), lead: 0, schedule: 0, purchase: 0, errors: 0, skipped: 0, stale: 0 }
   if (!supabase || !summary.enabled) return summary
 
   let dataset
@@ -147,7 +175,7 @@ export async function sweepCapiEvents(supabase) {
   const testCode = process.env.CAPI_TEST_CODE || null
 
   const { data: leads, error } = await supabase.from('leads')
-    .select('id, phone, ctwa_clid, categoria, agendo_at, session_id, patient_id, capi_lead_sent_at, capi_schedule_sent_at, capi_purchase_sent_at')
+    .select('id, phone, ctwa_clid, precio_visto_at, eligio_terapeuta_at, agendo_at, session_id, patient_id, capi_lead_sent_at, capi_schedule_sent_at, capi_purchase_sent_at')
     .not('ctwa_clid', 'is', null)
     .or('capi_lead_sent_at.is.null,capi_schedule_sent_at.is.null,capi_purchase_sent_at.is.null')
   if (error) { console.error('[capi] leads query:', error.message); summary.error = error.message; return summary }
@@ -155,10 +183,14 @@ export async function sweepCapiEvents(supabase) {
   for (const lead of leads || []) {
     if (!capiAllowedForPhone(lead.phone)) { summary.skipped++; continue }
 
-    // Lead — a reason/category was picked (or detected from the conversation).
-    if (!lead.capi_lead_sent_at && lead.categoria) {
-      if (await fire(supabase, { lead, datasetId, testCode, eventName: 'LeadSubmitted', column: 'capi_lead_sent_at' })) summary.lead++
-      else summary.errors++
+    // LeadSubmitted — kept talking after seeing the price, or picked a therapist (#40).
+    if (!lead.capi_lead_sent_at && (lead.precio_visto_at || lead.eligio_terapeuta_at)) {
+      const inbound = lead.precio_visto_at ? await inboundAfter(supabase, lead.phone, lead.precio_visto_at) : []
+      const d = leadSubmittedDecision({ precioVistoAt: lead.precio_visto_at, inboundAfterPrice: inbound, eligioAt: lead.eligio_terapeuta_at })
+      if (d.fire) {
+        if (await fire(supabase, { lead, datasetId, testCode, eventName: 'LeadSubmitted', column: 'capi_lead_sent_at', eventTime: d.eventTime })) summary.lead++
+        else summary.errors++
+      } else if (d.stale) summary.stale++
     }
 
     // Schedule — an intro call was booked → a qualified lead (the optimization event).

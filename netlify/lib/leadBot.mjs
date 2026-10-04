@@ -171,7 +171,12 @@ export async function handleEchoes(supabase, value) {
       })
     }
     if (!to) continue
-    const { data: lead } = await supabase.from('leads').select('id, bot_paused').eq('phone', to).maybeSingle()
+    const { data: lead } = await supabase.from('leads').select('id, bot_paused, precio_visto_at').eq('phone', to).maybeSingle()
+    // #40 — Nicolás quoted a price by hand → the lead has seen the price.
+    if (lead && !lead.precio_visto_at && e?.type === 'text' && PRICE_RE.test(e.text?.body || '')) {
+      await supabase.from('leads').update({ precio_visto_at: new Date(e.timestamp ? Number(e.timestamp) * 1000 : Date.now()).toISOString(), updated_at: new Date().toISOString() }).eq('id', lead.id)
+      console.log(`[lead] ${lead.id} precio_visto_at — manual reply with a price`)
+    }
     if (lead && !lead.bot_paused) {
       await supabase.from('leads').update({ bot_paused: true, updated_at: new Date().toISOString() }).eq('id', lead.id)
       paused++
@@ -296,13 +301,13 @@ const MAPS_LINK = 'https://maps.app.goo.gl/GZAFUpC1SAyW8GBT8'
 const CANNED = {
   precio: { end: 'invite', bubbles: [
     { text: 'Hola! La sesión cuesta $39, también tenemos paquetes de 4 sesiones por $35 c/u' },
-    { text: '💳 Aceptamos tarjeta' },
-    { text: '🧾 Muchos seguros privados reembolsan la terapia — Nosotros te ayudamos con el trámite' },
+    { text: 'Aceptamos tarjeta' },
+    { text: 'Muchos seguros privados reembolsan la terapia — Nosotros te ayudamos con el trámite' },
   ] },
   ubicacion: { end: 'invite', bubbles: [
     { text: MAPS_LINK, preview: true },
-    { text: '📍 Estamos en Cumbayá, a 3 minutos del Scala' },
-    { text: '💻 También atendemos online.' },
+    { text: 'Estamos en Cumbayá, a 3 minutos del Scala' },
+    { text: 'También atendemos online.' },
   ] },
   saludsa: { end: 'invite', bubbles: [
     { text: 'Sí, Saludsa te cubre por reembolso. Avísanos cuando hayas terminado tu primera sesión y te ayudamos con el trámite' },
@@ -333,11 +338,28 @@ const CANNED = {
   ] },
 }
 
+// #40 — the CAPI LeadSubmitted signal is "kept talking after seeing the price".
+// Stamp precio_visto_at (once) whenever the lead is shown a price.
+const PRICE_CANNED = new Set(['precio', 'pareja'])
+export const PRICE_RE = /\$\s?\d/
+async function markPrecioVisto(supabase, lead) {
+  if (lead.precio_visto_at) return
+  await patchLead(supabase, lead, { precio_visto_at: new Date().toISOString() })
+}
+
+// Just the bubbles of a canned answer (no tail) — used to chain answers (A3).
+async function sendBubbles(supabase, lead, key) {
+  const c = CANNED[key]
+  if (PRICE_CANNED.has(key)) await markPrecioVisto(supabase, lead)
+  for (const b of c.bubbles) await sendText(lead.phone, b.text, { previewUrl: !!b.preview })
+}
+
 // Send a verbatim canned answer, one bubble per item, then run its tail behavior.
 async function sendCanned(supabase, lead, key) {
   const c = CANNED[key]
   if (!c) return
   if (c.categoria) await patchLead(supabase, lead, { categoria: c.categoria })
+  if (PRICE_CANNED.has(key)) await markPrecioVisto(supabase, lead)
   const lastIdx = c.bubbles.length - 1
   for (let i = 0; i < c.bubbles.length; i++) {
     const b = c.bubbles[i]
@@ -443,15 +465,62 @@ async function logDecision(supabase, lead, { text, accion, motivo, reply, model,
 }
 
 // ── Reason list (10 rows) ─────────────────────────────────────────────────────
-async function showReasonList(supabase, lead, { body = 'Me dirías tu motivo de consulta?' } = {}) {
+async function showReasonList(supabase, lead, { body = 'Perfecto. Qué te trae a terapia?', button = 'Ver opciones' } = {}) {
   await advanceStage(supabase, lead, 'toco')
   const { data: cats } = await supabase.from('funnel_categorias')
     .select('clave, etiqueta, descripcion, orden').eq('activo', true).order('orden')
   const rows = (cats || []).map((c) => ({
     id: `cat:${c.clave}`, title: c.etiqueta, ...(c.descripcion ? { description: c.descripcion } : {}),
   }))
-  await sendList(lead.phone, body, 'Ver motivos', rows, { sectionTitle: 'Motivos' })
+  await sendList(lead.phone, body, button, rows, { sectionTitle: 'Motivos' })
   await patchLead(supabase, lead, { step_actual: 'reasons', last_bot_at: new Date().toISOString(), parse_misses: 0 })
+}
+
+// ── First question (#37): who is the therapy for? ──────────────────────────────
+// Replaces the old "Hola! Qué gusto…" + reason list as the FIRST question on every
+// entry path. Para mí → reason list · Mi pareja y yo → Carolina · Mi hijo/a → age.
+const QUIEN_BUTTONS = [
+  { id: 'quien:yo', title: 'Para mí' },
+  { id: 'quien:pareja', title: 'Mi pareja y yo' },
+  { id: 'quien:hijo', title: 'Mi hijo/a' },
+]
+async function showQuien(supabase, lead) {
+  await advanceStage(supabase, lead, 'toco')
+  const q = 'Cuéntame, para quién buscas empezar terapia?'
+  await sendButtons(lead.phone, lead.saludo_enviado ? q : `Hola, hablas con Nico. ${q}`, QUIEN_BUTTONS)
+  await patchLead(supabase, lead, { saludo_enviado: true, step_actual: 'quien', last_bot_at: new Date().toISOString(), parse_misses: 0 })
+}
+
+async function chooseQuien(supabase, lead, who) {
+  await advanceStage(supabase, lead, 'toco')
+  if (who === 'yo') { await patchLead(supabase, lead, { quien: 'yo' }); return showReasonList(supabase, lead) }
+  if (who === 'pareja') { await patchLead(supabase, lead, { quien: 'pareja' }); return sendCanned(supabase, lead, 'pareja') }
+  if (who === 'hijo') return askEdad(supabase, lead)
+  return showQuien(supabase, lead)
+}
+
+// "Mi hijo/a" (or any path landing on categoria 'hijo') → age first, then the
+// age-split routing rows (hidden categories hijo_nino / hijo_adolescente / hijo_adulto).
+const EDAD_BUTTONS = [
+  { id: 'edad:nino', title: 'Menos de 12' },
+  { id: 'edad:adolescente', title: '12 a 17' },
+  { id: 'edad:adulto', title: '18 o más' },
+]
+const EDAD = {
+  nino: { clave: 'hijo_nino', intro: 'Ok perfecto, te dejo los perfiles de nuestros expertos en terapia infantil.' },
+  adolescente: { clave: 'hijo_adolescente', intro: 'Ok perfecto, te dejo los perfiles de nuestros expertos en terapia juvenil.' },
+  adulto: { clave: 'hijo_adulto', intro: 'Ok perfecto, te dejo los perfiles de nuestros expertos en terapia para jóvenes adultos.' },
+}
+async function askEdad(supabase, lead) {
+  await advanceStage(supabase, lead, 'toco')
+  await sendButtons(lead.phone, 'Qué edad tiene tu hijo/a?', EDAD_BUTTONS)
+  await patchLead(supabase, lead, { quien: 'hijo', categoria: 'hijo', step_actual: 'edad', last_bot_at: new Date().toISOString(), parse_misses: 0 })
+}
+async function chooseEdad(supabase, lead, key) {
+  const e = EDAD[key]
+  if (!e) return askEdad(supabase, lead)
+  await patchLead(supabase, lead, { categoria: e.clave })
+  return renderCards(supabase, lead, await resolveCards(supabase, e.clave), { intro: e.intro })
 }
 
 // The bookable therapist pool (recibe_nuevos + active), with the fields cards +
@@ -487,7 +556,7 @@ function captionSansEnfoque(caption) {
 // Render the resolved therapist cards. Gendered caption line + button.
 async function renderCards(supabase, lead, therapists, { intro } = {}) {
   if (!therapists.length) {
-    await sendText(lead.phone, 'En este momento no tengo terapeutas disponibles para ese tema. Escríbenos y te ayudamos directamente 🌿')
+    await sendText(lead.phone, 'En este momento no tengo terapeutas disponibles para ese tema. Escríbenos y te ayudamos directamente.')
     return escalate(supabase, lead, 'sin_terapeutas')
   }
   await sendText(lead.phone, intro || 'Aquí tienes a los profesionales especializados en tu motivo de consulta.')
@@ -512,8 +581,11 @@ async function showCards(supabase, lead, clave) {
 
 // A reason was chosen (tap or detected). Special reasons branch off; the rest show cards.
 async function chooseReason(supabase, lead, clave) {
-  const { data: cat } = await supabase.from('funnel_categorias').select('*').eq('clave', clave).eq('activo', true).maybeSingle()
-  if (!cat) return showReasonList(supabase, lead)
+  if (clave === 'hijo') return askEdad(supabase, lead) // age split replaces the old 'hijo' cards
+  // No activo filter: hidden rows (terapia_pareja, hijo_*) still route when reached
+  // by another path (Claude-detected categoria, invitation "Sí").
+  const { data: cat } = await supabase.from('funnel_categorias').select('*').eq('clave', clave).maybeSingle()
+  if (!cat) return showQuien(supabase, lead)
   await advanceStage(supabase, lead, 'toco')
   await patchLead(supabase, lead, { categoria: clave })
   if (cat.especial === 'otro') return handoff(supabase, lead, 'motivo_otro')
@@ -602,7 +674,7 @@ async function namedTherapist(supabase, lead, t, text) {
   await advanceStage(supabase, lead, 'toco')
   if (!t.recibe_nuevos || t.id === MARIANA_ID) {
     await logDecision(supabase, lead, { text, accion: 'derivar', motivo: `terapeuta_nombrado_cerrado:${t.nombre}`, reply: null, model: 'regla' })
-    await say(supabase, lead, `Gracias por tu interés en ${shortName(t.nombre)} 🌿 Déjame coordinar esto contigo por aquí.`)
+    await say(supabase, lead, `Gracias por tu interés en ${shortName(t.nombre)}. Déjame coordinar esto contigo por aquí.`)
     return escalate(supabase, lead, `terapeuta_nombrado:${t.nombre} ${t.apellido} (no recibe nuevos)`)
   }
   await pushNicolas(supabase, lead, {
@@ -610,7 +682,7 @@ async function namedTherapist(supabase, lead, t, text) {
     body: `${lead.wa_name || lead.phone} → ${t.nombre} ${t.apellido}`,
   })
   await logDecision(supabase, lead, { text, accion: 'cards', motivo: `terapeuta_nombrado:${t.nombre}`, reply: '[card]', model: 'regla' })
-  return renderCards(supabase, lead, [t], { intro: `Con gusto 🌿 Aquí te dejo el perfil de ${shortName(t.nombre)}:` })
+  return renderCards(supabase, lead, [t], { intro: `Con gusto. Aquí te dejo el perfil de ${shortName(t.nombre)}:` })
 }
 
 // Resolve a therapist by a free-form name string (the model's `terapeuta` field),
@@ -649,7 +721,7 @@ async function chooseTherapist(supabase, lead, therapistId) {
   const { data: t } = await supabase.from('therapists')
     .select('id, nombre, apellido, genero, activo').eq('id', therapistId).maybeSingle()
   if (!t || !t.activo) {
-    await sendText(lead.phone, 'Esa opción ya no está disponible. Elige otra, por favor 🙂')
+    await sendText(lead.phone, 'Esa opción ya no está disponible. Elige otra, por favor.')
     return renderStep(supabase, lead)
   }
   await advanceStage(supabase, lead, 'eligio_terapeuta')
@@ -657,15 +729,15 @@ async function chooseTherapist(supabase, lead, therapistId) {
   const g = t.genero === 'M'
   const nombre = shortName(t.nombre)
   const firstBullet = g
-    ? '🤝 Conocerlo y ver si te sientes bien con él'
-    : '🤝 Conocerla y ver si te sientes bien con ella'
+    ? 'Conocerlo y ver si te sientes bien con él'
+    : 'Conocerla y ver si te sientes bien con ella'
   let body = `Genial. La llamada gratuita con ${nombre} te sirve para:
 ${firstBullet}
-💬 Contarle sobre tu caso
-🎯 Preguntarle cómo trabaja y qué resultados buscar con la terapia
-✨ Lo que tú quieras: es una conversación entre ustedes dos
+Contarle sobre tu caso
+Preguntarle cómo trabaja y qué resultados buscar con la terapia
+Lo que tú quieras: es una conversación entre ustedes dos
 No tiene ningún compromiso, es para ayudarte a decidir. Si quieres conocer a más de un terapeuta, puedes agendar varias llamadas.`
-  if (lead.categoria === 'hijo') {
+  if (String(lead.categoria || '').startsWith('hijo')) {
     body += '\n\nSi la terapia es para tu hijo/a, puedes agendar 2 llamadas: una para que la conozcas tú y otra para tu hijo/a.'
   }
   await sendButtons(lead.phone, body, [{ id: `horarios:${t.id}`, title: 'Ver horarios' }])
@@ -687,10 +759,10 @@ async function bookSlot(supabase, lead, rest) {
   })
   if (!result.ok) {
     if (result.error === 'slot_taken') {
-      await sendText(lead.phone, '¡Uy! Ese horario se acaba de ocupar. Aquí tienes horarios frescos 👇')
+      await sendText(lead.phone, 'Uy, ese horario se acaba de ocupar. Aquí tienes horarios frescos:')
       return showSlots(supabase, lead, t)
     }
-    await sendText(lead.phone, 'No pude agendar en este momento. Escríbenos y te ayudamos 🌿')
+    await sendText(lead.phone, 'No pude agendar en este momento. Escríbenos y te ayudamos.')
     return escalate(supabase, lead, `booking_${result.error}`)
   }
   await advanceStage(supabase, lead, 'agendo')
@@ -699,8 +771,8 @@ async function bookSlot(supabase, lead, rest) {
     step_actual: 'agendado', last_bot_at: new Date().toISOString(), parse_misses: 0,
   })
   await sendText(lead.phone,
-    `✅ ¡Listo! Tu llamada gratuita con ${shortName(t.nombre)} es el ${humanDateLong(date, time)}.
-Te llamará a este número. 📞
+    `Listo! Tu llamada gratuita con ${shortName(t.nombre)} es el ${humanDateLong(date, time)}.
+Te llamará a este número.
 Si necesitas cambiarla, escríbenos por aquí.`)
 }
 
@@ -713,10 +785,14 @@ async function sendMoreLink(supabase, lead, therapistId) {
 async function renderStep(supabase, lead, { note } = {}) {
   if (note) await sendText(lead.phone, note)
   const step = lead.step_actual
-  if (step === 'reasons') return showReasonList(supabase, lead)
+  // 'reasons' only counts after a "Para mí" tap; an older lead parked on the old
+  // first-question list gets the new who-is-it-for buttons instead.
+  if (step === 'reasons') return lead.quien === 'yo' ? showReasonList(supabase, lead) : showQuien(supabase, lead)
+  if (step === 'quien') return showQuien(supabase, lead)
+  if (step === 'edad' || (step === 'cards' && lead.categoria === 'hijo')) return askEdad(supabase, lead)
   if (step === 'cards' && lead.categoria) return showCards(supabase, lead, lead.categoria)
   if (step === 'slots' && lead.therapist_id) return showSlotsById(supabase, lead, lead.therapist_id)
-  if (!note) return showReasonList(supabase, lead)
+  if (!note) return showQuien(supabase, lead)
 }
 
 // Recent inbound lines from this chat (oldest first), for the T2 model context.
@@ -746,16 +822,9 @@ async function slotsForLead(supabase, lead) {
   } catch { return [] }
 }
 
-// Welcome + reason list — the ONE greeting path (spec). The greeting bubble is sent
-// at most once per lead (saludo_enviado); if they greet again we go straight to the
-// reason list without re-greeting.
-async function welcomeAndReasons(supabase, lead) {
-  if (!lead.saludo_enviado) {
-    await say(supabase, lead, 'Hola! Qué gusto que nos escribas')
-    await patchLead(supabase, lead, { saludo_enviado: true })
-  }
-  return showReasonList(supabase, lead)
-}
+// The ONE greeting path (#37): "Hola, hablas con Nico." + who-is-it-for buttons,
+// in a single message. The "Hola…" part is sent at most once (saludo_enviado).
+const welcome = (supabase, lead) => showQuien(supabase, lead)
 
 // Safety net (b): the lead went quiet > 1h and is writing again without having
 // moved past the start of the funnel → heads-up to Nicolás (bot still replies).
@@ -773,7 +842,7 @@ async function maybeReengagePush(supabase, lead) {
 // once (stuck_push_at). Signals the bot is failing to move this lead forward.
 async function maybeStuckPush(supabase, lead) {
   if (lead.stuck_push_at) return
-  if (![null, undefined, '', 'reasons'].includes(lead.step_actual)) return
+  if (![null, undefined, '', 'reasons', 'quien'].includes(lead.step_actual)) return
   const hist = await recentInbound(supabase, lead.phone)
   if (hist.length < 3) return
   await pushNicolas(supabase, lead, {
@@ -797,12 +866,25 @@ function isBareGreeting(text) {
   return stripped.length < 4
 }
 
+// Ad prefills + "más información" — deterministic, never the model (#37).
+const normText = (text) => stripAccents(text).replace(/[^a-z0-9]+/g, ' ').trim()
+const PREFILL_EMPEZAR = /^(hola )?(me gustaria|quiero|quisiera) empezar (una |la )?terapia( con ustedes)?( por ?favor)?$/
+const PREFILL_PRECIO = /^(hola )?(quiero|quisiera|me gustaria) saber (el |los |sobre el |sobre los )?precios?( por ?favor)?$/
+const MAS_INFO = /^(hola )?((quiero|quisiera|me gustaria|me das|puedes darme|podrias darme) )?((recibir|tener) )?(mas )?(informacion|info)( por ?favor| porfa)?$/
+export function prefillKind(text) {
+  const t = normText(text)
+  if (PREFILL_EMPEZAR.test(t)) return 'empezar'
+  if (PREFILL_PRECIO.test(t)) return 'precio'
+  if (MAS_INFO.test(t)) return 'info'
+  return null
+}
+
 // T2 — free text. Greetings/thanks short-circuit; the diagnóstico/varios prompt
 // steps go to the matcher; everything else asks Claude, who answers from the fact
 // sheet or derives. Keyword canned answers are the fallback if the model is down.
 async function handleFreeText(supabase, lead, text, { firstTouch = false } = {}) {
   const kw = classifyKeywords(text)
-  if (kw === 'gracias') { await say(supabase, lead, 'Con gusto! 🌿'); return }
+  if (kw === 'gracias') { await say(supabase, lead, 'Con gusto!'); return }
 
   // Prompt steps (the lead is describing a diagnosis / several motives) win first.
   if (lead.step_actual === 'diagnostico_prompt') return matchFlow(supabase, lead, text, 'diagnostico')
@@ -811,6 +893,24 @@ async function handleFreeText(supabase, lead, text, { firstTouch = false } = {})
   // Safety nets — heads-up to Nicolás; they don't change what the bot replies.
   await maybeReengagePush(supabase, lead)
   await maybeStuckPush(supabase, lead)
+
+  // (0) Ad prefills / "más información" — fixed rules, no model.
+  const pre = prefillKind(text)
+  if (pre === 'empezar') {
+    await logDecision(supabase, lead, { text, accion: 'responder', motivo: 'prefill_empezar', reply: '[quien]', model: 'regla' })
+    return welcome(supabase, lead)
+  }
+  if (pre === 'precio') {
+    await logDecision(supabase, lead, { text, accion: 'responder', motivo: 'prefill_precio', reply: '[canned:precio]', model: 'regla' })
+    return sendCanned(supabase, lead, 'precio')
+  }
+  if (pre === 'info') {
+    await logDecision(supabase, lead, { text, accion: 'responder', motivo: 'mas_informacion', reply: '[canned:precio]', model: 'regla' })
+    await sendBubbles(supabase, lead, 'precio')
+    await sendBubbles(supabase, lead, 'ubicacion')
+    await patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0, last_bot_at: new Date().toISOString() })
+    return sendInvitationOnce(supabase, lead)
+  }
 
   // (1) A therapist named by name/surname → that therapist's card (or handoff).
   // Deterministic + model-independent, so it can't be misread as a greeting and it
@@ -821,12 +921,12 @@ async function handleFreeText(supabase, lead, text, { firstTouch = false } = {})
   // (2) A BARE greeting → the one spec greeting (sent once). A greeting carrying a
   // motive ("hola, es para mi hijo de 15") is NOT bare — Claude answers + detects
   // the reason so a later "Sí" can skip the list.
-  if (kw === 'saludo' && isBareGreeting(text)) return welcomeAndReasons(supabase, lead)
+  if (kw === 'saludo' && isBareGreeting(text)) return welcome(supabase, lead)
 
-  // (3) Plain booking request, no therapist named → the reason list directly.
+  // (3) Plain booking request, no therapist named → the who-is-it-for buttons.
   if (isAgendarText(text)) {
-    await logDecision(supabase, lead, { text, accion: 'responder', motivo: 'agendar', reply: '[reasons]', model: 'regla' })
-    return showReasonList(supabase, lead)
+    await logDecision(supabase, lead, { text, accion: 'responder', motivo: 'agendar', reply: '[quien]', model: 'regla' })
+    return welcome(supabase, lead)
   }
 
   // (4) Everything else → Claude (fact-sheet answer or derive).
@@ -858,34 +958,35 @@ async function applyDecision(supabase, lead, text, d) {
       // to that reason's cards. Otherwise fall back to the welcome + reason list.
       if (d.categoria) {
         if (!lead.saludo_enviado) {
-          await say(supabase, lead, 'Hola! Qué gusto que nos escribas')
+          await say(supabase, lead, 'Hola, hablas con Nico.')
           await patchLead(supabase, lead, { saludo_enviado: true })
         }
         await patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0 })
         await sendInvitationOnce(supabase, lead)
       } else {
-        await welcomeAndReasons(supabase, lead)
+        await welcome(supabase, lead)
       }
       await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.intent, reply: null, model: d.model, latencyMs: d.latencyMs })
       return
     }
     if (d.intent === 'agendar') {
-      await logDecision(supabase, lead, { text, accion: d.accion, motivo: 'agendar', reply: '[reasons]', model: d.model, latencyMs: d.latencyMs })
-      return showReasonList(supabase, lead)
+      await logDecision(supabase, lead, { text, accion: d.accion, motivo: 'agendar', reply: '[quien]', model: d.model, latencyMs: d.latencyMs })
+      return welcome(supabase, lead)
     }
     if (d.intent === 'terapeuta_nombrado') {
       const t = await resolveTherapistByName(supabase, d.terapeuta || text)
       if (t) return namedTherapist(supabase, lead, t, text)
       // Named someone we couldn't resolve → treat as a plain booking request.
-      await logDecision(supabase, lead, { text, accion: d.accion, motivo: 'terapeuta_nombrado_no_resuelto', reply: '[reasons]', model: d.model, latencyMs: d.latencyMs })
-      return showReasonList(supabase, lead)
+      await logDecision(supabase, lead, { text, accion: d.accion, motivo: 'terapeuta_nombrado_no_resuelto', reply: '[quien]', model: d.model, latencyMs: d.latencyMs })
+      return welcome(supabase, lead)
     }
     if (CANNED[d.intent]) {
       await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.intent, reply: `[canned:${d.intent}]`, model: d.model, latencyMs: d.latencyMs })
       return sendCanned(supabase, lead, d.intent)
     }
     // libre — Claude authored the answer from the fact sheet.
-    const reply = (d.texto || '').trim() || 'Con gusto te ayudo 🌿'
+    const reply = (d.texto || '').trim() || 'Con gusto te ayudo.'
+    if (PRICE_RE.test(reply)) await markPrecioVisto(supabase, lead)
     await sendText(lead.phone, reply)
     await patchLead(supabase, lead, { step_actual: 'answered', parse_misses: 0, last_bot_at: new Date().toISOString() })
     await sendInvitationOnce(supabase, lead)
@@ -894,7 +995,7 @@ async function applyDecision(supabase, lead, text, d) {
   }
   // derivar
   if (d.motivo === 'urgente') {
-    const reply = d.texto || 'Gracias por escribir 🌿 En un momento te contacta una persona del equipo.'
+    const reply = d.texto || 'Gracias por escribir. En un momento te contacta una persona del equipo.'
     await sendText(lead.phone, reply)
     await logDecision(supabase, lead, { text, accion: d.accion, motivo: d.motivo, reply, model: d.model, latencyMs: d.latencyMs })
     return escalate(supabase, lead, `URGENTE — ${d.motivo}`, { urgent: true })
@@ -921,33 +1022,36 @@ async function handleTap(supabase, lead, tap) {
   const id = tap.id || ''
   if (id === 'inv_si') return invitationYes(supabase, lead)
   if (id === 'inv_otra') { await sendText(lead.phone, 'Claro, dime'); return patchLead(supabase, lead, { step_actual: 'pregunta_abierta', last_bot_at: new Date().toISOString() }) }
+  if (id.startsWith('quien:')) return chooseQuien(supabase, lead, id.slice(6))
+  if (id.startsWith('edad:')) return chooseEdad(supabase, lead, id.slice(5))
   if (id.startsWith('cat:')) return chooseReason(supabase, lead, id.slice(4))
   if (id.startsWith('pick:')) return chooseTherapist(supabase, lead, id.slice(5))
   if (id.startsWith('horarios:')) return showSlotsById(supabase, lead, id.slice(9))
   if (id.startsWith('slot:')) return bookSlot(supabase, lead, id.slice(5))
   if (id.startsWith('vermas:')) return sendMoreLink(supabase, lead, id.slice(7))
   // Follow-up template quick-replies (payload = the button text)
-  if (id === 'Confirmo') { await sendText(lead.phone, '¡Perfecto! Te esperamos 🌿'); return }
+  if (id === 'Confirmo') { await sendText(lead.phone, 'Perfecto! Te esperamos.'); return }
   if (id === 'Cambiar hora' || id === 'Sí, reagendar') return rebookFromButton(supabase, lead)
   if (id === 'Sí, quiero agendar') return firstSessionInterest(supabase, lead)
   return renderStep(supabase, lead)
 }
 
 // The lead tapped "Sí" on the one-time invitation. If a reason was already detected
-// from the conversation, skip the list and go straight to it; else show the list.
+// from the conversation, skip ahead to it ('hijo' → the age question); else ask
+// who the therapy is for.
 async function invitationYes(supabase, lead) {
   if (lead.categoria) return chooseReason(supabase, lead, lead.categoria)
-  return showReasonList(supabase, lead)
+  return showQuien(supabase, lead)
 }
 
 async function rebookFromButton(supabase, lead) {
   if (!lead.therapist_id) return renderStep(supabase, lead)
-  await sendText(lead.phone, '¡Claro! Estos son los horarios disponibles 👇')
+  await sendText(lead.phone, 'Claro! Estos son los horarios disponibles:')
   return showSlotsById(supabase, lead, lead.therapist_id)
 }
 
 async function firstSessionInterest(supabase, lead) {
-  await sendText(lead.phone, '¡Genial! 🌿 Un momento, coordinamos tu primera sesión por aquí.')
+  await sendText(lead.phone, 'Genial! Un momento, coordinamos tu primera sesión por aquí.')
   try {
     await notifyTherapist(supabase, lead.therapist_id || null, {
       title: 'Lead quiere primera sesión 🌿',
@@ -991,16 +1095,16 @@ async function therapistShort(supabase, therapistId) {
   return t ? shortName(t.nombre) : 'tu terapeuta'
 }
 
-// Silent mid-flow nudge. 1st at +2h, 2nd at +22h; after the 2nd → stage=frio.
-// Neutral copy (#27): no call push, just "we're still here".
+// Silent mid-flow nudge (#37): ONE nudge only, at +22h; after it → stage=frio.
+export const NUDGE_TEXT = 'Empezar terapia es una decisión importante. Aquí estamos cuando sea el momento. Att: Nico'
 export async function nudgeLead(supabase, lead) {
   if (lead.bot_paused) return 'skipped'
   const n = (lead.nudges_sent || 0) + 1
   try {
-    await sendText(lead.phone, 'Seguimos aquí si tienes alguna otra pregunta')
+    await sendText(lead.phone, NUDGE_TEXT)
   } catch (e) { console.error('[followups] nudge failed:', e.message); return 'failed' }
   const patch = { nudges_sent: n, last_bot_at: new Date().toISOString() }
-  if (n >= 2) { patch.stage = 'frio'; if (!lead.frio_at) patch.frio_at = new Date().toISOString() }
+  if (n >= 1) { patch.stage = 'frio'; if (!lead.frio_at) patch.frio_at = new Date().toISOString() }
   await patchLead(supabase, lead, patch)
   return 'sent'
 }

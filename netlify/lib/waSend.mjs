@@ -10,12 +10,27 @@
 //   button title ≤ 20 · list row title ≤ 24 · list row description ≤ 72 ·
 //   list action button ≤ 20 · body text ≤ 1024 · max 3 buttons · max 10 rows.
 //
+// Style rule (Nicolás, #37): lead-bot text carries NO emojis and NO opening ¡ ¿.
+// cleanBotText() enforces it on every send below (text, button/list/card bodies,
+// headers, titles). These primitives are used ONLY by the lead bot (leadBot.mjs);
+// template sends (leadTemplates.mjs, whatsapp.mjs) never pass through here.
+//
 // Env: WA_DUALHOOK_API_KEY.
 
 const DUALHOOK_SEND_URL = 'https://api.dualhook.com/v25.0/915558374975708/messages'
 
 const digits = (to) => String(to).replace(/^\+/, '') // Cloud API wants digits, no '+'
-const cut = (s, n) => String(s ?? '').slice(0, n)
+// Extended_Pictographic + variation selector-16 + ZWJ + keycap + skin tones.
+const EMOJI_RE = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}\u{1F3FB}-\u{1F3FF}]/gu
+export function cleanBotText(s) {
+  return String(s ?? '')
+    .replace(EMOJI_RE, '')
+    .replace(/[¡¿]/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/^[ \t]+|[ \t]+$/gm, '')
+}
+const cut = (s, n) => cleanBotText(s).slice(0, n)
+const cutId = (s, n) => String(s ?? '').slice(0, n) // ids are routing keys, never shown
 
 async function sendCloud(payload) {
   const apiKey = process.env.WA_DUALHOOK_API_KEY
@@ -41,7 +56,7 @@ export function sendButtons(to, body, buttons, { header, footer } = {}) {
     type: 'button',
     body: { text: cut(body, 1024) },
     action: {
-      buttons: buttons.slice(0, 3).map((b) => ({ type: 'reply', reply: { id: cut(b.id, 256), title: cut(b.title, 20) } })),
+      buttons: buttons.slice(0, 3).map((b) => ({ type: 'reply', reply: { id: cutId(b.id, 256), title: cut(b.title, 20) } })),
     },
   }
   if (header) interactive.header = { type: 'text', text: cut(header, 60) }
@@ -59,7 +74,7 @@ export function sendList(to, body, buttonLabel, rows, { header, footer, sectionT
       sections: [{
         title: cut(sectionTitle || 'Opciones', 24),
         rows: rows.slice(0, 10).map((r) => ({
-          id: cut(r.id, 200),
+          id: cutId(r.id, 200),
           title: cut(r.title, 24),
           ...(r.description ? { description: cut(r.description, 72) } : {}),
         })),
@@ -90,7 +105,7 @@ export function sendImageCard(to, { imageLink, body, button, headerText }) {
   const interactive = {
     type: 'button',
     body: { text: cut(body, 1024) },
-    action: { buttons: [{ type: 'reply', reply: { id: cut(button.id, 256), title: cut(button.title, 20) } }] },
+    action: { buttons: [{ type: 'reply', reply: { id: cutId(button.id, 256), title: cut(button.title, 20) } }] },
   }
   if (imageLink) interactive.header = { type: 'image', image: { link: imageLink } }
   else if (headerText) interactive.header = { type: 'text', text: cut(headerText, 60) }

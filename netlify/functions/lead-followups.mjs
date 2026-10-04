@@ -2,7 +2,7 @@
 //
 // Modern Netlify SCHEDULED Function — every 15 min (cron in-code). Drives the four
 // time-based lead-funnel follow-ups (#20):
-//   A. Silent-nudge  — resume a mid-flow lead at +2h then +22h; 2nd → stage=frio.
+//   A. Silent-nudge  — ONE nudge to a mid-flow lead at +22h, then stage=frio.
 //                      No sends 21:00–08:00 GYE (shift to the next in-hours run).
 //   B. Call reminder — recordatorio_llamada to the lead ~1h before the call.
 //   C. Call result   — resultado_llamada to the therapist ~5 min after it ends.
@@ -66,12 +66,11 @@ export default async () => {
   if (!quiet) {
     const { data: leadsA } = await supabase.from('leads').select('*')
       .eq('bot_paused', false).not('step_actual', 'is', null)
-      .in('stage', ['nuevo', 'toco', 'eligio_terapeuta']).lt('nudges_sent', 2)
+      .in('stage', ['nuevo', 'toco', 'eligio_terapeuta']).lt('nudges_sent', 1)
     for (const lead of leadsA || []) {
       if (!lead.last_bot_at) continue
       const age = now.getTime() - new Date(lead.last_bot_at).getTime()
-      const threshold = (lead.nudges_sent || 0) === 0 ? 2 * H : 20 * H // +2h, then +22h total
-      if (age < threshold) continue
+      if (age < 22 * H) continue // ONE nudge only, at +22h (#37)
       const r = await act(lead, () => nudgeLead(supabase, lead))
       if (r === 'sent') counts.nudge++
       else if (r === 'dry') counts.nudge++
