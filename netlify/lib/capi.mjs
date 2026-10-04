@@ -147,7 +147,8 @@ export function leadSubmittedDecision({ precioVistoAt, inboundAfterPrice = [], e
   return { fire: false, stale: cands.length > 0 }
 }
 
-// Inbound messages from this lead strictly after the price was shown (oldest first, 2 max).
+// Inbound messages from this lead strictly after the price was shown (oldest first,
+// 2 max). Taps count; reactions / edits / deletions don't.
 async function inboundAfter(supabase, phone, sinceIso) {
   const digits = String(phone || '').replace(/\D/g, '')
   if (!digits || !sinceIso) return []
@@ -155,6 +156,7 @@ async function inboundAfter(supabase, phone, sinceIso) {
     .select('received_at').eq('direccion', 'inbound')
     .eq('raw_payload->message->>from', digits)
     .gt('received_at', sinceIso)
+    .not('raw_payload->message->>type', 'in', '(reaction,edit,revoke,unsupported)') // not "talking"
     .order('received_at', { ascending: true }).limit(2)
   return (data || []).map((r) => r.received_at)
 }
