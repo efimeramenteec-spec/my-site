@@ -23,6 +23,7 @@
 import { getSupabaseAdmin, TZ_OFFSET, formatHora } from '../lib/whatsapp.mjs'
 import { nudgeLead, sendReminderForLead, sendResultForLead, sendFirstSessionForLead, botAllowedForPhone } from '../lib/leadBot.mjs'
 import { sweepCapiEvents } from '../lib/capi.mjs'
+import { primeTemplateStatuses } from '../lib/leadTemplates.mjs'
 
 export const config = { schedule: '*/15 * * * *' }
 
@@ -47,6 +48,9 @@ export default async () => {
     console.error('[followups] SUPABASE_SERVICE_KEY not set')
     return new Response('Supabase key missing', { status: 500 })
   }
+
+  // One template-status GET per run: sends use <name>_v2 once Meta approves it.
+  primeTemplateStatuses()
 
   const now = new Date()
   const live = process.env.LEAD_BOT_LIVE === 'true'
