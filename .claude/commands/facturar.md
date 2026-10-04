@@ -32,8 +32,10 @@ that cannot be quietly undone — work carefully.**
   `?token=<it>`. Cloud sessions get it from the environment's variables; on the Mac it's in
   `~/my-site/.env`. Export it once:
   `TOKEN=${CONTIFICO_FACTURAR_TOKEN:-$(grep '^CONTIFICO_FACTURAR_TOKEN=' ~/my-site/.env | cut -d= -f2)}`
-  The authoritative copy is the Netlify env (production, secret, unreadable). Rotated 2026-10-02 — if the
-  local copy is stale every call 404s; replacing it means a new Netlify value + redeploy. This token is OURS,
+  The authoritative copy is the Netlify env (production, functions scope, **NON-secret since 2026-10-04** —
+  readable via the Netlify connector `manage-env-vars getAllEnvVars`, so a stale local copy can be re-synced
+  without changing the value). If the local copy is stale every call 404s: copy the Netlify value into `.env`.
+  Only if the value itself must change: upsert a new one + redeploy (functions read env at deploy). This token is OURS,
   not a Contífico credential — **never rotate the Contífico keys** (Nicolás's rule).
 - The function already holds the Contífico creds (`CONTIFICO_API_KEY`, `CONTIFICO_POS_TOKEN`)
   and `SUPABASE_SERVICE_KEY` in the Netlify env. Nothing else to configure.
