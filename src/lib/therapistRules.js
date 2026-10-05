@@ -9,7 +9,7 @@
 // the authoritative backstop and mirrors these numbers in SQL — keep both in sync.
 //
 // Mariana Villegas, back from maternity leave (until further notice):
-//   R1 starts 10:00–20:00 inclusive, any duration (she's done by 21:00; #46, 2026-10-05)
+//   R1 starts 11:00–20:00 inclusive, any duration (she's done by 21:00; #46; 11:00 since #53, 2026-10-05)
 //   R2 starts ≥ 120 min apart (1 h session + 1 h break)
 //   R3 max 3 sessions per day
 //   R4 en línea only
@@ -20,7 +20,7 @@ export const MARIANA_ID = 'b219e764-4664-594c-9eb3-d2b19e52caac'
 export const THERAPIST_RULES = {
   [MARIANA_ID]: {
     nombre: 'Mariana',
-    startWindow: ['10:00', '20:00'], // earliest / latest START (end not checked)
+    startWindow: ['11:00', '20:00'], // earliest / latest START (end not checked)
     minStartGapMin: 120,
     maxPerDay: 3,
     onlyModalidad: 'en_linea',

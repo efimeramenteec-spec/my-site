@@ -14,7 +14,7 @@
 import { normalizePhone } from './whatsapp.mjs'
 import { getCalendarClient, queryFreebusy } from './calendar.mjs'
 import { notifyTherapist } from './push.mjs'
-// Per-therapist hard rules (#43/#46 — Mariana: starts 10:00–20:00, starts ≥2h apart, max 3/day,
+// Per-therapist hard rules (#43/#46 — Mariana: starts 11:00–20:00, starts ≥2h apart, max 3/day,
 // en línea only). Single JS source shared with the app; DB trigger is the backstop.
 import { allowedStartWindow, forcedModalidad, violatesRules } from '../../src/lib/therapistRules.js'
 
@@ -61,7 +61,7 @@ export async function computeSlots(supabase, therapist, date, durMin = CALL_MIN)
   const windows = (therapist.booking_availability || {})[dayKey] || []
   if (!Array.isArray(windows) || windows.length === 0) return []
   // [earliestStart, latestStart] or null. Clamps STARTS only — the end is bounded by
-  // her booking_availability window (mon–sat 10:00–21:15, so a 20:00 start fits).
+  // her booking_availability window (mon–sat 11:00–21:15, so a 20:00 start fits).
   const clamp = allowedStartWindow(therapist.id)
 
   const { data: sessions, error: sErr } = await supabase

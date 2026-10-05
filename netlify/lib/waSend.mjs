@@ -126,3 +126,12 @@ export async function sendStaffButtons(to, body, buttons) {
   const data = await sendCloud({ to: digits(to), type: 'interactive', interactive })
   return data?.messages?.[0]?.id || null
 }
+
+// STAFF / APPROVED-COPY text (#53) — plain text WITHOUT cleanBotText: copy that
+// Nicolás approved character for character (therapist messages with the 🐚✨
+// signature, broadcast bodies with their emoji). Never use it for lead-bot text.
+// Returns the wamid.
+export async function sendStaffText(to, body, { previewUrl = true } = {}) {
+  const data = await sendCloud({ to: digits(to), type: 'text', text: { body: String(body ?? '').slice(0, 4096), preview_url: previewUrl } })
+  return data?.messages?.[0]?.id || null
+}

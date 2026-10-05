@@ -155,7 +155,28 @@ export const STAFF_TEMPLATES = [
       ] },
     ] },
 ]
-const ALL_TEMPLATES = [...TEMPLATES, ...TEMPLATES_V2, ...OWNER_TEMPLATES, ...STAFF_TEMPLATES]
+// Broadcast templates (#53). Used by lib/broadcast.mjs for recipients whose 24h
+// window is closed, once Meta APPROVES them (any category). The body is the copy
+// Nicolás approved, character for character — never edit it in place (an edit
+// sends it back to review); the free-form send (open window) is the same body.
+export const MARIANA_RETOMA_TEMPLATE = 'mariana_retoma'
+export const MARIANA_RETOMA_BODY =
+  'Hola {{1}}!\n' +
+  'Buenas noticias, Mariana ya está aceptando sesiones nuevamente, así que ya puedes retomar tu proceso. \n' +
+  'Por el momento y hasta nuevo aviso, las sesiones sólo podrán ser virtuales y a partir de las 11:00AM (Hora de Ecuador)\n' +
+  'Las sesiones presenciales se irán retomando progresivamente en las próximas semanas.\n' +
+  'Para agendar tu sesión directamente, puedes usar este link:\n' +
+  'https://efimeramente-panel.netlify.app/reservar?terapeuta=b219e764-4664-594c-9eb3-d2b19e52caac\n' +
+  '\n' +
+  'Si quieres comentarle algo a Mariana puedes escribirle directamente, como de costumbre.\n' +
+  'Un abrazo, esperamos verte pronto❤️‍🩹'
+export const BROADCAST_TEMPLATES = [
+  { name: MARIANA_RETOMA_TEMPLATE, to: 'patient', language: LANG, category: 'MARKETING',
+    components: [
+      { type: 'BODY', text: MARIANA_RETOMA_BODY, example: { body_text: [['Carlos']] } },
+    ] },
+]
+const ALL_TEMPLATES = [...TEMPLATES, ...TEMPLATES_V2, ...OWNER_TEMPLATES, ...STAFF_TEMPLATES, ...BROADCAST_TEMPLATES]
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -286,6 +307,29 @@ export async function sendSesionPendiente(therapistE164, { nombre, paciente, fec
         qr(0, `est_ok:${sessionId}`),
         qr(1, `est_no:${sessionId}`),
       ],
+    },
+  }
+  const res = await fetch(SEND_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`Dualhook ${res.status}: ${await res.text()}`)
+  const data = await res.json()
+  return data?.messages?.[0]?.id || null
+}
+
+// Broadcast template (#53) — {{1}} = saludo. Sent only by lib/broadcast.mjs.
+export async function sendBroadcastTemplate(toE164, name, saludo) {
+  const apiKey = process.env.WA_DUALHOOK_API_KEY
+  if (!apiKey) throw new Error('WA_DUALHOOK_API_KEY missing — no send performed')
+  const body = {
+    messaging_product: 'whatsapp',
+    to: String(toE164).replace(/^\+/, ''),
+    type: 'template',
+    template: {
+      name, language: { code: LANG },
+      components: [{ type: 'body', parameters: [{ type: 'text', text: String(saludo).trim() }] }],
     },
   }
   const res = await fetch(SEND_URL, {

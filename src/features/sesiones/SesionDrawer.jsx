@@ -217,7 +217,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     mode === 'edit' && initial ? initial.id : null,
   )
 
-  // Per-therapist hard rules (#43/#46 — Mariana: starts 10:00–20:00, ≥2h apart, max 3/day,
+  // Per-therapist hard rules (#43/#46 — Mariana: starts 11:00–20:00, ≥2h apart, max 3/day,
   // en línea only). Edits are checked only when the schedule changes, mirroring the
   // DB trigger, so re-saving a pre-rule session is never blocked.
   const candidate = {
