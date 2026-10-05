@@ -102,6 +102,25 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-05 — #45 Owner outbox + ping_nico: facturación arrives by itself (executor, ba7578d)
+- **Rule:** any workflow that must reach Nicolás calls `notifyOwner({kind, resumen, messages})`
+  (`netlify/lib/ownerOutbox.mjs`) — never a new template. Table `owner_outbox` (migration `owner_outbox`,
+  mirror `supabase/owner-outbox.sql`, owner-only RLS; cols kind/resumen/payload/estado/sent_at/ping_sent_at/error).
+- Window open (owner inbound in `whatsapp_messages` < 24h − 5 min, matched by last-9 of `raw_payload.message.from`)
+  → sent now. Closed → `pendiente` + ONE `ping_nico` per closed window ({{1}} = resumen, "{n} pendientes: …"
+  ≤100 chars). ping_nico not APPROVED as UTILITY / send fails → Web Push fallback, row stays pendiente.
+  Rows are claimed atomically (pendiente→enviado) so concurrent flushes never double-send.
+- Webhook: ANY owner inbound → `flushOwnerOutbox()` first (a "facturas" command first supersedes a queued
+  facturas list → `fallido` "reemplazado"); the "Ver" tap stops there. **Owner phone never enters the lead
+  bot now** (was the `LEAD_BOT_TEST_PHONES` phone + an es_lead patient row → bot tests from his phone no longer work).
+- `facturar-report` (cron `0 14 * * 1,4`, confirmed on deploy) → `runReport`: dry-run → `prepareFacturas(…,'cron')`
+  (expires older pendiente snapshots, new snapshot origen `cron`, the exact list + [Aprobar][Ahora no]) →
+  `notifyOwner(kind 'facturas', "{N} facturas listas para aprobar")`. Old push-only path removed. Command,
+  fac_ok/fac_no handlers unchanged. Nothing emits without his Aprobar tap.
+- Template `ping_nico` (UTILITY, es, QUICK_REPLY "Ver", in `leadTemplates.mjs#OWNER_TEMPLATES`) submitted
+  2026-10-05 via `submit-lead-templates?name=ping_nico` → Meta id 1493892519462882, PENDING/UTILITY.
+- Harness (scratch, stubbed WA/push/Meta/Supabase): 12/12 pass.
+
 ### 2026-10-04 — #44 María Emilia Worm: must-invoice + retroactive from 1 Sep (executor, f55495b)
 - New column `patients.facturar_desde date NULL` (migration `patients_facturar_desde`, mirror
   `supabase/patients-facturar-desde.sql`). `fetchEligible` (facturarCore.mjs) now filters in JS:
@@ -271,9 +290,10 @@ Migration `lead_funnel_08_panel_link`, mirror `supabase/lead-funnel-08-panel-lin
 - [ ] **#38 Drop the 4 unused functions** (SQL in the 2026-10-04 Completed entry) + add the key policy to CLAUDE.md.
 
 ### 🔴 Contífico / invoicing follow-ups — surfaced 2026-10-02→04
-- [ ] **#16 first live run Mon 5 Oct 09:00** — watch: push arrives, "facturas" reply, Aprobar result,
-      `select estado, resultado from factura_aprobaciones order by created_at desc limit 1;`.
-      Must include **María Emilia Worm 7 Sep $39** (#44, first invoice for her; new persona).
+- [x] **#16 first live run Mon 5 Oct** — done: "facturas" 15:10 UTC, Aprobar 17:56, 1 emitted; its RIDE was
+      still unauthorized at the end of the run (`rides_pendientes`) → check it went out on the next send-rides.
+- [ ] **ping_nico review** (#45) — check status: `submit-lead-templates?token=…&list`. Until APPROVED (as UTILITY)
+      the Thu 8 Oct cron falls back to push if his window is closed. Reclassified/rejected → Nicolás decides, don't edit copy.
 - [ ] **Raguel Conforme 12 Sep** (paid, never invoiced) — skipped on Nicolás's instruction 2026-10-03; invoice with
       `emit-one&before_floor=1` if he asks.
 - [ ] **Factura WhatsApp copy** — Nicolás doesn't love `factura_sesion_link`'s wording. If he sends new copy:
