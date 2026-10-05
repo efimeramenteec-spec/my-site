@@ -310,6 +310,21 @@ only SENDS when `LEAD_BOT_LIVE=true`. See `EFIMERAMENTE_STATE.md` for the go-liv
   day/week + by ad, % between steps, median time to booking) and Configuración tab (category ordering +
   captions/recibe_nuevos editors). Legacy campaign spend view kept under the Campañas tab.
 
+### Owner outbox — `netlify/lib/ownerOutbox.mjs` (#45, 2026-10-05)
+**Any workflow that must reach Nicolás uses `notifyOwner` — never a new template**, and never a
+push that asks him to remember to type a command. `notifyOwner(supabase, { kind, resumen, messages })`
+queues the exact WhatsApp message(s) (`[{type:'text',body} | {type:'buttons',body,buttons:[{id,title}]}]`)
+in `owner_outbox` (owner-only RLS, `supabase/owner-outbox.sql`):
+- his 24h window open (inbound from the owner phone in `whatsapp_messages` < 24h − 5 min ago) → sent now, `enviado`;
+- closed → stays `pendiente` + ONE `ping_nico` template per closed window (UTILITY, `{{1}}` = resumen,
+  quick-reply "Ver"; defined in `leadTemplates.mjs#OWNER_TEMPLATES`, submitted via
+  `submit-lead-templates?name=ping_nico`); several pending → "{n} pendientes: …" (≤100 chars);
+- `ping_nico` not APPROVED as UTILITY, or the send fails → Web Push fallback, row stays `pendiente`.
+- `whatsapp-cloud-webhook` calls `flushOwnerOutbox()` on ANY owner inbound (oldest first) before his
+  command; the "Ver" tap does nothing else. Owner-phone messages never enter the lead bot.
+First consumer: `facturar-report` (Mon+Thu 09:00 GYE) → snapshot (origen `cron`) + the same list +
+[Aprobar] [Ahora no] the "facturas" command sends. Invoices are emitted ONLY by his Aprobar tap.
+
 ### `send-reminders.mjs` — hourly WhatsApp reminder (SCHEDULED, cron-only)
 Cron `0 * * * *` declared **in-code** via `export const config = { schedule }` (not `netlify.toml`).
 Sends a ~24h-before reminder via Twilio Content API (approved quick-reply template, one variable

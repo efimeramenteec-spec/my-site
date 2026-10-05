@@ -30,6 +30,7 @@ import { notifyTherapist } from '../lib/push.mjs'
 import { isTherapistOrPayer, recordLead, handleEchoes, runBot, handleTherapistResult, isTap, botAllowedForPhone } from '../lib/leadBot.mjs'
 import { sendReadReceipt } from '../lib/waSend.mjs'
 import { isOwnerPhone, isFacturasCommand, facturaTap, handleFacturasCommand, handleDescartar } from '../lib/facturarAprobacion.mjs'
+import { flushOwnerOutbox, supersedeOwnerOutbox } from '../lib/ownerOutbox.mjs'
 
 // Fire the delayed-reply background function (~20s + typing, burst-coalesced) for
 // a lead's free text. Returns fast (Netlify 202s a background invocation). The
@@ -77,6 +78,9 @@ async function handleOwnerFacturar(supabase, msg) {
   }
   return false
 }
+
+// The ping_nico quick-reply "Ver" tap (template buttons arrive as type 'button').
+const isOwnerPing = (msg) => msg?.type === 'button' && String(msg.button?.payload || msg.button?.text || '').trim().toLowerCase() === 'ver'
 
 const text = (body, status = 200) => new Response(body, { status, headers: { 'Content-Type': 'text/plain' } })
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
@@ -245,7 +249,19 @@ export default async (req) => {
         const who = patient ? `patient ${patient.id}` : `UNMATCHED ${msg.from}`
         console.log(`[wa-cloud] inbound ${msg.type} from ${who} (${msg.id})`)
 
-        // ── Owner invoicing (#16) — before estado + lead bot: no lead row, no bot reply.
+        // ── Owner phone (#45, #16) — before estado + lead bot. ANY inbound from
+        // Nicolás opens his 24h window → flush the owner outbox first (oldest
+        // first), then his command. A "facturas" command supersedes a queued list
+        // (a fresh one follows). The ping's "Ver" tap does nothing else.
+        const fromOwner = isOwnerPhone(msg.from)
+        if (fromOwner) {
+          try {
+            if (isFacturasCommand(msg)) await supersedeOwnerOutbox(supabase, 'facturas')
+            const flushed = await flushOwnerOutbox(supabase)
+            if (flushed.length) console.log(`[wa-cloud] owner outbox flushed: ${JSON.stringify(flushed)}`)
+          } catch (e) { console.error('[wa-cloud] owner outbox flush failed:', e.message) }
+          if (isOwnerPing(msg)) continue
+        }
         if (await handleOwnerFacturar(supabase, msg)) continue
 
         // Confirmo / Cancelar → flip the matching session's estado. This is the
@@ -283,7 +299,8 @@ export default async (req) => {
         // OCRs every inbound image+document and alerts Nicolás for unknown senders.
         // Routing a receipt to the bot made it greet with "¿motivo de consulta?".
         const isReceiptMedia = msg.type === 'image' || msg.type === 'document'
-        if (!handledResult && !isReceiptMedia && (!patient || patient.es_lead)) {
+        // The owner phone never enters the lead funnel (#45).
+        if (!handledResult && !fromOwner && !isReceiptMedia && (!patient || patient.es_lead)) {
           try {
             if (!(await isTherapistOrPayer(supabase, msg.from))) {
               const contact = value.contacts?.[0] || null

@@ -122,7 +122,21 @@ export const TEMPLATES_V2 = [
       v1Buttons('primera_sesion'),
     ] },
 ]
-const ALL_TEMPLATES = [...TEMPLATES, ...TEMPLATES_V2]
+// Owner templates (#45). ping_nico is the ONE universal ping to Nicolás when his
+// 24h window is closed: his "Ver" tap opens the window and the owner outbox
+// (ownerOutbox.mjs) flushes. Never add another owner template — route through
+// notifyOwner. No emoji, no ¡¿, body ends on static text.
+export const PING_TEMPLATE = 'ping_nico'
+export const OWNER_TEMPLATES = [
+  { name: PING_TEMPLATE, to: 'owner', language: LANG, category: 'UTILITY',
+    components: [
+      { type: 'BODY',
+        text: 'Hola Nicolás, tienes una actualización pendiente en tu cuenta de Efimeramente: {{1}}. Toca Ver para revisarla.',
+        example: { body_text: [['2 facturas listas para aprobar']] } },
+      { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Ver' }] },
+    ] },
+]
+const ALL_TEMPLATES = [...TEMPLATES, ...TEMPLATES_V2, ...OWNER_TEMPLATES]
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -229,6 +243,10 @@ async function sendTemplate(to, base, bodyParams) {
   const data = await res.json()
   return data?.messages?.[0]?.id || null // wamid, for reply-context matching
 }
+
+// ping_nico — {{1}} = one-line resumen. Sent only by ownerOutbox.mjs.
+export const sendOwnerPing = (ownerE164, resumen) =>
+  sendTemplate(ownerE164, PING_TEMPLATE, [resumen])
 
 export const sendCallReminder = (toE164, { name, therapist, hora }) =>
   sendTemplate(toE164, 'recordatorio_llamada', [name, therapist, hora])

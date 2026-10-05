@@ -2,10 +2,12 @@
 //
 // /facturar by WhatsApp approval (#16, decided 28 Sep: invoices only on Nicolás's
 // approval, and only the exact list he saw). Flow:
-//   1. Mon+Thu 09:00 GYE facturar-report pushes "Facturación pendiente".
-//   2. Nicolás writes "facturas" to the 9933 → handleFacturasCommand: dry-run, a
-//      'pendiente' snapshot in factura_aprobaciones (session_ids frozen), the list
-//      + [Aprobar] [Ahora no] buttons (free-form — his message opened the window).
+//   1. Mon+Thu 09:00 GYE facturar-report (#45): dry-run → 'pendiente' snapshot
+//      (origen 'cron') → the list + [Aprobar] [Ahora no] via notifyOwner (owner
+//      outbox: sent now if his 24h window is open, else ping_nico and his tap
+//      flushes it). He never has to remember to ask.
+//   2. Or Nicolás writes "facturas" to the 9933 → handleFacturasCommand: the same
+//      snapshot (origen 'comando') + list + buttons, sent straight back.
 //   3. Aprobar (fac_ok:<id>) → the webhook fires facturar-aprobar-background, which
 //      runs runAprobacion: atomic pendiente→aprobada claim (double-tap guard), then
 //      emitOne for each snapshot id STILL eligible (sessions outside the snapshot
@@ -21,6 +23,7 @@ import { normalizePhone, ownerWhatsApp } from './whatsapp.mjs'
 import { sendText, sendButtons } from './waSend.mjs'
 import { notifyTherapist } from './push.mjs'
 import { dryRun, emitOne, ridePlan, sendRides, money } from './facturarCore.mjs'
+import { notifyOwner, supersedeOwnerOutbox } from './ownerOutbox.mjs'
 
 const TABLE = 'factura_aprobaciones'
 const VIGENCIA_MS = 48 * 3600 * 1000
@@ -31,7 +34,7 @@ const RIDE_RETRY_MS = 15000
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const defaultDeps = {
   dryRun, emitOne, ridePlan, sendRides, sendText, sendButtons, notifyTherapist,
-  now: () => new Date(), sleep,
+  notifyOwner, supersedeOwnerOutbox, now: () => new Date(), sleep,
 }
 
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
@@ -79,11 +82,14 @@ export function facturaTap(msg) {
 
 const EXPIRED = 'Esa lista ya no está vigente. Escribe facturas para una nueva.'
 
-// ── "facturas" → fresh snapshot + list + buttons ────────────────────────────
-export async function handleFacturasCommand(supabase, to, deps = defaultDeps) {
+// ── Snapshot + the exact list/buttons messages ──────────────────────────────
+// Shared by the "facturas" command (sends them directly — his message opened the
+// window) and the Mon+Thu cron (hands them to notifyOwner). Expires any older
+// 'pendiente' snapshot: only the newest list is ever approvable.
+// messages: [{ type:'text', body } | { type:'buttons', body, buttons }]
+export async function prepareFacturas(supabase, origen, deps = defaultDeps) {
   const { ready, blocked } = await deps.dryRun(supabase)
 
-  // Any older list stops being approvable the moment a new one is asked for.
   await supabase.from(TABLE).update({ estado: 'vencida' }).eq('estado', 'pendiente')
 
   const blockedLines = blocked.length
@@ -91,8 +97,8 @@ export async function handleFacturasCommand(supabase, to, deps = defaultDeps) {
     : []
 
   if (!ready.length) {
-    await deps.sendText(to, ['No hay sesiones listas para facturar.', ...(blockedLines.length ? ['', ...blockedLines] : [])].join('\n'))
-    return { snapshot: null, ready: 0, blocked: blocked.length }
+    const body = ['No hay sesiones listas para facturar.', ...(blockedLines.length ? ['', ...blockedLines] : [])].join('\n')
+    return { snapshot: null, ready: 0, blocked: blocked.length, messages: [{ type: 'text', body }] }
   }
 
   const total = money(ready.reduce((s, i) => s + Number(i.monto || 0), 0))
@@ -100,7 +106,7 @@ export async function handleFacturasCommand(supabase, to, deps = defaultDeps) {
     session_id: i.session_id, paciente: i.patient, pagador: pagador(i), monto: i.monto, fecha: i.fecha,
   }))
   const { data: snap, error } = await supabase.from(TABLE)
-    .insert({ origen: 'comando', session_ids: ready.map((i) => i.session_id), total, estado: 'pendiente',
+    .insert({ origen, session_ids: ready.map((i) => i.session_id), total, estado: 'pendiente',
       resultado: { lista } })
     .select().single()
   if (error || !snap) throw new Error('snapshot insert failed: ' + (error?.message || 'no row'))
@@ -115,15 +121,27 @@ export async function handleFacturasCommand(supabase, to, deps = defaultDeps) {
   const lastBody = [...chunks[chunks.length - 1], ...(blockedLines.length ? ['', ...blockedLines] : []), '', closing].join('\n')
   const buttons = [{ id: `fac_ok:${snap.id}`, title: 'Aprobar' }, { id: `fac_no:${snap.id}`, title: 'Ahora no' }]
 
-  for (const c of chunks.slice(0, -1)) await deps.sendText(to, c.join('\n'))
+  const messages = chunks.slice(0, -1).map((c) => ({ type: 'text', body: c.join('\n') }))
   if (lastBody.length <= 1024) {
-    await deps.sendButtons(to, lastBody, buttons)
+    messages.push({ type: 'buttons', body: lastBody, buttons })
   } else {
     // Interactive bodies cap at 1024 chars — never truncate the list silently.
-    await deps.sendText(to, [...chunks[chunks.length - 1], ...(blockedLines.length ? ['', ...blockedLines] : [])].join('\n'))
-    await deps.sendButtons(to, closing, buttons)
+    messages.push({ type: 'text', body: [...chunks[chunks.length - 1], ...(blockedLines.length ? ['', ...blockedLines] : [])].join('\n') })
+    messages.push({ type: 'buttons', body: closing, buttons })
   }
-  return { snapshot: snap.id, ready: ready.length, blocked: blocked.length }
+  return { snapshot: snap.id, ready: ready.length, blocked: blocked.length, messages }
+}
+
+// ── "facturas" → fresh snapshot + list + buttons ────────────────────────────
+export async function handleFacturasCommand(supabase, to, deps = defaultDeps) {
+  const r = await prepareFacturas(supabase, 'comando', deps)
+  for (const m of r.messages) {
+    // eslint-disable-next-line no-await-in-loop
+    if (m.type === 'buttons') await deps.sendButtons(to, m.body, m.buttons)
+    // eslint-disable-next-line no-await-in-loop
+    else await deps.sendText(to, m.body)
+  }
+  return { snapshot: r.snapshot, ready: r.ready, blocked: r.blocked }
 }
 
 // ── Ahora no ────────────────────────────────────────────────────────────────
@@ -223,13 +241,20 @@ export async function runAprobacion(supabase, to, snapshotId, deps = defaultDeps
   return { status: 'done', emitted: k, sent: s, omitidas: omitidas.length, criticos: criticos.length }
 }
 
-// ── Mon+Thu push (facturar-report) ──────────────────────────────────────────
+// ── Mon+Thu cron (facturar-report) → owner outbox (#45) ─────────────────────
+// Nothing ready or blocked → nothing. Otherwise the same snapshot + list + buttons
+// the "facturas" command builds, delivered by notifyOwner (now if his window is
+// open, else ping_nico → his tap flushes it). Nothing is emitted here: emission
+// only ever follows his [Aprobar] tap (fac_ok → runAprobacion).
 export async function runReport(supabase, deps = defaultDeps) {
   const { ready, blocked } = await deps.dryRun(supabase)
-  if (!ready.length && !blocked.length) return { pushed: false, ready: 0, blocked: 0 }
-  const total = ready.reduce((s, i) => s + Number(i.monto || 0), 0)
-  let body = `Hay ${ready.length} sesiones listas para facturar (${fmtMoney(total)}). Escribe facturas al 9933 para revisarlas.`
-  if (blocked.length) body += ` ${blocked.length} bloqueadas.`
-  await deps.notifyTherapist(supabase, null, { title: 'Facturación pendiente', body, url: '/' })
-  return { pushed: true, ready: ready.length, blocked: blocked.length, body }
+  if (!ready.length && !blocked.length) return { notified: false, ready: 0, blocked: 0 }
+  const once = { ...deps, dryRun: async () => ({ ready, blocked }) }
+  const r = await prepareFacturas(supabase, 'cron', once)
+  const resumen = ready.length
+    ? `${ready.length} facturas listas para aprobar`
+    : `${blocked.length} facturas bloqueadas por datos faltantes`
+  await deps.supersedeOwnerOutbox(supabase, 'facturas')
+  const n = await deps.notifyOwner(supabase, { kind: 'facturas', resumen, messages: r.messages })
+  return { notified: true, ready: ready.length, blocked: blocked.length, snapshot: r.snapshot, via: n?.via, resumen }
 }
