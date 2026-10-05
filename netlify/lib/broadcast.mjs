@@ -192,7 +192,7 @@ export async function runBroadcastSweep(supabase, { deps = defaultDeps } = {}) {
     const unclaimed = live.filter((r) => !r.claimed_at).length
     const lastSent = Math.max(0, ...live.map((r) => (r.sent_at ? new Date(r.sent_at).getTime() : 0)))
     const settled = now.getTime() - lastSent >= SETTLE_MS
-    if (!unclaimed && settled && live.every((r) => r.sent_at || r.error)) {
+    if ((recs || []).length && !unclaimed && settled && live.every((r) => r.sent_at || r.error)) {
       const { data: closed } = await supabase.from('broadcasts')
         .update({ estado: 'enviado', notified_at: now.toISOString() }).eq('id', b.id).eq('estado', 'listo').select('id')
       if (closed?.length) {
