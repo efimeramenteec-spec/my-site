@@ -104,7 +104,7 @@ export async function downloadSessionReport({ sessions = [], therapists = [], fi
   const breakdown = [...byRate.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([rate, n]) => `${n} × ${formatCurrency(rate)}`)
-    .join(' + ') + (payAdjustment ? ` ${payAdjustment < 0 ? '−' : '+'} ${formatCurrency(Math.abs(payAdjustment))} ajuste` : '')
+    .join(' + ') + (payAdjustment ? ` ${payAdjustment < 0 ? '-' : '+'} ${formatCurrency(Math.abs(payAdjustment))} ajuste` : '')
 
   // Period text: explicit range if set, else derived from the data.
   const desde = filters.desde || rows[0].fecha
