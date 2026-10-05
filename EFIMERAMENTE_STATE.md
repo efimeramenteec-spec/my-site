@@ -102,6 +102,20 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-05 — #49b Package credit consumed whoever confirms + new credit pays existing debt (executor)
+- Migration `saldo_consume_security_definer` (mirror `supabase/saldo-consume-security-definer.sql`):
+  (a) `consume_saldo_on_confirm()` → SECURITY DEFINER, `search_path = public, pg_temp`, owner postgres; logic unchanged.
+  (b) new `apply_new_saldo_lote()` + AFTER INSERT trigger `apply_new_saldo_lote` on saldo_lotes: pays the patient's
+  confirmada+unpaid+non-llamada sessions oldest fecha first, full coverage only, FIFO lotes; stops at first uncovered.
+  **Guard: skips lotes with proof_id** — proofReconcile.applyPlan inserts its lote FIRST, then draws credit + marks its
+  own sessions; settling there too would double-consume. Only manual inserts (e.g. #51) reach (b).
+  RLS on saldo_lotes unchanged (`saldo_lotes_owner: is_owner()`), therapists still see 0 lotes.
+- Pre-deploy test (migration + test in one aborted tx, as Carolina's JWT, role authenticated): Andrea paid, lote 101→62;
+  no credit → unchanged; proof_id lote → nothing paid; $20 lote < $35 → nothing; +$15 → paid, both lotes → 0; 0 negative.
+- Deploy changed no lote (16 matched snapshot). (c) settled via no-op `estado='confirmada'` update (trigger, not by hand):
+  Andrea 1 Oct $39 (lote f0b7af8c 101→62), Luis 2 Oct $35 (lote 14db84f9 50→15). Re-scan: 0 left.
+- Shyam lote af4ba5c9 is 35 (not 70): his 6 Oct session was confirmed 19:49 UTC pre-deploy and paid from credit — correct.
+
 ### 2026-10-05 — #50 Marthin Spatz billed to Shariam Narváez + #51 Valentina Yanchaluiza 4-pack (executor, data-only)
 - #50: new `payers` row 4d0597f1-0b09-4bd9-babb-d0b41c68201a (Shariam Alexandra Narváez Celi, cédula =
   contifico_id 1722319439, tel +593995879307); patient 6f9b2b87 → payer_id set, nombre 'Sharian'→'Shariam'
@@ -275,19 +289,6 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   >48h → expired copy; non-owner tap ignored (webhook-level check too); CRITICAL path. All PASS. No real invoices.
 - First live run: **Mon 5 Oct 09:00** with Nicolás.
 
-### 2026-10-04 — #41 lead templates _v2 (Nico voice) + v1→v2 auto-switch (executor, f87944f)
-- `netlify/lib/leadTemplates.mjs`: new `TEMPLATES_V2` (`<base>_v2`, field `base`) — Nicolás's verbatim copy, no
-  emoji/¡¿, "Att: Nico"; examples + BUTTONS reused from v1 objects (identical texts → leadBot reply handlers match
-  on button text/payload + `resultado_llamada_wamid`, no change needed). v1 `TEMPLATES` untouched.
-- Auto-switch: `primeTemplateStatuses()` (one GET via `listTemplates()`, called at the top of each lead-followups
-  run; lazy w/ 15-min TTL for the webhook's rebook send) + `pickTemplateName(base, statuses)` → `_v2` only if
-  APPROVED **and in the category we requested**; PENDING/REJECTED/reclassified/fetch error → v1. `sendTemplate` resolves.
-- `submitTemplates()` default is now the `_v2` set (names may pick v1 or v2). Dualhook 429s after 2 creates —
-  submit one `?name=` at a time with ~60s gaps.
-- Status at close: `rebook_llamada_v2` APPROVED (MARKETING, live now); `recordatorio_llamada_v2` + `resultado_llamada_v2`
-  PENDING (UTILITY); `primera_sesion_v2` PENDING but **reclassified UTILITY→MARKETING** (v1 is MARKETING too) → the
-  switch keeps v1 for it until Nicolás decides (set its `category` to 'MARKETING' to accept).
-
 ### 2026-10-02 → 10-04 — /facturar go-live + WhatsApp invoices → moved to `CHANGELOG.md` (top) by /cierre 2026-10-04 pm.
 
 ## Pending / Backlog
@@ -299,14 +300,6 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [ ] **A Stutz never delivered** ("En preparación", $0 since 1 Oct) — 12 unpublished drafts in Ads Manager. Director decides.
 - [ ] **Card cap 3 vs hijo_adolescente (4) / hijo_adulto (5)** — confirm with Nicolás whether to show all.
 - [ ] **#38 Drop the 4 unused functions** (SQL in the 2026-10-04 Completed entry) + add the key policy to CLAUDE.md.
-
-### 🔴 #49 Package credit not applied to already-confirmed sessions — diagnosis done, fix pending director
-- [ ] Make `consume_saldo_on_confirm()` `security definer set search_path = public` (therapist writes then consume).
-- [ ] AFTER INSERT trigger on `saldo_lotes` (security definer): apply new credit to the patient's existing
-      confirmada + unpaid + non-llamada sessions, oldest fecha first, full coverage only.
-- [ ] One-time settle after approval: Andrea Torres 1 Oct ($39 of $101) + Luis Vaca 2 Oct ($35 of $50) — e.g.
-      `update sessions set updated_at=now() where id in (...)` as owner once the trigger is definer.
-- [ ] Watch Shyam: 6 Oct confirm → lote 70→35; next pack session → 0.
 
 ### 🟠 Payroll Sep (#48) — follow-ups
 - [ ] **María Gracia delivery** — her 3 payroll messages were "sent" not "delivered" at 19:05 UTC 5 Oct; re-check

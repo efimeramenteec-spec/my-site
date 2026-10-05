@@ -5,6 +5,20 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-05 (#49b) -->
+### 2026-10-04 — #41 lead templates _v2 (Nico voice) + v1→v2 auto-switch (executor, f87944f)
+- `netlify/lib/leadTemplates.mjs`: new `TEMPLATES_V2` (`<base>_v2`, field `base`) — Nicolás's verbatim copy, no
+  emoji/¡¿, "Att: Nico"; examples + BUTTONS reused from v1 objects (identical texts → leadBot reply handlers match
+  on button text/payload + `resultado_llamada_wamid`, no change needed). v1 `TEMPLATES` untouched.
+- Auto-switch: `primeTemplateStatuses()` (one GET via `listTemplates()`, called at the top of each lead-followups
+  run; lazy w/ 15-min TTL for the webhook's rebook send) + `pickTemplateName(base, statuses)` → `_v2` only if
+  APPROVED **and in the category we requested**; PENDING/REJECTED/reclassified/fetch error → v1. `sendTemplate` resolves.
+- `submitTemplates()` default is now the `_v2` set (names may pick v1 or v2). Dualhook 429s after 2 creates —
+  submit one `?name=` at a time with ~60s gaps.
+- Status at close: `rebook_llamada_v2` APPROVED (MARKETING, live now); `recordatorio_llamada_v2` + `resultado_llamada_v2`
+  PENDING (UTILITY); `primera_sesion_v2` PENDING but **reclassified UTILITY→MARKETING** (v1 is MARKETING too) → the
+  switch keeps v1 for it until Nicolás decides (set its `category` to 'MARKETING' to accept).
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-05 (#49) -->
 ### 2026-10-04 — #37 bot copy/flow polish + #40 new CAPI LeadSubmitted signal (executor, 80615a7 + cb967de)
 - **Style rule (hard):** no emojis, no opening ¡ ¿ in patient-facing bot text; the bot speaks as "Nico".
