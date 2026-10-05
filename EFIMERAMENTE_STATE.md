@@ -102,6 +102,23 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-05 — #49 Shyam package credit fixed + diagnosis: credit not consumed (executor)
+- **Fix (authorized):** lote `af4ba5c9…` (Shyam Yelpi, backfill package) remaining 105 → **70** + note
+  "5 Oct: ajuste manual a 70 (22 y 29 sep consumidas; quedan 6 oct + la siguiente)". 22/29 Sep left as-is
+  (pagado by hand today 14:37, payphone). 6 Oct (`99e99563…`, programada) NOT pre-marked: trigger pays it on confirm.
+- **ROOT CAUSE (verified):** `consume_saldo_on_confirm()` is NOT `security definer`. `saldo_lotes` RLS = `is_owner()`
+  only. When a THERAPIST confirms in the app, the trigger runs as that user → `select sum(remaining)` sees 0 lotes
+  → silent skip (and it couldn't UPDATE the lote anyway). Verified read-only: as Daniela's auth uid,
+  `is_owner()=false`, lotes visible = 0, session visible = 1. Only owner/service-role writes consume credit.
+  - Shyam 29 Sep (Daniela): created 28 Sep 19:10, no reminder sent, no WA reply → confirmed in-app by therapist.
+  - Andrea Torres 1 Oct $39 (Carolina): lote $101 created 29 Sep 21:10 (proof 67e6facf), session last updated
+    30 Sep 20:04 — AFTER the lote → not a timing issue, it's the RLS issue. Credit covers it.
+  - Luis Vaca 2 Oct $35 (Carolina): prepay lote $50 created 1 Oct (proof c546274d), session created 3 Oct 08:27 /
+    updated 18:21 — AFTER the lote → RLS again. Credit covers it ($15 left after).
+- **Secondary gap:** the trigger only fires on session writes; a lote created after a session is already
+  confirmada+unpaid never applies itself (the backfill and proofReconcile only settle what they explicitly match).
+- **Full scan (confirmada + unpaid + non-llamada + enough credit):** only Andrea 1 Oct and Luis 2 Oct. Untouched.
+
 ### 2026-10-05 — #48c Llamadas removed from the payroll protocol (executor)
 - Nicolás: the "llamadas en Pendiente" step was meaningless — llamadas have no Pendiente; their only state is
   Convirtió/No convirtió (`convirtio` + `src/lib/conversion.js`). The director's query read the legacy raw
@@ -260,35 +277,6 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   PENDING (UTILITY); `primera_sesion_v2` PENDING but **reclassified UTILITY→MARKETING** (v1 is MARKETING too) → the
   switch keeps v1 for it until Nicolás decides (set its `category` to 'MARKETING' to accept).
 
-### 2026-10-04 — #37 bot copy/flow polish + #40 new CAPI LeadSubmitted signal (executor, 80615a7 + cb967de)
-- **Style rule (hard):** no emojis, no opening ¡ ¿ in patient-facing bot text; the bot speaks as "Nico".
-  Enforced by `cleanBotText()` in `netlify/lib/waSend.mjs` on EVERY session send (text, button/list/card
-  body/header/titles; ids untouched). waSend's send fns are imported ONLY by `leadBot.mjs` → templates /
-  payment reminders / invoices never pass through it. Source strings + leadBrain SYSTEM_RULES cleaned too.
-- **First question everywhere** = `showQuien()` (leadBot): "Hola, hablas con Nico. Cuéntame, para quién buscas
-  empezar terapia?" [Para mí][Mi pareja y yo][Mi hijo/a] (`quien:yo|pareja|hijo`; "Hola…" only if !saludo_enviado).
-  Replaces welcomeAndReasons/showReasonList-as-first on all paths (bare greeting, prefill, isAgendarText, intent
-  agendar, unresolved terapeuta, invitation Sí w/o categoria, renderStep). New `leads.quien` column records the tap.
-- **Deterministic prefills** (`prefillKind()`, no model): "Me gustaría empezar terapia con ustedes" → quien;
-  "Quiero saber el precio" → CANNED.precio + invitation; "más información"/"info" → precio + ubicacion + invitation.
-- **Para mí** → list "Perfecto. Qué te trae a terapia?" / "Ver opciones" (funnel_categorias `hijo`,
-  `terapia_pareja` now activo=false; `chooseReason` no longer filters on activo). **Pareja** → CANNED.pareja +
-  Carolina card. **Hijo** → age buttons (`edad:nino|adolescente|adulto`) → hidden rows `hijo_nino`,
-  `hijo_adolescente`, `hijo_adulto` (activo=false). Any path landing on categoria `hijo` asks the age.
-  ⚠️ resolveCards still caps at 3 cards → adolescente drops Carolina, adulto drops Ma. Gracia + Carolina.
-- **Nudge:** ONE at +22h (`NUDGE_TEXT`, "…Att: Nico"), then stage frio (lead-followups `lt('nudges_sent',1)`).
-- **#40 CAPI:** `leads.precio_visto_at` stamped on CANNED.precio/pareja, a Claude "libre" answer with `$<d>`,
-  and Nicolás's manual echo with `$<d>` (handleEchoes). `capi.mjs#leadSubmittedDecision()` (pure): fire when
-  ≥2 inbound after precio_visto_at (taps count; reaction/edit/revoke/unsupported don't) → event_time = 2nd msg,
-  OR eligio_terapeuta_at → that time; earliest fresh wins; >7 days old → skip (`summary.stale`), no stamp.
-  Old "categoria set" trigger removed. Migration `lead_funnel_09_precio_signal` (`supabase/lead-funnel-09-precio-signal.sql`).
-- **Backfill:** precio_visto_at set on 6 leads (lead_ai_decisions canned replies + outbound `$` echoes since 26 Sep);
-  sweep sent **1** new LeadSubmitted.
-- **Meta Step 0 (4 Oct, read-only):** B Gottman 6.904 impr / 4.984 reach / 10 results / $2,86 CPR / $28,62 spent;
-  A Stutz "En preparación", 0 impr, $0 — NOT delivering. Account shows "Revisar y publicar (12)" pending drafts.
-  Events Manager: LeadSubmitted 10 total, active, no warnings.
-- Harness (not committed): scratchpad stubs fetch + supabase, walks all flows; 0 emoji/¡¿ in 46 payloads.
-
 ### 2026-10-02 → 10-04 — /facturar go-live + WhatsApp invoices → moved to `CHANGELOG.md` (top) by /cierre 2026-10-04 pm.
 
 ## Pending / Backlog
@@ -300,6 +288,14 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [ ] **A Stutz never delivered** ("En preparación", $0 since 1 Oct) — 12 unpublished drafts in Ads Manager. Director decides.
 - [ ] **Card cap 3 vs hijo_adolescente (4) / hijo_adulto (5)** — confirm with Nicolás whether to show all.
 - [ ] **#38 Drop the 4 unused functions** (SQL in the 2026-10-04 Completed entry) + add the key policy to CLAUDE.md.
+
+### 🔴 #49 Package credit not applied to already-confirmed sessions — diagnosis done, fix pending director
+- [ ] Make `consume_saldo_on_confirm()` `security definer set search_path = public` (therapist writes then consume).
+- [ ] AFTER INSERT trigger on `saldo_lotes` (security definer): apply new credit to the patient's existing
+      confirmada + unpaid + non-llamada sessions, oldest fecha first, full coverage only.
+- [ ] One-time settle after approval: Andrea Torres 1 Oct ($39 of $101) + Luis Vaca 2 Oct ($35 of $50) — e.g.
+      `update sessions set updated_at=now() where id in (...)` as owner once the trigger is definer.
+- [ ] Watch Shyam: 6 Oct confirm → lote 70→35; next pack session → 0.
 
 ### 🟠 Payroll Sep (#48) — follow-ups
 - [ ] **María Gracia delivery** — her 3 payroll messages were "sent" not "delivered" at 19:05 UTC 5 Oct; re-check
