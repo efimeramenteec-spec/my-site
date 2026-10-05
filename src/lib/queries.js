@@ -46,7 +46,7 @@ async function fetchAll(makeQuery) {
 // it skips the patient join and heavy columns on purpose.
 const FINANZAS_SESSION_SELECT =
   'id,terapeuta_id,patient_id,fecha,tipo,estado,monto,pagado,facturada,paid_at,recordatorio_pago_at,' +
-  'therapist:therapists(id,nombre,apellido,color,provision_rate),' +
+  'therapist:therapists(id,nombre,apellido,color,provision_rate,prueba_hasta),' +
   'patient:patients(id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono)'
 
 // Open saldo a favor (credit) per patient. `saldo_lotes` is RLS owner-only, so
@@ -69,7 +69,7 @@ export async function getFinanzasData() {
       const [sRes, tRes, lotes] = await Promise.all([
         fetchAll(() => supabase.from('sessions').select(FINANZAS_SESSION_SELECT)
           .order('fecha', { ascending: true }).order('id', { ascending: true })),
-        supabase.from('therapists').select('id,nombre,apellido,color,activo,provision_rate')
+        supabase.from('therapists').select('id,nombre,apellido,color,activo,provision_rate,prueba_hasta')
           .order('nombre', { ascending: true }),
         fetchSaldoLotes(),
       ])
@@ -147,7 +147,7 @@ export async function getSessionsData() {
           .order('id', { ascending: true })),
         supabase.from('patients').select('id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,terapeuta_id,estado_general,es_lead,tarifa,metodo_pago')
           .order('nombre', { ascending: true }),
-        supabase.from('therapists').select('id,nombre,apellido,color,calendar_email,activo,provision_rate')
+        supabase.from('therapists').select('id,nombre,apellido,color,calendar_email,activo,provision_rate,prueba_hasta')
           .order('nombre', { ascending: true }),
       ])
       if (sRes.error) throw sRes.error

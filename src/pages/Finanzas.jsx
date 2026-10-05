@@ -22,7 +22,7 @@ import { sessionProvision } from '../lib/provision.js'
 const isReal = (s) =>
   s.tipo !== 'llamada' && s.estado !== 'cancelada' && s.estado !== 'no_show'
 
-const rateOf = (s) => sessionProvision(s, s.therapist?.provision_rate)
+const rateOf = (s) => sessionProvision(s, s.therapist?.provision_rate, s.therapist?.prueba_hasta)
 
 function monthRange(d) {
   const y = d.getFullYear()

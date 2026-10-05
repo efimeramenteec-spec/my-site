@@ -65,9 +65,15 @@ async function loadLogo() {
  * @param therapists  therapists array (needs provision_rate) for the pay calc
  * @param filters  { terapeuta, estado, pago, desde, hasta }
  * @param terapeutaName  display name when a single therapist is filtered, else null
- * @returns { ok, error }
+ * Payroll-run extras (#48; the app leaves them at their defaults):
+ * @param notes  extra lines printed under the totals (exclusions, agreed adjustments)
+ * @param payAdjustment  added to the pay total (e.g. -4 for an agreed reduced session)
+ * @param logo  preloaded { dataUrl, w, h } (node has no fetch/FileReader/Image for /logos)
+ * @param save  false → don't download; return the PDF bytes instead
+ * @returns { ok, error } · with save=false also { pdf: ArrayBuffer, fname, count, pay }
  */
-export async function downloadSessionReport({ sessions = [], therapists = [], filters = {}, terapeutaName = null }) {
+export async function downloadSessionReport({ sessions = [], therapists = [], filters = {}, terapeutaName = null,
+  notes = [], payAdjustment = 0, logo: logoIn = null, save = true }) {
   // Payroll report: free intro calls never count.
   const rows = sessions
     .filter((s) => s.tipo !== 'llamada')
@@ -78,15 +84,16 @@ export async function downloadSessionReport({ sessions = [], therapists = [], fi
 
   const rateById = new Map(therapists.map((t) => [t.id, Number(t.provision_rate ?? PROVISION_DEFAULT)]))
   const baseRateOf = (s) => (rateById.has(s.terapeuta_id) ? rateById.get(s.terapeuta_id) : PROVISION_DEFAULT)
+  const pruebaById = new Map(therapists.map((t) => [t.id, t.prueba_hasta || null]))
   // Per-session provision — shared with Finanzas so they never disagree.
-  const payFor = (s) => sessionProvision(s, baseRateOf(s))
+  const payFor = (s) => sessionProvision(s, baseRateOf(s), pruebaById.get(s.terapeuta_id) || null)
   const montoTotal = rows.reduce((sum, s) => sum + Number(s.monto || 0), 0)
 
   // Pay counts ONLY sessions that actually happened (confirmada / legacy
   // completada) — a pending or cancelled session is never paid. So the figure
   // is correct even if the report isn't filtered to Confirmada.
   const payRows = rows.filter((s) => s.estado === 'confirmada' || s.estado === 'completada')
-  const pay = payRows.reduce((sum, s) => sum + payFor(s), 0)
+  const pay = payRows.reduce((sum, s) => sum + payFor(s), 0) + Number(payAdjustment || 0)
 
   // Breakdown by rate (e.g. "12 × $24 + 3 × $30"); paid rows only (rate > 0).
   const byRate = new Map()
@@ -97,7 +104,7 @@ export async function downloadSessionReport({ sessions = [], therapists = [], fi
   const breakdown = [...byRate.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([rate, n]) => `${n} × ${formatCurrency(rate)}`)
-    .join(' + ')
+    .join(' + ') + (payAdjustment ? ` ${payAdjustment < 0 ? '−' : '+'} ${formatCurrency(Math.abs(payAdjustment))} ajuste` : '')
 
   // Period text: explicit range if set, else derived from the data.
   const desde = filters.desde || rows[0].fecha
@@ -128,7 +135,7 @@ export async function downloadSessionReport({ sessions = [], therapists = [], fi
   const marginX = 14
   const generado = new Intl.DateTimeFormat(LOCALE, { dateStyle: 'long', timeStyle: 'short' }).format(new Date())
 
-  const logo = await loadLogo()
+  const logo = logoIn || await loadLogo()
   let y = 14
   if (logo) {
     const w = 46
@@ -197,7 +204,16 @@ export async function downloadSessionReport({ sessions = [], therapists = [], fi
   ty += 7
   doc.text(`Monto total de las sesiones: ${formatCurrency(montoTotal)}`, marginX, ty)
 
+  if (notes.length) {
+    doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(40)
+    for (const line of notes) {
+      ty += 7
+      doc.text(line, marginX, ty)
+    }
+  }
+
   const fname = `Efimeramente-Sesiones-${slug(terapeutaName || 'Todos')}-${slug(desde)}_a_${slug(hasta)}.pdf`
+  if (!save) return { ok: true, pdf: doc.output('arraybuffer'), fname, count: rows.length, pay }
   doc.save(fname)
   return { ok: true }
 }
