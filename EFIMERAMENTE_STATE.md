@@ -102,6 +102,16 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-05 — #46 Mariana R1: last session STARTS at 20:00 (executor, fffbe07)
+- R1 is now start-only: `hora_inicio` 10:00–20:00 inclusive, end not checked (she's done by 21:00). R2–R4 unchanged.
+- `src/lib/therapistRules.js`: `window` → `startWindow`; `allowedWindow` → `allowedStartWindow` (+ `startWindowCopy`).
+  Copy: >20:00 "La última sesión de Mariana empieza a las 20:00"; <10:00 "La primera sesión de Mariana empieza a las 10:00".
+- `netlify/lib/booking.mjs#computeSlots`: clamp limits STARTS only (`if (clamp && s > clamp[1]) break`); the end is bounded
+  by her `booking_availability`, now mon–sat 10:00–21:15. Other therapists' slots diffed identical before/after.
+- Migration `therapist_rules_r1_start_only` (mirror `supabase/therapist-rules-r1-start-only.sql`): CREATE OR REPLACE
+  `enforce_therapist_rules` + her availability update. Verified in rolled-back tx: 20:00/10:00 ok, 20:30/09:30 fail,
+  19:00+20:00 fails R2. Live `?action=slots` 2026-10-07 → last slot 20:00.
+
 ### 2026-10-05 — #52 Daily 08:30 reminder to therapists: past sessions can't stay in Pendiente (executor, 674003b)
 - `netlify/functions/sesiones-pendientes.mjs` (scheduled `30 13 * * *` = 08:30 GYE, registered in deploy 6ac40723) →
   `netlify/lib/sesionesPendientes.mjs#runSesionesPendientes`. Scope: estado programada, tipo ≠ llamada (query + code
