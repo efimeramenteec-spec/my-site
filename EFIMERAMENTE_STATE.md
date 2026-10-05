@@ -102,6 +102,48 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-05 — #48/#48b September therapist payroll: first run (executor, 003b71f, 27286f6)
+- **Trial rate:** `therapists.prueba_hasta date` (migration `therapists_prueba_hasta_and_payroll_runs`, mirror
+  `supabase/therapists-prueba-hasta.sql`); Sophia = 2026-10-31. `src/lib/provision.js` PROVISION_PRUEBA = 20:
+  `sessionProvision(session, base, pruebaHasta)` → 0 if base 0 · 30 pareja · 20 if fecha <= pruebaHasta · else base.
+  prueba_hasta added to the 3 therapist selects in `queries.js`; Finanzas `rateOf` + `sessionReport` pass it.
+  Verified old-vs-new on all Sep sessions: only Sophia changes (144 → 120); Sophia 2026-11-02 → 24.
+- **`sessionReport.js`** opt-in params for payroll (app unchanged): `notes[]`, `payAdjustment`, `logo`, `save:false`
+  (returns { pdf, count, pay }). Runs in node (jsPDF ok; pass `logo` from public/logos + PNG header dims).
+  Gotcha: Helvetica can't render U+2212 — ASCII '-' only.
+- **`netlify/functions/payroll-send.mjs`** — POST ?token=PAYROLL_TOKEN (non-secret, functions scope)
+  {to, steps:[text|document]}; plain session messages (NO cleanBotText — signature emoji); document = upload to
+  private bucket `payroll` (created 5 Oct) + 1h signed URL; stops at first failure. **`netlify/lib/payrollCopy.mjs`**
+  = FIRMA + match / llamadas / pedir-lista / mismatch copy for the monthly protocol.
+- **Table `payroll_runs`** (mirror `supabase/payroll-runs.sql`, owner RLS, unique periodo+terapeuta_id): 6 rows for
+  2026-09, all `enviado_ok` with wamids, exclusions, adjustments in detalle.
+- **Sent 5 Oct ~19:02 UTC from the 9933** (text → PDF → pending-llamadas list): Camila 21/$504, Carolina 35/$852,
+  Sophia 6/$120, Francisco 19/$456 (Elisa Zoghbi 30/09 excluded), María Gracia 16/$380 (Sabine 24/09 at $20),
+  Daniela 41/$984 (#48b; "Camila Mena" = Karina Almache). All delivered except María Gracia (3 msgs "sent",
+  not delivered at 19:05 UTC, no failure).
+- **Data fix:** Francisco 16/09 Ramesvary Henao 00:00 → 12:00–13:00 (session 0271e091; Calendar not synced, past).
+
+### 2026-10-05 — #47 RIDEs go out on their own: 15-min sweep (executor, 9363f78)
+- **Bug:** Aprobar's in-request RIDE retries (RIDE_ATTEMPTS/sleep) left unauthorized RIDEs in
+  `resultado.rides_pendientes` "for the next run", but no run ever sent them (Worm FAC 001-001-000000303).
+- **`netlify/functions/factura-rides-sweep.mjs`** — SCHEDULED `*/15 * * * *` (confirmed in deploy
+  `function_schedules`) → `sweepRides` in **`netlify/lib/rideSweep.mjs`**: `ridePlan(sb, null, { floor: true })`
+  (facturada AND contifico_doc_id AND factura_enviada_at NULL AND fecha >= coalesce(facturar_desde,
+  FACTURAR_SINCE), floor filtered before any Contífico call) → `sendRides` per ready item (same template,
+  recipient rule, stamp). Not HTTP-invocable; Netlify UI → Run now.
+- **Table `factura_ride_sweep`** (migration `factura_ride_sweep`, mirror `supabase/factura-ride-sweep.sql`, owner RLS):
+  session_id pk, documento, first_seen_at, claimed_at, sent_at, sri_alert_at. Atomic `claimed_at` NULL→now
+  before sending: a claimed session is NEVER re-sent by the sweep (even if the stamp failed after a send);
+  a failed send releases the claim → retried next sweep. first_seen_at ≈ emission (Contífico has no
+  hora_emision); +48h still unauthorized → one `notifyOwner({kind:'sri'})` "Factura X sigue sin autorización
+  del SRI" (atomic sri_alert_at flip). Worm's row seeded with first_seen_at = her Aprobar (17:56 UTC).
+- **`ridePlan(supabase, onlyId, { floor })`** — new opt-in floor; fetchUnsentRides now also selects
+  patient.facturar_desde. Manual `/facturar mode=send-rides` unchanged (no floor).
+- **`runAprobacion`** — RIDE loop, sleep, ridePlan/sendRides deps removed. Replies at once: "Listo. Emitidas k
+  de N." + "{paciente}: factura {documento} emitida, se envía sola apenas el SRI la autorice." + unchanged
+  omitted/failed/CRÍTICO lines. resultado drops `rides`; `rides_pendientes` = all emitted ids (audit only).
+- Harness (scratchpad, stubbed Contífico/Dualhook/Supabase, real ridePlan/sendRides): 18/18 pass.
+
 ### 2026-10-05 — #45 Owner outbox + ping_nico: facturación arrives by itself (executor, ba7578d)
 - **Rule:** any workflow that must reach Nicolás calls `notifyOwner({kind, resumen, messages})`
   (`netlify/lib/ownerOutbox.mjs`) — never a new template. Table `owner_outbox` (migration `owner_outbox`,
@@ -234,49 +276,6 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   Events Manager: LeadSubmitted 10 total, active, no warnings.
 - Harness (not committed): scratchpad stubs fetch + supabase, walks all flows; 0 emoji/¡¿ in 46 payloads.
 
-### 2026-10-04 — #35 infra + director/executor split (cloud session, 1356ac2)
-- **Split from now on:** cloud session = **director only** (prioritizes, writes prompts, verifies read-only);
-  Mac terminal Claude Code = **executor** (builds, migrations, deploys, /facturar; blanket permissions).
-- **Director docs:** `CLAUDE.md` "Director docs" → Drive folder "Efimeramente · Claude" (`PERMANENT TO-DO.md`
-  = priorities). `/cierre` step 5 replaces that file in Drive (create new + trash old — the connector can't
-  overwrite content, so its file id changes every time; find it by title).
-- **`CONTIFICO_FACTURAR_TOKEN` re-generated** in Netlify (production, functions) and deployed. It ended up
-  marked **secret** → unreadable. Nicolás (2026-10-04): this token is NOT sensitive, don't rotate it for
-  safety. If a session needs its value (e.g. for /facturar), the executor re-creates it as a NON-secret var
-  (delete + add, redeploy) — that's the only way to read it again.
-- **Key policy (Nicolás):** never ask him to save/copy/handle keys. Netlify env is the only key store;
-  `VAPID_PRIVATE_KEY` / `LEAD_TOOLS_TOKEN` / `WA_CLOUD_VERIFY_TOKEN` stay **non-secret on purpose** (sessions read
-  them via the Netlify connector). The cloud session's auto-mode classifier blocked copying keys to Drive and
-  editing CLAUDE.md with this rule → the executor should add it to CLAUDE.md "Environment variables".
-- ⚠️ **DB leftovers to drop (executor):** a duplicate #34 attempt left 4 UNUSED functions, no triggers —
-  `link_lead_from_session()`, `link_lead_from_patient()`, `lead_link_rank(text)`, `phone_last9(text)`. Live ones
-  are `lead_link_from_*` + `trg_lead_link_from_*` (cb39f59). Drop:
-  `drop function if exists link_lead_from_session(), link_lead_from_patient(), lead_link_rank(text), phone_last9(text);`
-  (the cloud Supabase connector waits for approval on destructive SQL and times out).
-- **Supabase connector gotcha (cloud):** any DROP/destructive statement hangs → 60s timeout; also a
-  pre-existing `lead_stage_rank(stage text)` exists in DB (used by the #34 triggers) — don't redefine it.
-
-### 2026-10-02 — #34 CAPI hole closed: hand-handled leads now link to the panel (Opus 4.8)
-Leads Nicolás takes over (`bot_paused`) and books by hand never advanced `leads.stage`, so the CAPI sweep
-never fired QualifiedLead/Purchase for them — the best leads. **Fix = two DB triggers** (chose triggers over
-server code: `queries.js` is client-side and `leads` RLS is owner-only, so a therapist's session write can't
-touch `leads`; `public-booking` is another path; a `SECURITY DEFINER` trigger catches every path + bypasses RLS).
-Migration `lead_funnel_08_panel_link`, mirror `supabase/lead-funnel-08-panel-link.sql`:
-- `lead_link_from_session()` / `trg_lead_link_from_session` (AFTER INSERT OR UPDATE OF patient_id,tipo,pagado ON
-  sessions): matches the session's patient to a lead by **last-9 phone digits**; backfills `leads.patient_id`
-  (→ Purchase); `tipo='llamada'` → sets `session_id` + advances stage→`agendo` (`agendo_at`) → QualifiedLead;
-  **paid** non-llamada → stage→`paciente`. `lead_stage_rank()` makes stage move **forward only**. All patches
-  only-if-null / only-forward → idempotent (safe alongside the bot's own linking).
-- `lead_link_from_patient()` / `trg_lead_link_from_patient` (AFTER INS/UPD OF telefono ON patients): panel-created patient matching an unlinked lead → sets `leads.patient_id`.
-- **Backfill** (leads since 2026-09-26): linked **1 lead** (`73940c73`, was `bot_paused`+stuck at `toco` with a
-  hand-booked llamada → now `agendo`; organic, no `ctwa_clid`, so sweep won't report it but funnel is honest).
-- **Stop-condition clear:** no lead matches >1 patient by last-9 (leads unique by last-9). Verified end-to-end on
-  the test number (seeded `toco`+paused+`ctwa_clid` lead → hand-booked llamada → advanced to `agendo`, links set,
-  `capi_schedule_sent_at` null = valid sweep target); test rows cleaned up.
-- **Gotchas:** (1) `leads.session_id` FK has **no `ON DELETE SET NULL`** — hard-deleting a linked session errors
-  (delete the lead first); pre-existing, now more common. (2) Meta "Test Events" leg NOT run — `CAPI_TEST_CODE`
-  unset (events route to production) + `CAPI_ALLOW_TEST_PHONE` off; manual recipe in the #22 backlog bullet below.
-
 ### 2026-10-02 → 10-04 — /facturar go-live + WhatsApp invoices → moved to `CHANGELOG.md` (top) by /cierre 2026-10-04 pm.
 
 ## Pending / Backlog
@@ -289,9 +288,20 @@ Migration `lead_funnel_08_panel_link`, mirror `supabase/lead-funnel-08-panel-lin
 - [ ] **Card cap 3 vs hijo_adolescente (4) / hijo_adulto (5)** — confirm with Nicolás whether to show all.
 - [ ] **#38 Drop the 4 unused functions** (SQL in the 2026-10-04 Completed entry) + add the key policy to CLAUDE.md.
 
+### 🟠 Payroll Sep (#48) — follow-ups
+- [ ] **María Gracia delivery** — her 3 payroll messages were "sent" not "delivered" at 19:05 UTC 5 Oct; re-check
+      `whatsapp_delivery_status` for her wamids (payroll_runs.detalle.wamids). Failed → resend via payroll-send.
+- [ ] **Llamada answers** — Camila 5, Carolina 9, Francisco 3, María Gracia 7, Sophia 3 Sept llamadas still
+      'programada'; update estados ONLY from their answers (follow-up run).
+- [ ] **Invoices to Mariana** — when each therapist sends theirs, set payroll_runs.estado='factura_recibida'.
+- [ ] **Monthly protocol** — turn #48 into a repeatable /nomina flow (payrollCopy.mjs + payroll-send + payroll_runs).
+
 ### 🔴 Contífico / invoicing follow-ups — surfaced 2026-10-02→04
 - [x] **#16 first live run Mon 5 Oct** — done: "facturas" 15:10 UTC, Aprobar 17:56, 1 emitted; its RIDE was
-      still unauthorized at the end of the run (`rides_pendientes`) → check it went out on the next send-rides.
+      still unauthorized at the end of the run → now handled by the #47 sweep.
+- [ ] **Worm FAC 001-001-000000303 unsigned** (#47) — at 18:30 UTC 5 Oct Contífico showed firmado=false,
+      autorizacion null. The sweep sends it once authorized; if still unauthorized Wed 7 Oct ~18:00 UTC
+      Nicolás gets the one SRI alert → check Contífico (re-submit `PUT /documento/<id>/sri/` manually).
 - [ ] **ping_nico review** (#45) — check status: `submit-lead-templates?token=…&list`. Until APPROVED (as UTILITY)
       the Thu 8 Oct cron falls back to push if his window is closed. Reclassified/rejected → Nicolás decides, don't edit copy.
 - [ ] **Raguel Conforme 12 Sep** (paid, never invoiced) — skipped on Nicolás's instruction 2026-10-03; invoice with

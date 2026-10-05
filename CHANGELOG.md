@@ -5,6 +5,50 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-05 -->
+### 2026-10-04 — #35 infra + director/executor split (cloud session, 1356ac2)
+- **Split from now on:** cloud session = **director only** (prioritizes, writes prompts, verifies read-only);
+  Mac terminal Claude Code = **executor** (builds, migrations, deploys, /facturar; blanket permissions).
+- **Director docs:** `CLAUDE.md` "Director docs" → Drive folder "Efimeramente · Claude" (`PERMANENT TO-DO.md`
+  = priorities). `/cierre` step 5 replaces that file in Drive (create new + trash old — the connector can't
+  overwrite content, so its file id changes every time; find it by title).
+- **`CONTIFICO_FACTURAR_TOKEN` re-generated** in Netlify (production, functions) and deployed. It ended up
+  marked **secret** → unreadable. Nicolás (2026-10-04): this token is NOT sensitive, don't rotate it for
+  safety. If a session needs its value (e.g. for /facturar), the executor re-creates it as a NON-secret var
+  (delete + add, redeploy) — that's the only way to read it again.
+- **Key policy (Nicolás):** never ask him to save/copy/handle keys. Netlify env is the only key store;
+  `VAPID_PRIVATE_KEY` / `LEAD_TOOLS_TOKEN` / `WA_CLOUD_VERIFY_TOKEN` stay **non-secret on purpose** (sessions read
+  them via the Netlify connector). The cloud session's auto-mode classifier blocked copying keys to Drive and
+  editing CLAUDE.md with this rule → the executor should add it to CLAUDE.md "Environment variables".
+- ⚠️ **DB leftovers to drop (executor):** a duplicate #34 attempt left 4 UNUSED functions, no triggers —
+  `link_lead_from_session()`, `link_lead_from_patient()`, `lead_link_rank(text)`, `phone_last9(text)`. Live ones
+  are `lead_link_from_*` + `trg_lead_link_from_*` (cb39f59). Drop:
+  `drop function if exists link_lead_from_session(), link_lead_from_patient(), lead_link_rank(text), phone_last9(text);`
+  (the cloud Supabase connector waits for approval on destructive SQL and times out).
+- **Supabase connector gotcha (cloud):** any DROP/destructive statement hangs → 60s timeout; also a
+  pre-existing `lead_stage_rank(stage text)` exists in DB (used by the #34 triggers) — don't redefine it.
+
+### 2026-10-02 — #34 CAPI hole closed: hand-handled leads now link to the panel (Opus 4.8)
+Leads Nicolás takes over (`bot_paused`) and books by hand never advanced `leads.stage`, so the CAPI sweep
+never fired QualifiedLead/Purchase for them — the best leads. **Fix = two DB triggers** (chose triggers over
+server code: `queries.js` is client-side and `leads` RLS is owner-only, so a therapist's session write can't
+touch `leads`; `public-booking` is another path; a `SECURITY DEFINER` trigger catches every path + bypasses RLS).
+Migration `lead_funnel_08_panel_link`, mirror `supabase/lead-funnel-08-panel-link.sql`:
+- `lead_link_from_session()` / `trg_lead_link_from_session` (AFTER INSERT OR UPDATE OF patient_id,tipo,pagado ON
+  sessions): matches the session's patient to a lead by **last-9 phone digits**; backfills `leads.patient_id`
+  (→ Purchase); `tipo='llamada'` → sets `session_id` + advances stage→`agendo` (`agendo_at`) → QualifiedLead;
+  **paid** non-llamada → stage→`paciente`. `lead_stage_rank()` makes stage move **forward only**. All patches
+  only-if-null / only-forward → idempotent (safe alongside the bot's own linking).
+- `lead_link_from_patient()` / `trg_lead_link_from_patient` (AFTER INS/UPD OF telefono ON patients): panel-created patient matching an unlinked lead → sets `leads.patient_id`.
+- **Backfill** (leads since 2026-09-26): linked **1 lead** (`73940c73`, was `bot_paused`+stuck at `toco` with a
+  hand-booked llamada → now `agendo`; organic, no `ctwa_clid`, so sweep won't report it but funnel is honest).
+- **Stop-condition clear:** no lead matches >1 patient by last-9 (leads unique by last-9). Verified end-to-end on
+  the test number (seeded `toco`+paused+`ctwa_clid` lead → hand-booked llamada → advanced to `agendo`, links set,
+  `capi_schedule_sent_at` null = valid sweep target); test rows cleaned up.
+- **Gotchas:** (1) `leads.session_id` FK has **no `ON DELETE SET NULL`** — hard-deleting a linked session errors
+  (delete the lead first); pre-existing, now more common. (2) Meta "Test Events" leg NOT run — `CAPI_TEST_CODE`
+  unset (events route to production) + `CAPI_ALLOW_TEST_PHONE` off; manual recipe in the #22 backlog bullet below.
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-04 pm -->
 ### 2026-10-02 → 10-04 — /facturar go-live + WhatsApp invoices (cloud session)
 - **First real run:** 5 facturas emitted + SRI-authorized (293 pending, see backlog) — 293 Laura Vásquez,
