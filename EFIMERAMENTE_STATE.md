@@ -102,6 +102,28 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-05 — #53 Mariana from 11:00 + reusable broadcasts + "Mariana retoma" broadcast (executor, 91c92e9, f09ff77, f43da55)
+- **R1 now 11:00–20:00** (start-only). `src/lib/therapistRules.js` startWindow `['11:00','20:00']`; migration
+  `therapist_rules_r1_11am` (mirror `supabase/therapist-rules-r1-11am.sql`): `enforce_therapist_rules` <11:00 →
+  "La primera sesión de Mariana empieza a las 11:00"; her availability mon–sat 11:00–21:15. Verified: live /reservar
+  slots start 11:00 (7, 8, 10 Oct), en línea forced (page filter + booking.mjs + trigger); rolled-back tx 10:30 fails, 11:00 ok.
+- **Broadcast mechanism** — see CLAUDE.md "Broadcasts". Tables `broadcasts` + `broadcast_recipients` (migration
+  `broadcasts`, `supabase/broadcasts.sql`, owner-only RLS). `netlify/lib/broadcast.mjs` (`buildRecipients`, `saludoFor`,
+  `etiquetaFor`, `runBroadcastSweep`), `functions/broadcast-sweep.mjs` (*/15, 08–21 GYE), `functions/broadcast-admin.mjs`
+  (token POST, messages ONLY the broadcast's therapist — the Dualhook key is a masked secret, so local sends are
+  impossible). `waSend.mjs#sendStaffText` (raw text, no sanitizer). Template `mariana_retoma` (MARKETING, `{{1}}` saludo,
+  `leadTemplates.mjs#BROADCAST_TEMPLATES`, Meta id 980991178363754) submitted 5 Oct ~20:53 UTC → PENDING.
+  Harness run against the real DB with stubbed sends (free/template/wait/claim/no-dupe/131049 reconcile/single notify)
+  caught + fixed "closes a broadcast with 0 recipients" (f43da55). Gotcha: a PostgREST bulk insert with mixed keys sends
+  NULL for the missing columns (defaults skipped).
+- **Broadcast `4e56df3a-8a69-456a-a93c-8c750e444391` "Mariana retoma sesiones"**: 49 active → 48 (Kathy Rivadeneira duplicate
+  `c1d2422c…` +593999981622, 1 session/0 inbound = typo row; kept `c1819b33…` +593999901622). List sent to Mariana 20:55 UTC;
+  she replied "10, 19, 20, 26, 35, 37, 39, 42," → excluded Diana Marcial Verdesoto, Grace Atiencia, Inti Maigua, Juan David
+  Álvarez, Mauro Baquero, Nathaly Ramos, Nicolás Marcano, Paola Ibarra. → `listo` 21:01 UTC, confirmation sent. 40 to send:
+  1 has an open window (free-form at the first sweep), 39 wait for `mariana_retoma` APPROVED.
+- Meta status seen: `sesion_pendiente` (#52) **APPROVED but as MARKETING** → the 08:30 job requires UTILITY, so it keeps
+  using free-form/push fallback until decided; `ping_nico` PENDING/MARKETING.
+
 ### 2026-10-05 — #46 Mariana R1: last session STARTS at 20:00 (executor, fffbe07)
 - R1 is now start-only: `hora_inicio` 10:00–20:00 inclusive, end not checked (she's done by 21:00). R2–R4 unchanged.
 - `src/lib/therapistRules.js`: `window` → `startWindow`; `allowedWindow` → `allowedStartWindow` (+ `startWindowCopy`).
@@ -229,6 +251,13 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **#53 broadcast follow-through** — nothing to run: `broadcast-sweep` sends the 39 template recipients by itself once
+      `mariana_retoma` is APPROVED (check `submit-lead-templates?list`). If REJECTED → show Nicolás Meta's reason, don't edit
+      the copy. Check: `select count(*) filter (where sent_at is not null), count(*) filter (where error is not null) from
+      broadcast_recipients where broadcast_id='4e56df3a-8a69-456a-a93c-8c750e444391' and not excluido`. When done, Nicolás gets
+      one WhatsApp listing who failed (131049 etc.) to send by hand.
+- [ ] **`sesion_pendiente` approved as MARKETING** (#52 code wants UTILITY) — Nicolás decides: accept (change category in
+      STAFF_TEMPLATES) or resubmit as UTILITY.
 - [ ] **#41 templates _v2** — submitted, auto-switch live (f87944f). Done once all 4 `_v2` APPROVED. Decide:
       `primera_sesion_v2` reclassified MARKETING (ask Nicolás; accepting = change its category in TEMPLATES_V2).
       Later: delete the v1 templates only after 7 days with no v1 sends.

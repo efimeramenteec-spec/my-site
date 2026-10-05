@@ -347,6 +347,22 @@ goes through `waSend.mjs#sendStaffButtons`, NOT the lead-bot sanitizer).
   reply "Listo, quedó como Confirmada/Cancelada."; stamps `respuesta`/`respondida_at`. Nothing else in
   this flow ever changes an estado. Harness: `node scripts/harness-sesiones-pendientes.mjs`.
 
+### Broadcasts — `broadcast-sweep.mjs` + `netlify/lib/broadcast.mjs` (#53, 2026-10-05)
+Reusable one-message-to-a-list sends. Tables `broadcasts` (nombre, terapeuta_id, template_name, body with
+`{{1}}` = saludo, estado `borrador|filtrando|listo|enviado`, notified_at) + `broadcast_recipients` (orden,
+telefono, saludo, etiqueta, excluido/excluido_motivo, canal, claimed_at, wamid, sent_at, error); owner-only
+RLS, `supabase/broadcasts.sql`. Flow: build recipients with `buildRecipients()` (dedupe by last-9 AND full
+name, keeps the row with most sessions; greeting = first word of nombre, couples "X y Y" in full, parens
+stripped) → `filtrando`: send the numbered `etiqueta` list to the therapist via **`broadcast-admin`** (POST
+`?token=<LEAD_TOOLS_TOKEN>` `{broadcast_id, body}` — can ONLY message that broadcast's therapist; needed
+because `WA_DUALHOOK_API_KEY` is a masked secret, unreadable locally) → mark exclusions → `listo`.
+Sweep (`*/15`, sends only 08:00–21:00 GYE, ≤25 sends/run): open 24h window → free-form `body`
+(`waSend.mjs#sendStaffText`, no sanitizer); closed → `template_name` once APPROVED (any category); else waits.
+Atomic claim (`claimed_at`) before each send — a claimed row is never resent; failures → `error`. Async
+'failed' statuses (e.g. **131049** marketing cap) reconciled from `whatsapp_delivery_status`. All done +
+30 min settle → `enviado` + ONE `notifyOwner` (kind `broadcast_resultado`) listing who didn't get it.
+Templates live in `leadTemplates.mjs#BROADCAST_TEMPLATES` (submit via `submit-lead-templates?name=`).
+
 ### `send-reminders.mjs` — hourly WhatsApp reminder (SCHEDULED, cron-only)
 Cron `0 * * * *` declared **in-code** via `export const config = { schedule }` (not `netlify.toml`).
 Sends a ~24h-before reminder via Twilio Content API (approved quick-reply template, one variable
