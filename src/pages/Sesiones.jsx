@@ -78,7 +78,9 @@ export default function Sesiones() {
       (fullAccess
         ? !filters.terapeuta || s.terapeuta_id === filters.terapeuta
         : s.terapeuta_id === terapeutaId) &&
-      (!filters.estado || s.estado === filters.estado) &&
+      // Llamadas' estado is legacy (their state is Convirtió/No convirtió), so
+      // they never match the "Pendiente" filter.
+      (!filters.estado || (s.estado === filters.estado && !(s.tipo === 'llamada' && filters.estado === 'programada'))) &&
       (!filters.pago || (filters.pago === 'pagada' ? !!s.pagado : !s.pagado)),
   )
 

@@ -102,6 +102,18 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-05 — #48c Llamadas removed from the payroll protocol (executor)
+- Nicolás: the "llamadas en Pendiente" step was meaningless — llamadas have no Pendiente; their only state is
+  Convirtió/No convirtió (`convirtio` + `src/lib/conversion.js`). The director's query read the legacy raw
+  `sessions.estado='programada'`. Nicolás deleted the messages that went out; nothing was sent or updated.
+- Removed `llamadasPendientesMessage` from `netlify/lib/payrollCopy.mjs`; payroll = confirmed non-llamada ONLY.
+  payroll_runs rows + their stored wamids left as history.
+- Stale-code audit: only leak = Sesiones estado filter "Pendiente" matched llamadas with legacy 'programada'
+  → `src/pages/Sesiones.jsx` filter now skips llamadas for Pendiente. Lista already shows Convirtió/No convirtió
+  (ConversionSeg), ReminderLegend/send-reminders/payment reminders/sessionReport/Finanzas/Seguimiento exclude
+  llamadas. `ESTADO_COLOR` in views.jsx is dead code (unused). No DB bulk update (triggers).
+- CLAUDE.md Enums: llamadas' estado is legacy and ignored; never report/query/ask about llamadas as Pendiente.
+
 ### 2026-10-05 — #48/#48b September therapist payroll: first run (executor, 003b71f, 27286f6)
 - **Trial rate:** `therapists.prueba_hasta date` (migration `therapists_prueba_hasta_and_payroll_runs`, mirror
   `supabase/therapists-prueba-hasta.sql`); Sophia = 2026-10-31. `src/lib/provision.js` PROVISION_PRUEBA = 20:
@@ -114,10 +126,11 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - **`netlify/functions/payroll-send.mjs`** — POST ?token=PAYROLL_TOKEN (non-secret, functions scope)
   {to, steps:[text|document]}; plain session messages (NO cleanBotText — signature emoji); document = upload to
   private bucket `payroll` (created 5 Oct) + 1h signed URL; stops at first failure. **`netlify/lib/payrollCopy.mjs`**
-  = FIRMA + match / llamadas / pedir-lista / mismatch copy for the monthly protocol.
+  = FIRMA + match / pedir-lista / mismatch copy for the monthly protocol (no llamadas step, #48c).
 - **Table `payroll_runs`** (mirror `supabase/payroll-runs.sql`, owner RLS, unique periodo+terapeuta_id): 6 rows for
   2026-09, all `enviado_ok` with wamids, exclusions, adjustments in detalle.
-- **Sent 5 Oct ~19:02 UTC from the 9933** (text → PDF → pending-llamadas list): Camila 21/$504, Carolina 35/$852,
+- **Sent 5 Oct ~19:02 UTC from the 9933** (text → PDF; a "llamadas en Pendiente" question also went to 5 of them by mistake — Nicolás deleted those
+  messages; the step is removed for good, #48c): Camila 21/$504, Carolina 35/$852,
   Sophia 6/$120, Francisco 19/$456 (Elisa Zoghbi 30/09 excluded), María Gracia 16/$380 (Sabine 24/09 at $20),
   Daniela 41/$984 (#48b; "Camila Mena" = Karina Almache). All delivered except María Gracia (3 msgs "sent",
   not delivered at 19:05 UTC, no failure).
@@ -291,10 +304,9 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ### 🟠 Payroll Sep (#48) — follow-ups
 - [ ] **María Gracia delivery** — her 3 payroll messages were "sent" not "delivered" at 19:05 UTC 5 Oct; re-check
       `whatsapp_delivery_status` for her wamids (payroll_runs.detalle.wamids). Failed → resend via payroll-send.
-- [ ] **Llamada answers** — Camila 5, Carolina 9, Francisco 3, María Gracia 7, Sophia 3 Sept llamadas still
-      'programada'; update estados ONLY from their answers (follow-up run).
 - [ ] **Invoices to Mariana** — when each therapist sends theirs, set payroll_runs.estado='factura_recibida'.
 - [ ] **Monthly protocol** — turn #48 into a repeatable /nomina flow (payrollCopy.mjs + payroll-send + payroll_runs).
+      Payroll = confirmed non-llamada sessions ONLY; llamadas never appear in the payroll conversation.
 
 ### 🔴 Contífico / invoicing follow-ups — surfaced 2026-10-02→04
 - [x] **#16 first live run Mon 5 Oct** — done: "facturas" 15:10 UTC, Aprobar 17:56, 1 emitted; its RIDE was

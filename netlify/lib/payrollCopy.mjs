@@ -2,8 +2,10 @@
 //
 // Monthly therapist payroll check (#48) — the verbatim copy. Double-blind: each
 // therapist sends their own list of the month's sessions to the 9933; it is
-// compared with the system (confirmed, non-llamada). Match → message + the system
-// PDF (src/lib/sessionReport.js) → they invoice Mariana. Mismatch → the copy below.
+// compared with the system — ONLY confirmed, non-llamada sessions. Match → message +
+// the system PDF (src/lib/sessionReport.js) → they invoice Mariana. Mismatch → the
+// copy below. Llamadas are NEVER part of the payroll conversation (Nicolás, 5 Oct:
+// their only state is Convirtió/No convirtió; sessions.estado on them is legacy).
 //
 // EXCEPTION to the no-emoji rule (Nicolás): every payroll message is signed
 // FIRMA (emoji included) and must NEVER pass through waSend's cleanBotText —
@@ -15,11 +17,6 @@ const seguro = (genero) => (genero === 'M' ? 'seguro' : 'segura')
 
 export function matchMessage({ nombre, n, monto }) {
   return `Hola ${nombre}, revisé tus sesiones de septiembre y todo cuadra con el sistema: ${n} sesiones, total ${monto}. Te adjunto el reporte. Ya puedes hacer tu factura a Mariana y mandármela por aquí. Gracias!\n${FIRMA}`
-}
-
-// lineas: ['dd/mm hh:mm — nombre', …]
-export function llamadasPendientesMessage(lineas) {
-  return `Una cosa más: tienes estas llamadas gratuitas de septiembre que siguen en Pendiente. Me confirmas cuáles se hicieron y cuáles no?\n${lineas.join('\n')}\n${FIRMA}`
 }
 
 export function pedirListaMessage({ nombre }) {

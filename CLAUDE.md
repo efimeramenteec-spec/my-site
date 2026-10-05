@@ -118,6 +118,7 @@ Maps DB enum values → Spanish labels + Badge variants + colors. Touch this (no
 screens) when confirmation states, session types, payment methods, patient states, etc. change.
 Key detail: session `estado` is `programada` (Pendiente) | `confirmada` | `cancelada`; legacy
 `completada`/`no_show` are display-mapped for old rows. DB default for new sessions is `programada`.
+Llamadas: sessions.estado is a legacy value and is ignored. Their only state is Convirtió/No convirtió (convirtio + conversion.js). Never report, query or ask about llamadas as Pendiente.
 
 ### Other lib files
 - `conflicts.js` — session overlap detection against **Supabase** sessions (local, synchronous).
