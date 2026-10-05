@@ -102,6 +102,23 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-05 — #52 Daily 08:30 reminder to therapists: past sessions can't stay in Pendiente (executor, 674003b)
+- `netlify/functions/sesiones-pendientes.mjs` (scheduled `30 13 * * *` = 08:30 GYE, registered in deploy 6ac40723) →
+  `netlify/lib/sesionesPendientes.mjs#runSesionesPendientes`. Scope: estado programada, tipo ≠ llamada (query + code
+  re-check), fecha < today GYE, therapist activo + telefono. One msg per session; window open → `waSend#sendStaffButtons`
+  (new, NO sanitizer — 🐚✨ kept), ids `est_ok:/est_no:<id>`; closed → template `sesion_pendiente` (only if APPROVED as
+  UTILITY; `leadTemplates#STAFF_TEMPLATES` + `sendSesionPendiente`, per-send quick-reply payloads); else ONE push per
+  therapist per day, `skipOwner`. Daniela → "Dani". Same-day rerun doesn't resend.
+- New table `session_estado_reminders` (migration `session_estado_reminders`, mirror `supabase/session-estado-reminders.sql`,
+  owner-only RLS; + `escalated_at`). 3 distinct days unanswered → `notifyOwner` kind `sesion_sin_cerrar` once.
+- Webhook: `handleEstadoTap` runs after owner/facturar, BEFORE the patient estado flip + lead bot. Therapist last-9 must
+  match; closeSession = guarded `UPDATE … WHERE estado='programada'` (saldo trigger fires — verified on the real DB in a
+  rolled-back tx: pagado=t, credit 35→0); est_no also clears pagado + calendar `cancel`. No push.
+- Template `sesion_pendiente` submitted → Meta id 1751621786066092, PENDING/UTILITY. Until approved, closed-window
+  therapists get the push. Harness `scripts/harness-sesiones-pendientes.mjs` 14/14 PASS.
+- First run Tue 6 Oct 08:30: Sophia (Cecilia Saltos + Valentina Loor, 2 Oct) + Mariana (3 Oct), plus any 5 Oct session
+  still Pendiente at run time.
+
 ### 2026-10-05 — #49b Package credit consumed whoever confirms + new credit pays existing debt (executor)
 - Migration `saldo_consume_security_definer` (mirror `supabase/saldo-consume-security-definer.sql`):
   (a) `consume_saldo_on_confirm()` → SECURITY DEFINER, `search_path = public, pg_temp`, owner postgres; logic unchanged.
@@ -199,98 +216,6 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   omitted/failed/CRÍTICO lines. resultado drops `rides`; `rides_pendientes` = all emitted ids (audit only).
 - Harness (scratchpad, stubbed Contífico/Dualhook/Supabase, real ridePlan/sendRides): 18/18 pass.
 
-### 2026-10-05 — #45 Owner outbox + ping_nico: facturación arrives by itself (executor, ba7578d)
-- **Rule:** any workflow that must reach Nicolás calls `notifyOwner({kind, resumen, messages})`
-  (`netlify/lib/ownerOutbox.mjs`) — never a new template. Table `owner_outbox` (migration `owner_outbox`,
-  mirror `supabase/owner-outbox.sql`, owner-only RLS; cols kind/resumen/payload/estado/sent_at/ping_sent_at/error).
-- Window open (owner inbound in `whatsapp_messages` < 24h − 5 min, matched by last-9 of `raw_payload.message.from`)
-  → sent now. Closed → `pendiente` + ONE `ping_nico` per closed window ({{1}} = resumen, "{n} pendientes: …"
-  ≤100 chars). ping_nico not APPROVED as UTILITY / send fails → Web Push fallback, row stays pendiente.
-  Rows are claimed atomically (pendiente→enviado) so concurrent flushes never double-send.
-- Webhook: ANY owner inbound → `flushOwnerOutbox()` first (a "facturas" command first supersedes a queued
-  facturas list → `fallido` "reemplazado"); the "Ver" tap stops there. **Owner phone never enters the lead
-  bot now** (was the `LEAD_BOT_TEST_PHONES` phone + an es_lead patient row → bot tests from his phone no longer work).
-- `facturar-report` (cron `0 14 * * 1,4`, confirmed on deploy) → `runReport`: dry-run → `prepareFacturas(…,'cron')`
-  (expires older pendiente snapshots, new snapshot origen `cron`, the exact list + [Aprobar][Ahora no]) →
-  `notifyOwner(kind 'facturas', "{N} facturas listas para aprobar")`. Old push-only path removed. Command,
-  fac_ok/fac_no handlers unchanged. Nothing emits without his Aprobar tap.
-- Template `ping_nico` (UTILITY, es, QUICK_REPLY "Ver", in `leadTemplates.mjs#OWNER_TEMPLATES`) submitted
-  2026-10-05 via `submit-lead-templates?name=ping_nico` → Meta id 1493892519462882, PENDING/UTILITY.
-- Harness (scratch, stubbed WA/push/Meta/Supabase): 12/12 pass.
-
-### 2026-10-04 — #44 María Emilia Worm: must-invoice + retroactive from 1 Sep (executor, f55495b)
-- New column `patients.facturar_desde date NULL` (migration `patients_facturar_desde`, mirror
-  `supabase/patients-facturar-desde.sql`). `fetchEligible` (facturarCore.mjs) now filters in JS:
-  `fecha >= coalesce(patient.facturar_desde, FACTURAR_SINCE)` (the server-side `.gte` was removed; `?all=1`
-  still lifts it). FACTURAR_SINCE, eligibility rule and emission code unchanged. Old-vs-new core diffed
-  locally: identical for every other patient (0 with floor, 27 with `all=1`).
-- Her row: facturacion_obligatoria=true, facturar_desde=2026-09-01, cedula=contifico_id=1718551201.
-  No Contífico persona yet (recon empty) → created inline by the first POST, as for any new persona
-  (direccion **Quito** per the locked rule — Cumbayá NOT used; no email/phone, patient billing never sends them).
-  No existing Contífico doc for her cédula/name (303 checked).
-- Live dry-run: exactly 1 ready — 2026-09-07 $39 "Paciente María Emilia Worm | Sesión 7 de Septiembre"
-  (no CIE, no diagnosis). 1 Sep llamada + 21 Sep cancelada excluded. NOT emitted → goes in the Mon 5 Oct run.
-
-### 2026-10-04 — #43 Mariana back from maternity leave: hardcoded booking rules (executor, a4edfbb)
-- Rules (until further notice): R1 10:00–20:00 (start ≥10, end ≤20) · R2 starts ≥120 min apart · R3 max 3/day ·
-  R4 en línea only. Only non-cancelled (not cancelada/no_show) sessions count. Durations unchanged.
-  Applies to ALL her rows (llamadas too).
-- **One JS source:** `src/lib/therapistRules.js` (`THERAPIST_RULES` keyed by id, `MARIANA_ID`, `allowedWindow`,
-  `forcedModalidad`, `onlyModalidadCopy`, `violatesRules(session, sameDaySessions)` → friendly reason|null,
-  `scheduleChanged(prev, next)`). Imported by `netlify/lib/booking.mjs` (computeSlots clamps + filters R2/R3;
-  createBooking forces modalidad, maps trigger error → `therapist_rule` + message), `public-booking.mjs`
-  (409 `{error:'therapist_rule', message}`), `SesionDrawer.jsx` (Presencial disabled + hint, rose box, save
-  blocked), `Sesiones.jsx#handleSubmit` backstop, `PublicBooking.jsx` (only En línea pill for her).
-  `Select.jsx` now honors `opt.disabled`.
-- **DB trigger** `trg_enforce_therapist_rules` / `enforce_therapist_rules()` (migration
-  `therapist_rules_trigger_mariana`, mirror `supabase/therapist-rules-trigger.sql`): raises
-  `MARIANA_RULE: <reason>`; checked only on INSERT or when fecha/hora_inicio/hora_fin/modalidad/terapeuta_id
-  change (estado/pagado/facturada re-saves pass). Hardcodes her uuid — keep in sync with the JS file.
-  Room-cap trigger untouched. **Gap by spec:** reactivating a cancelled session (estado-only) is not checked.
-- Data: her `booking_availability` = mon–sat [["10:00","20:00"]]; recibe_nuevos=false, activo=true unchanged.
-- Verified: build; 8 helper cases + slot-engine cases (other therapist identical); trigger tests in a
-  rolled-back tx (R1–R4 raise, 15:00 after 13:00 OK, cancelled 4th OK, pagado/estado on old presencial OK).
-- **Pre-existing violation left untouched:** 2026-10-06 14:00 Mauro Baquero — PRESENCIAL (breaks R4). Any
-  reschedule of it will be blocked until it's switched to En línea.
-- To lift the rules: delete her entry in `THERAPIST_RULES` + `drop trigger trg_enforce_therapist_rules`.
-
-### 2026-10-04 — CONTIFICO_FACTURAR_TOKEN re-synced: now NON-secret in Netlify (executor, 5f6e46d)
-- The Netlify value was secret/unreadable and ~/my-site/.env held a stale one (live endpoint 404'd it). Recreated
-  per the backlog plan: deleted the var, upserted a fresh 48-hex value as **non-secret**, context production,
-  scope functions; same value written to `.env` (gitignored). Redeploy via push 5f6e46d.
-- Verified: live `mode=dry-run` → 200 (0 ready); live `dry-run&all=1` (27 items) **identical** to the
-  pre-#16-extraction baseline → the core extraction is also confirmed in production.
-- From now on a stale local copy is fixed by READING the value (connector `manage-env-vars getAllEnvVars`), not
-  rotating. Cloud director sessions that cached the old value in their environment need the new one.
-- Also confirmed: `OWNER_WHATSAPP` is NOT set in Netlify → #16 owner = code default +593968029896 (no mismatch).
-
-### 2026-10-04 — #16 /facturar by WhatsApp approval: Mon+Thu push → "facturas" → Aprobar (executor, 0a8432d)
-- **Extraction:** `netlify/lib/facturarCore.mjs` = facturar.mjs's core moved verbatim (fetchEligible, assemble,
-  emitOne, emitPayload, ridePlan …) + new `dryRun()` and `sendRides()` (the send-rides loop). facturar.mjs is now
-  only the HTTP shell. Dry-run JSON diffed before/after (normal + `all=1`, 27 items): **byte-identical**.
-- **`facturar-report.mjs`** — SCHEDULED `0 14 * * 1,4` (Mon+Thu 09:00 GYE; confirmed in deploy `function_schedules`).
-  Dry-run only; ready=0 & blocked=0 → nothing; else owner push "Facturación pendiente / Hay N sesiones listas…
-  Escribe facturas al 9933…" (+ "M bloqueadas."). No snapshot.
-- **`netlify/lib/facturarAprobacion.mjs`** — `handleFacturasCommand` (owner texts "facturas", accent/case-insensitive:
-  older 'pendiente' → 'vencida', new 'pendiente' snapshot w/ session_ids + total + `resultado.lista`, list ≤10 per
-  message, buttons `fac_ok:<id>`/`fac_no:<id>` on the last), `runAprobacion` (atomic `update … where estado=
-  'pendiente' and created_at>=now-48h returning`; duplicate tap = silent no-op; re-checks each snapshot id via
-  dryRun → emitOne only if still ready; never adds ids; RIDE send for exactly those, 4 attempts 15s apart for SRI
-  auth; stores emitidas/omitidas/rides in `resultado`; "Listo. Emitidas k de N. Enviadas por WhatsApp s." +
-  failure lines; CRÍTICO line + owner push), `handleDescartar`, `runReport`. All effects go through `deps` (harness).
-- **`facturar-aprobar-background.mjs`** — runs runAprobacion (15-min budget). Gate: `x-lead-verify` =
-  WA_CLOUD_VERIFY_TOKEN, same as lead-reply-background.
-- **Webhook:** `handleOwnerFacturar` runs right after logging, BEFORE estado flip / therapist result / lead bot.
-  Owner = `ownerWhatsApp()` (env OWNER_WHATSAPP, default +593968029896 — matches the task). fac_* taps from any
-  other number are swallowed (logged), never reach the bot.
-- **DB:** `factura_aprobaciones` (supabase/facturar-aprobaciones.sql, applied, owner-only RLS).
-- **Harness** (stubbed Contífico/Dualhook/push, in-memory DB): cron 0→no push; "facturas"→snapshot+split list+
-  buttons; Aprobar emits only snapshot ids (skips ineligible + vanished, ignores newly eligible); double tap no-op;
-  >48h → expired copy; non-owner tap ignored (webhook-level check too); CRITICAL path. All PASS. No real invoices.
-- First live run: **Mon 5 Oct 09:00** with Nicolás.
-
-### 2026-10-02 → 10-04 — /facturar go-live + WhatsApp invoices → moved to `CHANGELOG.md` (top) by /cierre 2026-10-04 pm.
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
@@ -314,8 +239,11 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [ ] **Worm FAC 001-001-000000303 unsigned** (#47) — at 18:30 UTC 5 Oct Contífico showed firmado=false,
       autorizacion null. The sweep sends it once authorized; if still unauthorized Wed 7 Oct ~18:00 UTC
       Nicolás gets the one SRI alert → check Contífico (re-submit `PUT /documento/<id>/sri/` manually).
-- [ ] **ping_nico review** (#45) — check status: `submit-lead-templates?token=…&list`. Until APPROVED (as UTILITY)
-      the Thu 8 Oct cron falls back to push if his window is closed. Reclassified/rejected → Nicolás decides, don't edit copy.
+- [ ] **ping_nico RECLASSIFIED MARKETING** (#45, seen 5 Oct 20:30 UTC: PENDING/MARKETING) — owner outbox falls back
+      to push while his window is closed (affects facturar-report + #52 escalations). Nicolás decides; don't edit copy.
+- [ ] **sesion_pendiente review** (#52, id 1751621786066092, PENDING/UTILITY) — check `?list`. Reclassified/rejected →
+      report verbatim, don't change copy. Until APPROVED, closed-window therapists get a push instead.
+- [ ] **#52 first run Tue 6 Oct 08:30** — check `session_estado_reminders` + function log; Sophia's 2 Oct should be sent.
 - [ ] **Raguel Conforme 12 Sep** (paid, never invoiced) — skipped on Nicolás's instruction 2026-10-03; invoice with
       `emit-one&before_floor=1` if he asks.
 - [ ] **Factura WhatsApp copy** — Nicolás doesn't love `factura_sesion_link`'s wording. If he sends new copy:
