@@ -111,3 +111,18 @@ export function sendImageCard(to, { imageLink, body, button, headerText }) {
   else if (headerText) interactive.header = { type: 'text', text: cut(headerText, 60) }
   return sendCloud({ to: digits(to), type: 'interactive', interactive })
 }
+
+// STAFF reply buttons (#52) — same shape as sendButtons but WITHOUT cleanBotText:
+// therapist-facing copy approved by Nicolás keeps its emoji signature. Length
+// limits still apply. Never use this for lead/patient messages. Returns the wamid.
+export async function sendStaffButtons(to, body, buttons) {
+  const interactive = {
+    type: 'button',
+    body: { text: String(body ?? '').slice(0, 1024) },
+    action: {
+      buttons: buttons.slice(0, 3).map((b) => ({ type: 'reply', reply: { id: cutId(b.id, 256), title: String(b.title ?? '').slice(0, 20) } })),
+    },
+  }
+  const data = await sendCloud({ to: digits(to), type: 'interactive', interactive })
+  return data?.messages?.[0]?.id || null
+}

@@ -136,7 +136,26 @@ export const OWNER_TEMPLATES = [
       { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Ver' }] },
     ] },
 ]
-const ALL_TEMPLATES = [...TEMPLATES, ...TEMPLATES_V2, ...OWNER_TEMPLATES]
+// Therapist templates (#52). sesion_pendiente = the daily 08:30 reminder for a past
+// session still in Pendiente, used only when the therapist's 24h window is closed
+// (lib/sesionesPendientes.mjs). Copy approved by Nicolás: no ¡¿, the 🐚✨ signature
+// is allowed for therapist messages. Quick-reply payloads (est_ok:/est_no:<id>) are
+// set per message at send time (sendSesionPendiente).
+export const SESION_PENDIENTE_TEMPLATE = 'sesion_pendiente'
+export const SESION_PENDIENTE_BODY =
+  'Hola {{1}}! Hay una sesión que se quedó en estado pendiente.\n\n{{2}}, del {{3}}\n\nSe dio la sesión?\n\nAtt: La Caracola Mágica🐚✨'
+export const STAFF_TEMPLATES = [
+  { name: SESION_PENDIENTE_TEMPLATE, to: 'therapist', language: LANG, category: 'UTILITY',
+    components: [
+      { type: 'BODY', text: SESION_PENDIENTE_BODY,
+        example: { body_text: [['Sophia', 'Cecilia Saltos + Valentina Loor', '2 de octubre']] } },
+      { type: 'BUTTONS', buttons: [
+        { type: 'QUICK_REPLY', text: 'Ocurrió' },
+        { type: 'QUICK_REPLY', text: 'No ocurrió' },
+      ] },
+    ] },
+]
+const ALL_TEMPLATES = [...TEMPLATES, ...TEMPLATES_V2, ...OWNER_TEMPLATES, ...STAFF_TEMPLATES]
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -248,7 +267,38 @@ async function sendTemplate(to, base, bodyParams) {
 export const sendOwnerPing = (ownerE164, resumen) =>
   sendTemplate(ownerE164, PING_TEMPLATE, [resumen])
 
-export const sendCallReminder = (toE164, { name, therapist, hora }) =>
+// sesion_pendiente — {{1}} nombre, {{2}} patient label, {{3}} "2 de octubre";
+// the two quick replies carry est_ok:<id> / est_no:<id> as their payloads.
+// Returns the wamid. Sent only by sesionesPendientes.mjs (once APPROVED).
+export async function sendSesionPendiente(therapistE164, { nombre, paciente, fecha, sessionId }) {
+  const apiKey = process.env.WA_DUALHOOK_API_KEY
+  if (!apiKey) throw new Error('WA_DUALHOOK_API_KEY missing — no send performed')
+  const p = (v) => ({ type: 'text', text: (v == null || String(v).trim() === '') ? '—' : String(v).trim() })
+  const qr = (index, payload) => ({ type: 'button', sub_type: 'quick_reply', index: String(index), parameters: [{ type: 'payload', payload }] })
+  const body = {
+    messaging_product: 'whatsapp',
+    to: String(therapistE164).replace(/^\+/, ''),
+    type: 'template',
+    template: {
+      name: SESION_PENDIENTE_TEMPLATE, language: { code: LANG },
+      components: [
+        { type: 'body', parameters: [nombre, paciente, fecha].map(p) },
+        qr(0, `est_ok:${sessionId}`),
+        qr(1, `est_no:${sessionId}`),
+      ],
+    },
+  }
+  const res = await fetch(SEND_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`Dualhook ${res.status}: ${await res.text()}`)
+  const data = await res.json()
+  return data?.messages?.[0]?.id || null
+}
+
+export const sendCallReminder =(toE164, { name, therapist, hora }) =>
   sendTemplate(toE164, 'recordatorio_llamada', [name, therapist, hora])
 export const sendCallResult = (therapistE164, { therapist, name, hora }) =>
   sendTemplate(therapistE164, 'resultado_llamada', [therapist, name, hora])

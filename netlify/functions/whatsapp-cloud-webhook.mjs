@@ -31,6 +31,7 @@ import { isTherapistOrPayer, recordLead, handleEchoes, runBot, handleTherapistRe
 import { sendReadReceipt } from '../lib/waSend.mjs'
 import { isOwnerPhone, isFacturasCommand, facturaTap, handleFacturasCommand, handleDescartar } from '../lib/facturarAprobacion.mjs'
 import { flushOwnerOutbox, supersedeOwnerOutbox } from '../lib/ownerOutbox.mjs'
+import { handleEstadoTap } from '../lib/sesionesPendientes.mjs'
 
 // Fire the delayed-reply background function (~20s + typing, burst-coalesced) for
 // a lead's free text. Returns fast (Netlify 202s a background invocation). The
@@ -263,6 +264,16 @@ export default async (req) => {
           if (isOwnerPing(msg)) continue
         }
         if (await handleOwnerFacturar(supabase, msg)) continue
+
+        // ── Therapist tapped Ocurrió / No ocurrió on a Pendiente reminder (#52) ──
+        // est_ok:/est_no:<session_id>. Consumed here — never reaches the patient
+        // estado flip or the lead bot. Only the session's own therapist counts.
+        try {
+          if (await handleEstadoTap(supabase, msg)) continue
+        } catch (e) {
+          console.warn('[wa-cloud] estado tap failed (non-blocking):', e.message)
+          continue
+        }
 
         // Confirmo / Cancelar → flip the matching session's estado. This is the
         // inbound HALF of the Dualhook reminder loop (the outbound half is

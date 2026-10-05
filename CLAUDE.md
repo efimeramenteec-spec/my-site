@@ -326,6 +326,27 @@ in `owner_outbox` (owner-only RLS, `supabase/owner-outbox.sql`):
 First consumer: `facturar-report` (Mon+Thu 09:00 GYE) → snapshot (origen `cron`) + the same list +
 [Aprobar] [Ahora no] the "facturas" command sends. Invoices are emitted ONLY by his Aprobar tap.
 
+### `sesiones-pendientes.mjs` — past sessions can't stay in Pendiente (#52, 2026-10-05)
+Scheduled `30 13 * * *` (08:30 GYE), logic in `netlify/lib/sesionesPendientes.mjs`. Scope: estado
+`programada` AND tipo ≠ `llamada` (never llamadas) AND fecha < today GYE, therapist activo with a
+telefono. One WhatsApp per stuck session (therapist, fecha, hora order): "Hola {nombre}! Hay una sesión
+que se quedó en estado pendiente. / {patientLabel}, del {2 de octubre} / Se dio la sesión? / Att: La
+Caracola Mágica🐚✨" + [Ocurrió] [No ocurrió] (Daniela → "Dani"; therapist copy keeps the emoji and
+goes through `waSend.mjs#sendStaffButtons`, NOT the lead-bot sanitizer).
+- therapist's 24h window open → free-form buttons, ids `est_ok:/est_no:<session_id>`;
+- closed → template `sesion_pendiente` (UTILITY, `leadTemplates.mjs#STAFF_TEMPLATES`, submit via
+  `submit-lead-templates?name=sesion_pendiente`; quick-reply payloads set per send) once APPROVED;
+- not approved / send fails → ONE Web Push per therapist per day, therapist only (`skipOwner`).
+- Logged in `session_estado_reminders` (owner-only RLS, `supabase/session-estado-reminders.sql`); same-day
+  reruns don't resend. Reminded on 3 different days, unanswered → `notifyOwner` once (kind
+  `sesion_sin_cerrar`, `escalated_at`); the therapist keeps getting reminded daily.
+- **Tap** (`whatsapp-cloud-webhook` → `handleEstadoTap`, before the patient estado flip + lead bot):
+  only the session's own therapist (last-9) counts; must still be `programada` (else "Esa sesión ya
+  estaba cerrada."); est_ok → `confirmada` via a plain service-role UPDATE (so `consume_saldo_on_confirm`
+  and the sessions triggers fire), est_no → `cancelada` + calendar `cancel` (best-effort); no push;
+  reply "Listo, quedó como Confirmada/Cancelada."; stamps `respuesta`/`respondida_at`. Nothing else in
+  this flow ever changes an estado. Harness: `node scripts/harness-sesiones-pendientes.mjs`.
+
 ### `send-reminders.mjs` — hourly WhatsApp reminder (SCHEDULED, cron-only)
 Cron `0 * * * *` declared **in-code** via `export const config = { schedule }` (not `netlify.toml`).
 Sends a ~24h-before reminder via Twilio Content API (approved quick-reply template, one variable
