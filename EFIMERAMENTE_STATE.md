@@ -102,6 +102,17 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-05 — #50 Marthin Spatz billed to Shariam Narváez + #51 Valentina Yanchaluiza 4-pack (executor, data-only)
+- #50: new `payers` row 4d0597f1-0b09-4bd9-babb-d0b41c68201a (Shariam Alexandra Narváez Celi, cédula =
+  contifico_id 1722319439, tel +593995879307); patient 6f9b2b87 → payer_id set, nombre 'Sharian'→'Shariam'
+  (old cedula/contifico_id 1724765266 kept on the patient). Contífico persona for 1722319439 did NOT exist
+  (recon empty) → created inline by the first POST, like #44. Gotcha: her Tumbaco address is NOT used —
+  `buildPayloadCore` locks direccion='Quito' (Nicolás rule 2026-10-02). Scratch assemble() of the 18 Sep
+  session (unpaid, not eligible yet): billing 1722319439 "SHARIAM ALEXANDRA NARVÁEZ CELI", descripcion
+  "Paciente Marthin Spatz | F43.2 …"; rideRecipient → payer +593995879307. Nothing emitted; no emitted doc touched.
+- #51: `saldo_lotes` 8c803ca8 (Valentina a2ad3f7c, package $120 @ $30, remaining $90, source 1 Oct d97a7f25,
+  payphone trx 91928931). 8 Oct (226665fc) left unpaid → consume_saldo_on_confirm pays it ($90→$60).
+
 ### 2026-10-05 — #49 Shyam package credit fixed + diagnosis: credit not consumed (executor)
 - **Fix (authorized):** lote `af4ba5c9…` (Shyam Yelpi, backfill package) remaining 105 → **70** + note
   "5 Oct: ajuste manual a 70 (22 y 29 sep consumidas; quedan 6 oct + la siguiente)". 22/29 Sep left as-is
