@@ -11,7 +11,8 @@
 //   3. Aprobar (fac_ok:<id>) → the webhook fires facturar-aprobar-background, which
 //      runs runAprobacion: atomic pendiente→aprobada claim (double-tap guard), then
 //      emitOne for each snapshot id STILL eligible (sessions outside the snapshot
-//      are never added), then the RIDE WhatsApp for exactly those, then a reply.
+//      are never added), then an immediate reply. RIDEs are NOT sent here: the
+//      15-min sweep (rideSweep.mjs, #47) sends each one once the SRI authorizes it.
 //      Ahora no (fac_no:<id>) → 'descartada'.
 // Everything is owner-phone only (ownerWhatsApp(), OWNER_WHATSAPP env or the
 // +593968029896 default) and consumed by the webhook BEFORE the lead bot.
@@ -22,19 +23,16 @@
 import { normalizePhone, ownerWhatsApp } from './whatsapp.mjs'
 import { sendText, sendButtons } from './waSend.mjs'
 import { notifyTherapist } from './push.mjs'
-import { dryRun, emitOne, ridePlan, sendRides, money } from './facturarCore.mjs'
+import { dryRun, emitOne, money } from './facturarCore.mjs'
 import { notifyOwner, supersedeOwnerOutbox } from './ownerOutbox.mjs'
 
 const TABLE = 'factura_aprobaciones'
 const VIGENCIA_MS = 48 * 3600 * 1000
 const ITEMS_PER_MESSAGE = 10
-const RIDE_ATTEMPTS = 4          // SRI authorization is async (usually seconds)
-const RIDE_RETRY_MS = 15000
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const defaultDeps = {
-  dryRun, emitOne, ridePlan, sendRides, sendText, sendButtons, notifyTherapist,
-  notifyOwner, supersedeOwnerOutbox, now: () => new Date(), sleep,
+  dryRun, emitOne, sendText, sendButtons, notifyTherapist,
+  notifyOwner, supersedeOwnerOutbox, now: () => new Date(),
 }
 
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
@@ -196,38 +194,21 @@ export async function runAprobacion(supabase, to, snapshotId, deps = defaultDeps
     emitidas.push({ ...r, paciente: item.patient, documento: item.payload?.documento || null })
   }
 
-  // RIDE WhatsApp for exactly the sessions emitted+marked here. Unauthorized ones
-  // are retried a few times; anything still pending is picked up by the next run.
-  let pendientes = emitidas.filter((r) => r.emitted && r.marked_facturada).map((r) => r.session_id)
-  const rides = []
-  for (let a = 0; a < RIDE_ATTEMPTS && pendientes.length; a++) {
-    // eslint-disable-next-line no-await-in-loop
-    await deps.sleep(a === 0 ? 5000 : RIDE_RETRY_MS)
-    const plan = []
-    for (const id of pendientes) {
-      // eslint-disable-next-line no-await-in-loop
-      plan.push(...(await deps.ridePlan(supabase, id)))
-    }
-    // eslint-disable-next-line no-await-in-loop
-    const sent = await deps.sendRides(supabase, plan)
-    rides.push(...sent)
-    const done = new Set(sent.map((s) => s.session_id))
-    // Keep retrying only what is NOT yet sendable (e.g. not yet SRI-authorized).
-    pendientes = plan.filter((p) => !p.ready && !done.has(p.session_id)).map((p) => p.session_id)
-  }
-  const ridesPendientes = pendientes
+  // No RIDE here (#47): the 15-min sweep sends each one as soon as the SRI
+  // authorizes it. rides_pendientes = every emitted+marked id, for the audit.
+  const ridesPendientes = emitidas.filter((r) => r.emitted && r.marked_facturada).map((r) => r.session_id)
 
   const criticos = emitidas.filter((r) => r.emitted && !r.marked_facturada)
   const k = emitidas.filter((r) => r.emitted).length
-  const s = rides.filter((r) => r.sent).length
-  const resultado = { lista, emitidas, omitidas, rides, rides_pendientes: ridesPendientes }
+  const resultado = { lista, emitidas, omitidas, rides_pendientes: ridesPendientes }
   await supabase.from(TABLE).update({ resultado }).eq('id', snap.id)
 
-  const lines = [`Listo. Emitidas ${k} de ${snap.session_ids.length}. Enviadas por WhatsApp ${s}.`]
+  const lines = [`Listo. Emitidas ${k} de ${snap.session_ids.length}.`]
+  for (const e of emitidas.filter((r) => r.emitted)) {
+    lines.push(`${e.paciente}: factura ${e.documento || e.contifico_id} emitida, se envía sola apenas el SRI la autorice.`)
+  }
   for (const o of omitidas) lines.push(`- ${o.paciente}: no se emitió, ${o.motivo}`)
   for (const e of emitidas.filter((r) => !r.emitted)) lines.push(`- ${e.paciente}: no se emitió (${e.step || e.error || 'error'})`)
-  for (const r of rides.filter((x) => !x.sent)) lines.push(`- ${nombre(r.session_id)}: factura no enviada por WhatsApp`)
-  for (const id of ridesPendientes) lines.push(`- ${nombre(id)}: factura aún sin autorizar, se envía en la próxima corrida`)
   for (const c of criticos) lines.push(`CRÍTICO: ${c.documento || c.contifico_id} emitida sin marcar, revisar antes de volver a facturar`)
   await deps.sendText(to, lines.join('\n'))
 
@@ -238,7 +219,7 @@ export async function runAprobacion(supabase, to, snapshotId, deps = defaultDeps
       url: '/',
     })
   }
-  return { status: 'done', emitted: k, sent: s, omitidas: omitidas.length, criticos: criticos.length }
+  return { status: 'done', emitted: k, omitidas: omitidas.length, criticos: criticos.length }
 }
 
 // ── Mon+Thu cron (facturar-report) → owner outbox (#45) ─────────────────────

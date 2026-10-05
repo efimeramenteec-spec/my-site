@@ -384,6 +384,7 @@ async function fetchUnsentRides(supabase, { ignoreFloor = false } = {}) {
       id, fecha, monto, contifico_doc_id, factura_enviada_at,
       patient:patients!inner (
         id, nombre, apellido, tipo_paciente, nombre_2, apellido_2, nombre_factura, telefono,
+        facturar_desde,
         payer:payers ( id, nombre, apellido, telefono )
       )
     `)
@@ -423,11 +424,15 @@ function rideRecipient(s) {
     to_last4: to ? to.slice(-4) : null }
 }
 
-export async function ridePlan(supabase, onlyId) {
-  // No date floor for SENDING: contifico_doc_id is only ever set by this function's
-  // own emissions, so explicitly back-invoiced sessions (pre-floor) are included.
+export async function ridePlan(supabase, onlyId, { floor = false } = {}) {
+  // No date floor for manual SENDING: contifico_doc_id is only ever set by this
+  // function's own emissions, so explicitly back-invoiced sessions (pre-floor) are
+  // included. The automatic sweep (#47) passes floor=true: only sessions with
+  // fecha >= coalesce(patient.facturar_desde, FACTURAR_SINCE), filtered BEFORE
+  // any Contífico lookup.
   let rows = await fetchUnsentRides(supabase, { ignoreFloor: true })
   if (onlyId) rows = rows.filter((r) => r.id === onlyId)
+  if (floor) rows = rows.filter((r) => r.fecha >= (r.patient.facturar_desde || FACTURAR_SINCE))
   const plan = []
   for (const s of rows) {
     const r = rideRecipient(s)
