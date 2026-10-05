@@ -119,8 +119,10 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - **Broadcast `4e56df3a-8a69-456a-a93c-8c750e444391` "Mariana retoma sesiones"**: 49 active → 48 (Kathy Rivadeneira duplicate
   `c1d2422c…` +593999981622, 1 session/0 inbound = typo row; kept `c1819b33…` +593999901622). List sent to Mariana 20:55 UTC;
   she replied "10, 19, 20, 26, 35, 37, 39, 42," → excluded Diana Marcial Verdesoto, Grace Atiencia, Inti Maigua, Juan David
-  Álvarez, Mauro Baquero, Nathaly Ramos, Nicolás Marcano, Paola Ibarra. → `listo` 21:01 UTC, confirmation sent. 40 to send:
-  1 has an open window (free-form at the first sweep), 39 wait for `mariana_retoma` APPROVED.
+  Álvarez, Mauro Baquero, Nathaly Ramos, Nicolás Marcano, Paola Ibarra. → `listo` 21:01 UTC, confirmation sent.
+  `mariana_retoma` APPROVED (MARKETING) before the 21:15 sweep → all 40 sent 21:15–21:16 UTC (1 free-form, 39 template),
+  0 duplicate wamids. 3 failed: Diana Romero 131049, Luna Guamán 131026, Emily Rivera 131026 (landline) → closes ~21:46
+  with one notifyOwner listing them.
 - Meta status seen: `sesion_pendiente` (#52) **APPROVED but as MARKETING** → the 08:30 job requires UTILITY, so it keeps
   using free-form/push fallback until decided; `ping_nico` PENDING/MARKETING.
 
@@ -251,11 +253,8 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
-- [ ] **#53 broadcast follow-through** — nothing to run: `broadcast-sweep` sends the 39 template recipients by itself once
-      `mariana_retoma` is APPROVED (check `submit-lead-templates?list`). If REJECTED → show Nicolás Meta's reason, don't edit
-      the copy. Check: `select count(*) filter (where sent_at is not null), count(*) filter (where error is not null) from
-      broadcast_recipients where broadcast_id='4e56df3a-8a69-456a-a93c-8c750e444391' and not excluido`. When done, Nicolás gets
-      one WhatsApp listing who failed (131049 etc.) to send by hand.
+- [ ] **#53** — 3 patients didn't get "Mariana retoma" (Diana Romero 131049, Luna Guamán + Emily Rivera 131026) → Nicolás
+      sends by hand / fixes their phones. Broadcast 4e56df3a closes itself ~21:46 UTC 5 Oct (estado enviado + one owner notice).
 - [ ] **`sesion_pendiente` approved as MARKETING** (#52 code wants UTILITY) — Nicolás decides: accept (change category in
       STAFF_TEMPLATES) or resubmit as UTILITY.
 - [ ] **#41 templates _v2** — submitted, auto-switch live (f87944f). Done once all 4 `_v2` APPROVED. Decide:
