@@ -9,7 +9,7 @@
 // the authoritative backstop and mirrors these numbers in SQL — keep both in sync.
 //
 // Mariana Villegas, back from maternity leave (until further notice):
-//   R1 window 10:00–20:00 (start ≥ 10:00, end ≤ 20:00)
+//   R1 starts 10:00–20:00 inclusive, any duration (she's done by 21:00; #46, 2026-10-05)
 //   R2 starts ≥ 120 min apart (1 h session + 1 h break)
 //   R3 max 3 sessions per day
 //   R4 en línea only
@@ -20,7 +20,7 @@ export const MARIANA_ID = 'b219e764-4664-594c-9eb3-d2b19e52caac'
 export const THERAPIST_RULES = {
   [MARIANA_ID]: {
     nombre: 'Mariana',
-    window: ['10:00', '20:00'],
+    startWindow: ['10:00', '20:00'], // earliest / latest START (end not checked)
     minStartGapMin: 120,
     maxPerDay: 3,
     onlyModalidad: 'en_linea',
@@ -35,10 +35,15 @@ const isFreed = (s) => s.estado === 'cancelada' || s.estado === 'no_show'
 
 export const rulesFor = (terapeutaId) => THERAPIST_RULES[terapeutaId] || null
 
-/** [startMin, endMin] the therapist may work in, or null (no restriction). */
-export function allowedWindow(terapeutaId) {
+/** [earliestStartMin, latestStartMin] the therapist may START in, or null (no restriction). */
+export function allowedStartWindow(terapeutaId) {
   const r = rulesFor(terapeutaId)
-  return r?.window ? [toMin(r.window[0]), toMin(r.window[1])] : null
+  return r?.startWindow ? [toMin(r.startWindow[0]), toMin(r.startWindow[1])] : null
+}
+
+export const startWindowCopy = (terapeutaId) => {
+  const r = rulesFor(terapeutaId)
+  return r?.startWindow ? `La última sesión de ${r.nombre} empieza a las ${r.startWindow[1]}` : null
 }
 
 /** The only modalidad this therapist accepts ('en_linea'), or null. */
@@ -63,10 +68,10 @@ export function violatesRules(session, sameDaySessions = []) {
     return `${r.nombre} atiende solo en línea por ahora`
   }
   const start = toMin(session.hora_inicio)
-  if (r.window) {
-    const [ws, we] = r.window.map(toMin)
-    const end = session.hora_fin ? toMin(session.hora_fin) : start
-    if (start < ws || end > we) return `${r.nombre} atiende de ${r.window[0]} a ${r.window[1]}`
+  if (r.startWindow) {
+    const [ws, we] = r.startWindow.map(toMin)
+    if (start < ws) return `La primera sesión de ${r.nombre} empieza a las ${r.startWindow[0]}`
+    if (start > we) return startWindowCopy(session.terapeuta_id)
   }
   const others = sameDaySessions.filter((s) =>
     s.terapeuta_id === session.terapeuta_id && s.fecha === session.fecha &&
