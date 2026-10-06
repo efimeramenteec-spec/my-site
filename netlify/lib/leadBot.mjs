@@ -214,7 +214,10 @@ function shortName(nombre) {
 const freeCallLink = (therapistId) => `${APP_BASE}/agendar?terapeuta=${therapistId}`
 
 // Ecuador is UTC-5, no DST. Nicolás's hours: 07:00–23:00. Outside that = night.
-function ecHourNow() { return (new Date().getUTCHours() + 24 - 5) % 24 }
+// The dry run pins the hour (_setHourGYE) to check the day/night copy.
+let hourOverride = null
+export function _setHourGYE(h) { hourOverride = h }
+function ecHourNow() { return hourOverride ?? (new Date().getUTCHours() + 24 - 5) % 24 }
 function isNightGYE() { const h = ecHourNow(); return h >= 23 || h < 7 }
 
 // ── Transport — every lead-facing send of a turn goes through here, so the
@@ -223,9 +226,23 @@ function isNightGYE() { const h = ecHourNow(); return h >= 23 || h < 7 }
 const tx = { sendText, sendImage, sendLinkText, notifyTherapist }
 export function _setTransport(over) { Object.assign(tx, over) }
 
-async function txt(lead, body, { previewUrl = false } = {}) {
-  await tx.sendText(lead.phone, body, { previewUrl })
+async function txt(supabase, lead, body, { previewUrl = false, greet = true } = {}) {
+  await tx.sendText(lead.phone, greet ? await withGreeting(supabase, lead, body) : body, { previewUrl })
   lead.__sent = (lead.__sent || 0) + 1
+}
+
+// #55 — ONE greeting per conversation, on the bot's first message: "Hola, hablas
+// con Nico. " replaces the bubble's own "Hola!"/"Hola,"; every later bubble drops
+// its "Hola" (no second greeting, no late introduction). Atomic claim on
+// saludo_enviado, so two concurrent turns never both greet. A lead the bot already
+// wrote to before (last_bot_at) is never introduced late.
+const GREETING = 'Hola, hablas con Nico. '
+const HOLA_RE = /^hola\s*[!,.]?\s*/i
+async function withGreeting(supabase, lead, body) {
+  const rest = String(body).replace(HOLA_RE, '')
+  const bare = rest === String(body) ? rest : rest.charAt(0).toUpperCase() + rest.slice(1)
+  if (lead.saludo_enviado || lead.last_bot_at) return bare
+  return (await claimOnce(supabase, lead, 'saludo_enviado')) ? `${GREETING}${bare}` : bare
 }
 
 // Persist a patch and mirror it onto the in-memory lead.
@@ -249,7 +266,7 @@ async function claimOnce(supabase, lead, col) {
 
 // A step's question: send it and remember it as the pending question.
 async function ask(supabase, lead, text, step, extra = {}) {
-  await txt(lead, text)
+  await txt(supabase, lead, text)
   await patchLead(supabase, lead, { step_actual: step, last_bot_text: text, last_bot_at: new Date().toISOString(), parse_misses: 0, ...extra })
 }
 
@@ -363,7 +380,7 @@ async function sendBubbles(supabase, lead, key) {
   const c = CANNED[key]
   if (c.categoria) await patchLead(supabase, lead, { categoria: c.categoria })
   if (PRICE_CANNED.has(key)) await markPrecioVisto(supabase, lead)
-  for (const b of c.bubbles) await txt(lead, b.text, { previewUrl: !!b.preview })
+  for (const b of c.bubbles) await txt(supabase, lead, b.text, { previewUrl: !!b.preview })
   await patchLead(supabase, lead, { last_bot_at: new Date().toISOString() })
   if (c.end === 'invite_custom') {
     // The last bubble IS the invitation question.
@@ -455,29 +472,44 @@ Mensaje: "${String(text).replace(/"/g, "'").slice(0, 500)}"`
 // ── Escalate + handoff ───────────────────────────────────────────────────────
 // escalate: push to Nicolás + pause the bot for this lead forever. Marks the turn
 // as derived (lead.__derived) for the zero-silence guard.
-async function escalate(supabase, lead, reason, { urgent = false } = {}) {
+async function escalate(supabase, lead, reason, { urgent = false, title = null, body = null } = {}) {
   await patchLead(supabase, lead, { bot_paused: true })
   lead.__derived = true
   try {
     await tx.notifyTherapist(supabase, lead.therapist_id || null, {
-      title: urgent ? '🚨 URGENTE — lead necesita atención' : 'Lead necesita atención 🌿',
-      body: `${lead.wa_name || lead.phone} — ${reason}`,
+      title: title || (urgent ? '🚨 URGENTE — lead necesita atención' : 'Lead necesita atención 🌿'),
+      body: body || `${lead.wa_name || lead.phone} — ${reason}`,
       url: '/marketing',
     })
   } catch (e) { console.warn('[bot] escalate push failed:', e.message) }
   console.log(`[bot] lead ${lead.id} escalated (${reason})${urgent ? ' URGENTE' : ''} + paused`)
 }
 
-// Non-urgent handoff to a human (#54 zero silence): ALWAYS one line, then push +
-// pause — the lead is never left without a reply. Night (23:00–07:00 GYE) says
-// "a primera hora"; day says "en un momento". botQuestion = "¿bot o persona?".
-async function handoff(supabase, lead, reason, { botQuestion = false } = {}) {
-  const cuando = isNightGYE() ? 'a primera hora de la mañana' : 'en un momento'
-  const line = botQuestion
-    ? `Soy un sistema de respuestas inteligente. Nicolás, nuestro administrador, te escribirá personalmente ${cuando}.`
-    : `Gracias por contarnos. Nicolás te escribirá personalmente ${isNightGYE() ? 'a primera hora' : 'en un momento'}.`
-  try { await txt(lead, line) } catch (e) { console.warn('[bot] handoff line failed:', e.message) }
+// Non-urgent handoff to a human (#54 zero silence, #55 first person — the bot IS
+// Nico): one line, then push + pause. Day (07:00–23:00 GYE) / night copy approved
+// by Nicolás. botQuestion ("eres un bot?") → ZERO text at any hour, push with the
+// lead's words; Nicolás answers with an audio.
+async function handoff(supabase, lead, reason, { botQuestion = false, text = '' } = {}) {
+  if (botQuestion) {
+    return escalate(supabase, lead, reason, { title: 'Preguntó si es un bot', body: `${lead.wa_name || lead.phone}: "${String(text).slice(0, 300)}"` })
+  }
+  const line = isNightGYE() ? 'Te respondo mañana a primera hora.' : 'Dame un momento y te respondo.'
+  try { await txt(supabase, lead, line) } catch (e) { console.warn('[bot] handoff line failed:', e.message) }
   await escalate(supabase, lead, reason)
+}
+
+// "Eres un bot?" / "estoy hablando con una persona?" — deterministic, before the
+// model, so it never depends on the classifier (which also tags it motivo "bot").
+const BOT_Q = [
+  /\b(bot|chatbot|robot)\b/,
+  /\b(eres|sos|es) (un |una )?(ia|inteligencia artificial|maquina|contestadora|automatic[oa]|sistema automatico)\b/,
+  /\b(eres|sos) (un |una )?(persona|humano|humana|real|alguien real)\b/,
+  /\b(hablo|hablando|habla|hablamos|chateando|escribiendo|escribo|converso|conversando) con (un |una )?(persona|humano|humana|bot|chatbot|robot|ia|maquina|alguien real|sistema)\b/,
+  /\brespuestas? automaticas?\b|\bmensajes? automaticos?\b|\bpersona real\b/,
+]
+export function isBotQuestion(text) {
+  const t = stripAccents(text)
+  return BOT_Q.some((re) => re.test(t))
 }
 
 // Append a decision to the audit log (Marketing → Embudo). Best-effort.
@@ -510,8 +542,7 @@ async function showReasonList(supabase, lead) {
 const QUIEN_Q = 'Cuéntame, para quién buscas empezar terapia? Para ti, en pareja o para tu hijo/a?'
 async function showQuien(supabase, lead) {
   await advanceStage(supabase, lead, 'toco')
-  const hola = await claimOnce(supabase, lead, 'saludo_enviado')
-  await txt(lead, hola ? `Hola, hablas con Nico. ${QUIEN_Q}` : QUIEN_Q)
+  await txt(supabase, lead, QUIEN_Q) // greeted by txt() only if it's the first message
   await patchLead(supabase, lead, { step_actual: 'quien', last_bot_text: QUIEN_Q, last_bot_at: new Date().toISOString(), parse_misses: 0 })
 }
 
@@ -578,10 +609,10 @@ function captionSansEnfoque(caption) {
 // line. No button — the lead answers with a name (elige_terapeuta).
 async function renderCards(supabase, lead, therapists, { intro } = {}) {
   if (!therapists.length) {
-    await txt(lead, 'En este momento no tengo terapeutas disponibles para ese tema. Escríbenos y te ayudamos directamente.')
+    await txt(supabase, lead, 'En este momento no tengo terapeutas disponibles para ese tema. Escríbenos y te ayudamos directamente.')
     return escalate(supabase, lead, 'sin_terapeutas')
   }
-  await txt(lead, intro || 'Aquí tienes a los profesionales especializados en tu motivo de consulta.')
+  await txt(supabase, lead, intro || 'Aquí tienes a los profesionales especializados en tu motivo de consulta.')
   for (const t of therapists) {
     const line = t.genero === 'M' ? '*Puedes agendar una llamada gratuita para conocerlo*' : '*Puedes agendar una llamada gratuita para conocerla*'
     const caption = captionSansEnfoque(t.funnel_caption)
@@ -693,7 +724,7 @@ function isAgendarText(text) {
 async function pickTherapist(supabase, lead, t, text) {
   if (!t.recibe_nuevos || t.id === MARIANA_ID) {
     await advanceStage(supabase, lead, 'toco')
-    await txt(lead, `Gracias por tu interés en ${shortName(t.nombre)}. Déjame coordinar esto contigo por aquí.`)
+    await txt(supabase, lead, `Gracias por tu interés en ${shortName(t.nombre)}. Déjame coordinar esto contigo por aquí.`)
     return escalate(supabase, lead, `terapeuta_nombrado:${t.nombre} ${t.apellido} (no recibe nuevos)`)
   }
   if (lead.step_actual !== 'cards') {
@@ -717,7 +748,7 @@ async function resolveTherapistByName(supabase, nameText) {
 // (sendLinkText skips the sanitizer). The link goes on its own line.
 export const LINK_COPY = 'Aquí te dejo el link para agendar la llamada gratuita. Escoge el día y hora que prefieras, el terapeuta te contactará vía whatsapp al momento de la llamada.\nGracias por la confianza❤️‍🩹'
 async function sendBookingLink(supabase, lead, therapistId) {
-  await tx.sendLinkText(lead.phone, `${LINK_COPY}\n${freeCallLink(therapistId)}`)
+  await tx.sendLinkText(lead.phone, `${await withGreeting(supabase, lead, LINK_COPY)}\n${freeCallLink(therapistId)}`)
   lead.__sent = (lead.__sent || 0) + 1
   await patchLead(supabase, lead, { step_actual: 'link_enviado', last_bot_text: null, last_bot_at: new Date().toISOString(), parse_misses: 0 })
 }
@@ -729,7 +760,7 @@ async function chooseTherapist(supabase, lead, therapistId) {
   const { data: t } = await supabase.from('therapists')
     .select('id, nombre, apellido, genero, activo').eq('id', therapistId).maybeSingle()
   if (!t || !t.activo) {
-    await txt(lead, 'Esa opción ya no está disponible. Elige otra, por favor.')
+    await txt(supabase, lead, 'Esa opción ya no está disponible. Elige otra, por favor.')
     return askPending(supabase, lead)
   }
   await advanceStage(supabase, lead, 'eligio_terapeuta')
@@ -742,7 +773,7 @@ async function bookSlot(supabase, lead, rest) {
   const [therapistId, date, time] = String(rest).split('|')
   const { data: t } = await supabase.from('therapists')
     .select('id, nombre, apellido, booking_availability, calendar_email').eq('id', therapistId).maybeSingle()
-  if (!t) { await txt(lead, 'Ese horario ya no está disponible.'); return askPending(supabase, lead) }
+  if (!t) { await txt(supabase, lead, 'Ese horario ya no está disponible.'); return askPending(supabase, lead) }
 
   const name = String(lead.wa_name || '').trim()
   const [nombre, ...apParts] = name.split(/\s+/)
@@ -753,7 +784,7 @@ async function bookSlot(supabase, lead, rest) {
   })
   if (!result.ok) {
     if (result.error === 'slot_taken') return sendBookingLink(supabase, lead, t.id)
-    await txt(lead, 'No pude agendar en este momento. Escríbenos y te ayudamos.')
+    await txt(supabase, lead, 'No pude agendar en este momento. Escríbenos y te ayudamos.')
     return escalate(supabase, lead, `booking_${result.error}`)
   }
   await advanceStage(supabase, lead, 'agendo')
@@ -761,7 +792,7 @@ async function bookSlot(supabase, lead, rest) {
     session_id: result.sessionId, patient_id: result.patientId,
     step_actual: 'agendado', last_bot_at: new Date().toISOString(), parse_misses: 0,
   })
-  await txt(lead,
+  await txt(supabase, lead,
     `Listo! Tu llamada gratuita con ${shortName(t.nombre)} es el ${humanDateLong(date, time)}.
 Te llamará a este número.
 Si necesitas cambiarla, escríbenos por aquí.`)
@@ -790,11 +821,11 @@ function pendingQuestion(lead) {
 async function askPending(supabase, lead) {
   const q = pendingQuestion(lead)
   if (q) {
-    await txt(lead, lead.step_actual === 'reasons' ? 'Qué te trae a terapia?' : q)
+    await txt(supabase, lead, lead.step_actual === 'reasons' ? 'Qué te trae a terapia?' : q)
     return patchLead(supabase, lead, { last_bot_at: new Date().toISOString() })
   }
   if (['link_enviado', 'agendado'].includes(lead.step_actual)) {
-    await txt(lead, 'Con gusto!')
+    await txt(supabase, lead, 'Con gusto!')
     return patchLead(supabase, lead, { last_bot_at: new Date().toISOString() })
   }
   return showQuien(supabase, lead)
@@ -894,6 +925,11 @@ async function handleFreeText(supabase, lead, text, { firstTouch = false } = {})
     return handleTap(supabase, lead, { id: typed })
   }
 
+  if (isBotQuestion(text)) {
+    await logDecision(supabase, lead, { text, accion: 'derivar', motivo: 'bot', reply: null, model: 'regla' })
+    return handoff(supabase, lead, 'pregunta_bot', { botQuestion: true, text })
+  }
+
   const history = await recentInbound(supabase, lead.phone)
   // Safety nets — heads-up to Nicolás; they don't change what the bot replies.
   await maybeReengagePush(supabase, lead)
@@ -934,12 +970,12 @@ async function handleFreeText(supabase, lead, text, { firstTouch = false } = {})
     if (d.accion === 'derivar') {
       if (d.motivo === 'urgente') {
         const reply = d.texto || 'Gracias por escribir. En un momento te contacta una persona del equipo.'
-        await txt(lead, reply)
+        await txt(supabase, lead, reply, { greet: false }) // urgente copy unchanged (#55)
         await logDecision(supabase, lead, { text, accion: 'derivar', motivo: 'urgente', reply, model: d.model, latencyMs: d.latencyMs })
         return escalate(supabase, lead, 'URGENTE — urgente', { urgent: true })
       }
       await logDecision(supabase, lead, { text, accion: 'derivar', motivo: d.motivo || 'otro', reply: summary || null, model: d.model, latencyMs: d.latencyMs })
-      return handoff(supabase, lead, `derivar — ${d.motivo || 'otro'}`, { botQuestion: /bot/i.test(d.motivo || '') })
+      return handoff(supabase, lead, `derivar — ${d.motivo || 'otro'}`, { botQuestion: /bot/i.test(d.motivo || ''), text })
     }
     const intents = mergeNamed(d.intents, named)
     if (!intents.length && !PROMPT_MODE[lead.step_actual]) { // nothing a CANNED answer or a step covers
@@ -1050,7 +1086,7 @@ async function handleTap(supabase, lead, tap) {
   if (id.startsWith('vermas:')) return chooseTherapist(supabase, lead, id.slice(7))
   if (id.startsWith('slot:')) return bookSlot(supabase, lead, id.slice(5))
   // Follow-up template quick-replies (payload = the button text)
-  if (id === 'Confirmo') { await txt(lead, 'Perfecto! Te esperamos.'); return }
+  if (id === 'Confirmo') { await txt(supabase, lead, 'Perfecto! Te esperamos.'); return }
   if (id === 'Cambiar hora' || id === 'Sí, reagendar') return rebookFromButton(supabase, lead)
   if (id === 'Sí, quiero agendar') return firstSessionInterest(supabase, lead)
   return askPending(supabase, lead)
@@ -1071,7 +1107,7 @@ async function rebookFromButton(supabase, lead) {
 }
 
 async function firstSessionInterest(supabase, lead) {
-  await txt(lead, 'Genial! Un momento, coordinamos tu primera sesión por aquí.')
+  await txt(supabase, lead, 'Genial! Un momento, coordinamos tu primera sesión por aquí.')
   try {
     await tx.notifyTherapist(supabase, lead.therapist_id || null, {
       title: 'Lead quiere primera sesión 🌿',

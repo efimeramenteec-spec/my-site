@@ -7,7 +7,7 @@
 // scripts/harness-lead-bot.mjs (local; no ANTHROPIC_API_KEY → keyword fallback)
 // and by the token-gated lead-bot-dryrun function (real Claude classifier).
 
-import { runBot, _setTransport } from './leadBot.mjs'
+import { runBot, _setTransport, _setHourGYE } from './leadBot.mjs'
 
 // ── A tiny in-memory PostgREST look-alike (only what the bot uses) ────────────
 function getPath(row, col) {
@@ -100,6 +100,7 @@ export async function simulate(seed, scenarios) {
     n++
     const phone = `+59390000${String(1000 + n).slice(-4)}`
     sb.db.leads.push({ id: `lead-${n}`, phone, ...NEW_LEAD, ...(sc.lead || {}) })
+    _setHourGYE(sc.hourGYE ?? null) // pin the GYE hour for the day/night handoff copy
     const turns = []
     let k = 0
     const one = async (step) => {
@@ -130,6 +131,7 @@ export async function simulate(seed, scenarios) {
     }
     const { data: lead } = await sb.from('leads').select('*').eq('phone', phone).maybeSingle()
     const decs = sb.db.lead_ai_decisions.filter((d) => d.lead_id === lead.id).map((d) => `${d.accion}:${d.motivo}${d.used_fallback ? ' (kw)' : d.model ? ` (${d.model})` : ''}`)
+    _setHourGYE(null)
     results.push({ name: sc.name, turns, decisions: decs, lead: { step_actual: lead.step_actual, stage: lead.stage, bot_paused: lead.bot_paused, therapist_id: lead.therapist_id, eligio_terapeuta_at: !!lead.eligio_terapeuta_at, categoria: lead.categoria } })
   }
   return results
@@ -177,4 +179,14 @@ export const SCENARIOS = [
     { type: 'sticker' }, { text: '24' },
   ] },
   { name: '12. botón viejo [Sí] (chat previo)', lead: { step_actual: 'answered', invitacion_enviada: true, stage: 'nuevo' }, steps: [{ tap: { id: 'inv_si', title: 'Sí' } }] },
+  // #55 — the bot speaks only as Nico.
+  { name: '13. precio → si (un solo saludo)', steps: [{ text: 'Cuál es el precio de las sesiones? $' }, { text: 'si' }] },
+  { name: '14. hola → hola (no se presenta dos veces)', steps: [{ text: 'Hola' }, { text: 'hola' }] },
+  { name: '15. eres un bot? 15:00', hourGYE: 15, steps: [{ text: 'eres un bot?' }] },
+  { name: '16. eres un bot? 23:30', hourGYE: 23, steps: [{ text: 'eres un bot?' }] },
+  { name: '17. persona? 15:00', hourGYE: 15, steps: [{ text: 'estoy hablando con una persona?' }] },
+  { name: '18. persona? 23:30', hourGYE: 23, steps: [{ text: 'estoy hablando con una persona?' }] },
+  { name: '19. domicilio 15:00', hourGYE: 15, steps: [{ text: 'hacen visitas a domicilio?' }] },
+  { name: '20. domicilio 23:30', hourGYE: 23, steps: [{ text: 'hacen visitas a domicilio?' }] },
+  { name: '21. urgente', steps: [{ text: 'quiero hacerme daño' }] },
 ]
