@@ -103,6 +103,24 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-06 — #55 Bot solo habla como Nico (executor, f88159c)
+The lead bot speaks ONLY as Nico, first person; never mentions Nicolás in the third person or admits to being a bot.
+- **`handoff()`** (leadBot.mjs): day 07–23 GYE → "Dame un momento y te respondo."; night → "Te respondo mañana a
+  primera hora." Then `escalate()` (pause + push) as before. Urgente path unchanged (sent with `greet:false`).
+- **Bot question → silent handoff, any hour:** `isBotQuestion(text)` (deterministic regex: bot/chatbot/robot,
+  "eres/es una IA/automático", "eres real/una persona", "hablo/estoy hablando con una persona", "respuestas
+  automáticas") runs before the model; the classifier's `motivo:"bot"` also routes here. ZERO text; push title
+  "Preguntó si es un bot", body = `name: "<lead text>"` (`escalate` got `title`/`body` overrides). Log
+  `derivar:bot (regla)`. Nicolás answers with an audio. "Soy un sistema de respuestas inteligente…" deleted.
+- **One greeting:** `txt(supabase, lead, body, {greet})` (signature changed — every call passes supabase) →
+  `withGreeting()`: first bot message (saludo_enviado=false AND last_bot_at null) gets "Hola, hablas con Nico. "
+  replacing the bubble's own "Hola!/Hola,"; atomic `claimOnce('saludo_enviado')`; every later bubble has its
+  leading "Hola" stripped (e.g. a 2nd price answer starts "La sesión cuesta…"). Also applied to the booking link.
+  `showQuien` no longer greets by itself. A lead already written to (last_bot_at set) is never introduced late.
+  Note: a handoff that is the very FIRST message reads "Hola, hablas con Nico. Dame un momento y te respondo."
+- **Sim:** `_setHourGYE(h)` export (leadBot) + scenario `hourGYE`; scenarios 13–21 added to `leadBotSim.mjs`.
+  Real-Claude dry run 13–21 + regressions 3/6/7/8: all as specified, 0 silences.
+
 ### 2026-10-06 — #54 Lead bot sin botones + link directo (executor, 41682e6)
 **Diagnosis first (step 0):** the 5 Oct "Sí" lead (14cb7a92, step `quien`) did NOT hit a silent path — the
 "Sí" was a TAP on `inv_si` (raw_payload interactive.button_reply), the bot answered with the quien buttons
@@ -272,30 +290,10 @@ next typed text (lead b64e16df: "Mi hijo/a\n24" → classified `agendar` → res
   not delivered at 19:05 UTC, no failure).
 - **Data fix:** Francisco 16/09 Ramesvary Henao 00:00 → 12:00–13:00 (session 0271e091; Calendar not synced, past).
 
-### 2026-10-05 — #47 RIDEs go out on their own: 15-min sweep (executor, 9363f78)
-- **Bug:** Aprobar's in-request RIDE retries (RIDE_ATTEMPTS/sleep) left unauthorized RIDEs in
-  `resultado.rides_pendientes` "for the next run", but no run ever sent them (Worm FAC 001-001-000000303).
-- **`netlify/functions/factura-rides-sweep.mjs`** — SCHEDULED `*/15 * * * *` (confirmed in deploy
-  `function_schedules`) → `sweepRides` in **`netlify/lib/rideSweep.mjs`**: `ridePlan(sb, null, { floor: true })`
-  (facturada AND contifico_doc_id AND factura_enviada_at NULL AND fecha >= coalesce(facturar_desde,
-  FACTURAR_SINCE), floor filtered before any Contífico call) → `sendRides` per ready item (same template,
-  recipient rule, stamp). Not HTTP-invocable; Netlify UI → Run now.
-- **Table `factura_ride_sweep`** (migration `factura_ride_sweep`, mirror `supabase/factura-ride-sweep.sql`, owner RLS):
-  session_id pk, documento, first_seen_at, claimed_at, sent_at, sri_alert_at. Atomic `claimed_at` NULL→now
-  before sending: a claimed session is NEVER re-sent by the sweep (even if the stamp failed after a send);
-  a failed send releases the claim → retried next sweep. first_seen_at ≈ emission (Contífico has no
-  hora_emision); +48h still unauthorized → one `notifyOwner({kind:'sri'})` "Factura X sigue sin autorización
-  del SRI" (atomic sri_alert_at flip). Worm's row seeded with first_seen_at = her Aprobar (17:56 UTC).
-- **`ridePlan(supabase, onlyId, { floor })`** — new opt-in floor; fetchUnsentRides now also selects
-  patient.facturar_desde. Manual `/facturar mode=send-rides` unchanged (no floor).
-- **`runAprobacion`** — RIDE loop, sleep, ridePlan/sendRides deps removed. Replies at once: "Listo. Emitidas k
-  de N." + "{paciente}: factura {documento} emitida, se envía sola apenas el SRI la autorice." + unchanged
-  omitted/failed/CRÍTICO lines. resultado drops `rides`; `rides_pendientes` = all emitted ids (audit only).
-- Harness (scratchpad, stubbed Contífico/Dualhook/Supabase, real ridePlan/sendRides): 18/18 pass.
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **#55 decide (Nicolás):** lead-facing lines still naming a team/third person — see the #55 TO-DO entry (urgente fallback, "Escríbenos", "Att: Nico" templates).
 - [ ] **#54 real test (Nicolás, phone that isn't his or a patient's):** price prefill → si → para mí → ansiedad → name → link → book → check `leads.agendo_at`.
 - [ ] "Lead atascado en el inicio" push fires on the 3rd message even when the lead IS advancing (pre-existing; seen in the #54 sim) — tune `maybeStuckPush`.
 - [ ] **#53** — 3 patients didn't get "Mariana retoma" (Diana Romero 131049, Luna Guamán + Emily Rivera 131026) → Nicolás

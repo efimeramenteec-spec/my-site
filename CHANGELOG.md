@@ -6,6 +6,27 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 Newest first.
 
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-05 (#52) -->
+### 2026-10-05 — #47 RIDEs go out on their own: 15-min sweep (executor, 9363f78)
+- **Bug:** Aprobar's in-request RIDE retries (RIDE_ATTEMPTS/sleep) left unauthorized RIDEs in
+  `resultado.rides_pendientes` "for the next run", but no run ever sent them (Worm FAC 001-001-000000303).
+- **`netlify/functions/factura-rides-sweep.mjs`** — SCHEDULED `*/15 * * * *` (confirmed in deploy
+  `function_schedules`) → `sweepRides` in **`netlify/lib/rideSweep.mjs`**: `ridePlan(sb, null, { floor: true })`
+  (facturada AND contifico_doc_id AND factura_enviada_at NULL AND fecha >= coalesce(facturar_desde,
+  FACTURAR_SINCE), floor filtered before any Contífico call) → `sendRides` per ready item (same template,
+  recipient rule, stamp). Not HTTP-invocable; Netlify UI → Run now.
+- **Table `factura_ride_sweep`** (migration `factura_ride_sweep`, mirror `supabase/factura-ride-sweep.sql`, owner RLS):
+  session_id pk, documento, first_seen_at, claimed_at, sent_at, sri_alert_at. Atomic `claimed_at` NULL→now
+  before sending: a claimed session is NEVER re-sent by the sweep (even if the stamp failed after a send);
+  a failed send releases the claim → retried next sweep. first_seen_at ≈ emission (Contífico has no
+  hora_emision); +48h still unauthorized → one `notifyOwner({kind:'sri'})` "Factura X sigue sin autorización
+  del SRI" (atomic sri_alert_at flip). Worm's row seeded with first_seen_at = her Aprobar (17:56 UTC).
+- **`ridePlan(supabase, onlyId, { floor })`** — new opt-in floor; fetchUnsentRides now also selects
+  patient.facturar_desde. Manual `/facturar mode=send-rides` unchanged (no floor).
+- **`runAprobacion`** — RIDE loop, sleep, ridePlan/sendRides deps removed. Replies at once: "Listo. Emitidas k
+  de N." + "{paciente}: factura {documento} emitida, se envía sola apenas el SRI la autorice." + unchanged
+  omitted/failed/CRÍTICO lines. resultado drops `rides`; `rides_pendientes` = all emitted ids (audit only).
+- Harness (scratchpad, stubbed Contífico/Dualhook/Supabase, real ridePlan/sendRides): 18/18 pass.
+
 ### 2026-10-05 — #45 Owner outbox + ping_nico: facturación arrives by itself (executor, ba7578d)
 - **Rule:** any workflow that must reach Nicolás calls `notifyOwner({kind, resumen, messages})`
   (`netlify/lib/ownerOutbox.mjs`) — never a new template. Table `owner_outbox` (migration `owner_outbox`,
