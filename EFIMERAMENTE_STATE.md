@@ -49,7 +49,8 @@
 
 **Rollback:** set Netlify env `LEAD_BOT_LIVE=false` + redeploy (empty commit) → bot goes silent, measurement continues.
 
-WhatsApp button-bot that turns ad leads into booked free calls. All 4 phases built + deployed.
+WhatsApp bot that turns ad leads into booked free calls. **Since 2026-10-06 (#54, 41682e6): NO buttons/lists,
+plain text + Claude multi-intent classifier + booking LINK instead of slots** — see Completed Features.
 Spec: `~/Desktop/MD FILES - MISCELANEOUS/PERMANENT TO-DO.md` → "#4 + #20 Lead funnel — decided 26 Sep".
 
 **Files:** `netlify/lib/leadBot.mjs` (brain: classify sender, create/advance lead, button state machine,
@@ -101,6 +102,37 @@ spec #24 — DONE 2026-09-27 (Claude/Sonnet + fact sheet + derive; see top of Co
 answer flow is now only the fallback.** WhatsApp reply buttons are still single-use (grey out after one tap).
 
 ## Completed Features
+
+### 2026-10-06 — #54 Lead bot sin botones + link directo (executor, 41682e6)
+**Diagnosis first (step 0):** the 5 Oct "Sí" lead (14cb7a92, step `quien`) did NOT hit a silent path — the
+"Sí" was a TAP on `inv_si` (raw_payload interactive.button_reply), the bot answered with the quien buttons
+(wamid delivered 12:46:02, never read), and taps were never logged to `lead_ai_decisions` by design. The real
+bug found instead: **burst coalescing** in `lead-reply-background` folded tap titles ("Mi hijo/a") into the
+next typed text (lead b64e16df: "Mi hijo/a\n24" → classified `agendar` → reset to quien). Gone with coalescing.
+- **leadBot.mjs Phase B rewritten:** no `sendButtons`/`sendList`/`sendImageCard`; every step plain text (same
+  copy: QUIEN_Q, EDAD_Q, REASON_Q, INVITATION). Cards = `sendImage` (photo + `*Nombre Apellido*` + caption sans
+  Enfoque + gendered line). `leads.cards_ofrecidas uuid[]` stores the shown ids (classifier context).
+- **leadBrain.decideFreeText** → `{accion, intents:[{intent,valor}] (≤3, ordered), motivo, categoria, texto}`.
+  New intents afirmativo/negativo/quien_yo/pareja/hijo/edad/elige_terapeuta/motivo/gracias; **no `libre`**
+  (responder with no intents outside a prompt step → derive `sin_intent`). Context = step + `pendingQuestion()`
+  + offered names. Fact sheet no longer sent to the model (it only classifies).
+- **runIntents:** CANNED bubbles in order → at most ONE flow step (FLOW_ORDER) → tail once (`finishAnswers`:
+  handoff > Carolina cards > invitation if not in flow, else the pending question). Invitation + "Hola, hablas
+  con Nico" use `claimOnce()` (atomic false→true UPDATE) so concurrent turns never double them.
+- **Zero silence:** `runBot` counts sends (`lead.__sent`) / derivations (`__derived`); a turn ending with neither
+  (or crashing) → log `sin_respuesta` (model 'guardia') + handoff. `handoff()` now ALWAYS sends a line (day:
+  "…te escribirá personalmente en un momento"; night: "a primera hora").
+- **Link instead of slots:** `chooseTherapist` → `sendBookingLink` (`LINK_COPY` + `/agendar?terapeuta=`), via
+  `waSend.sendLinkText` (the ONLY lead text exempt from cleanBotText). step `link_enviado`. `nextSlots` no
+  longer used by the bot. Booking from the link links back via `trg_lead_link_from_session` (last-9) → agendo_at.
+- Typed template replies (`typedTemplateReply`, gated on the template having been sent); Cambiar hora / Sí
+  reagendar → link. Legacy taps (inv_si, quien:, pick:, horarios:, slot:) still handled for old chats.
+- `lead-reply-background`: REPLY_DELAY_MS 0, no coalescing. Camila out of `terapia_pareja`
+  (funnel_categorias + mapaCasos ✗). funnel_knowledge `agenda` reworded. Migration `lead-funnel-10-sin-botones.sql`.
+- **Verify:** `node scripts/harness-lead-bot.mjs` (local, keyword fallback) and
+  `GET /.netlify/functions/lead-bot-dryrun?token=<LEAD_TOOLS_TOKEN>&only=1,2` (prod, REAL Claude; run in small
+  `only=` batches — the full set exceeds the HTTP inactivity timeout). Sim = `netlify/lib/leadBotSim.mjs`
+  (in-memory Supabase seeded read-only + recording transport). 12/12 scenarios, 0 silences, both modes.
 
 ### 2026-10-06 — #48 Carolina Sep payroll corrected: 34 / $828 (executor, data-only)
 - Paula Hidalgo 30/09 10:30 (session 27ae5bff) is now Cancelada → Carolina 35/$852 → **34/$828** (32×$24 + 2×$30 pareja).
@@ -264,6 +296,8 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **#54 real test (Nicolás, phone that isn't his or a patient's):** price prefill → si → para mí → ansiedad → name → link → book → check `leads.agendo_at`.
+- [ ] "Lead atascado en el inicio" push fires on the 3rd message even when the lead IS advancing (pre-existing; seen in the #54 sim) — tune `maybeStuckPush`.
 - [ ] **#53** — 3 patients didn't get "Mariana retoma" (Diana Romero 131049, Luna Guamán + Emily Rivera 131026) → Nicolás
       sends by hand / fixes their phones. Broadcast 4e56df3a closes itself ~21:46 UTC 5 Oct (estado enviado + one owner notice).
 - [ ] **`sesion_pendiente` approved as MARKETING** (#52 code wants UTILITY) — Nicolás decides: accept (change category in
