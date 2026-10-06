@@ -278,18 +278,6 @@ next typed text (lead b64e16df: "Mi hijo/a\n24" → classified `agendar` → res
   confirmada+unpaid never applies itself (the backfill and proofReconcile only settle what they explicitly match).
 - **Full scan (confirmada + unpaid + non-llamada + enough credit):** only Andrea 1 Oct and Luis 2 Oct. Untouched.
 
-### 2026-10-05 — #48c Llamadas removed from the payroll protocol (executor)
-- Nicolás: the "llamadas en Pendiente" step was meaningless — llamadas have no Pendiente; their only state is
-  Convirtió/No convirtió (`convirtio` + `src/lib/conversion.js`). The director's query read the legacy raw
-  `sessions.estado='programada'`. Nicolás deleted the messages that went out; nothing was sent or updated.
-- Removed `llamadasPendientesMessage` from `netlify/lib/payrollCopy.mjs`; payroll = confirmed non-llamada ONLY.
-  payroll_runs rows + their stored wamids left as history.
-- Stale-code audit: only leak = Sesiones estado filter "Pendiente" matched llamadas with legacy 'programada'
-  → `src/pages/Sesiones.jsx` filter now skips llamadas for Pendiente. Lista already shows Convirtió/No convirtió
-  (ConversionSeg), ReminderLegend/send-reminders/payment reminders/sessionReport/Finanzas/Seguimiento exclude
-  llamadas. `ESTADO_COLOR` in views.jsx is dead code (unused). No DB bulk update (triggers).
-- CLAUDE.md Enums: llamadas' estado is legacy and ignored; never report/query/ask about llamadas as Pendiente.
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04

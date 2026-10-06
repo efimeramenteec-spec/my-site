@@ -6,6 +6,18 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 Newest first.
 
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-06 (#56) -->
+### 2026-10-05 — #48c Llamadas removed from the payroll protocol (executor)
+- Nicolás: the "llamadas en Pendiente" step was meaningless — llamadas have no Pendiente; their only state is
+  Convirtió/No convirtió (`convirtio` + `src/lib/conversion.js`). The director's query read the legacy raw
+  `sessions.estado='programada'`. Nicolás deleted the messages that went out; nothing was sent or updated.
+- Removed `llamadasPendientesMessage` from `netlify/lib/payrollCopy.mjs`; payroll = confirmed non-llamada ONLY.
+  payroll_runs rows + their stored wamids left as history.
+- Stale-code audit: only leak = Sesiones estado filter "Pendiente" matched llamadas with legacy 'programada'
+  → `src/pages/Sesiones.jsx` filter now skips llamadas for Pendiente. Lista already shows Convirtió/No convirtió
+  (ConversionSeg), ReminderLegend/send-reminders/payment reminders/sessionReport/Finanzas/Seguimiento exclude
+  llamadas. `ESTADO_COLOR` in views.jsx is dead code (unused). No DB bulk update (triggers).
+- CLAUDE.md Enums: llamadas' estado is legacy and ignored; never report/query/ask about llamadas as Pendiente.
+
 ### 2026-10-05 — #48/#48b September therapist payroll: first run (executor, 003b71f, 27286f6)
 - **Trial rate:** `therapists.prueba_hasta date` (migration `therapists_prueba_hasta_and_payroll_runs`, mirror
   `supabase/therapists-prueba-hasta.sql`); Sophia = 2026-10-31. `src/lib/provision.js` PROVISION_PRUEBA = 20:
