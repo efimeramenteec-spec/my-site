@@ -112,6 +112,19 @@ export function sendImageCard(to, { imageLink, body, button, headerText }) {
   return sendCloud({ to: digits(to), type: 'interactive', interactive })
 }
 
+// Image message with a caption (#54 — therapist cards without a button). Falls
+// back to plain text when the card image isn't hosted yet.
+export function sendImage(to, { imageLink, caption }) {
+  if (!imageLink) return sendText(to, caption)
+  return sendCloud({ to: digits(to), type: 'image', image: { link: imageLink, caption: cut(caption, 1024) } })
+}
+
+// The booking-link message (#54) — Nicolás's approved copy carries ❤️‍🩹, so it is
+// the ONE lead-bot text exempt from cleanBotText. Use it for nothing else.
+export function sendLinkText(to, body) {
+  return sendCloud({ to: digits(to), type: 'text', text: { body: String(body ?? '').slice(0, 4096), preview_url: true } })
+}
+
 // STAFF reply buttons (#52) — same shape as sendButtons but WITHOUT cleanBotText:
 // therapist-facing copy approved by Nicolás keeps its emoji signature. Length
 // limits still apply. Never use this for lead/patient messages. Returns the wamid.

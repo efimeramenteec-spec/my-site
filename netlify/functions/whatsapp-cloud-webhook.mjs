@@ -322,10 +322,10 @@ export default async (req) => {
                   // Button taps → immediate reply, inline (no delay).
                   await runBot(supabase, { lead, isNew: rec.isNew, msg })
                 } else if (!lead.bot_paused && botAllowedForPhone(lead.phone)) {
-                  // Free text / media → reply after ~20s with a typing indicator
-                  // (#27); rapid bursts are coalesced into one reply in the bg fn
-                  // (#30). Show "escribiendo…" now (text only), then let the
-                  // background function wait + reply, so we can 200 Meta fast.
+                  // Free text / media → background reply, no artificial delay (#54);
+                  // each message answered on its own. Show "escribiendo…" now
+                  // (text only); the background function classifies + replies,
+                  // so we can 200 Meta fast.
                   if (msg.type === 'text' && msg.id) {
                     try { await sendReadReceipt(msg.id, { typing: true }) }
                     catch (e) { console.warn('[wa-cloud] typing indicator failed (non-blocking):', e.message) }

@@ -13,7 +13,7 @@
     "Camila": {
       "motivos": {
         "hijo": "○", "ruptura": "★", "problemas_pareja": "★", "depresion_ansiedad": "★",
-        "consumo": "✗", "terapia_pareja": "○", "trauma": "○"
+        "consumo": "✗", "terapia_pareja": "✗", "trauma": "○"
       },
       "poblaciones": {
         "ninos_hasta_11": "✗", "adolescentes_12_17": "○", "jovenes_adultos_18_25": "★",

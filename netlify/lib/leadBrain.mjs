@@ -53,12 +53,13 @@ const CATEGORIA_CLAVES = [
 const STEP_ES = {
   quien: 'le preguntamos para quién busca terapia (para sí, en pareja o para su hijo/a)',
   edad: 'le preguntamos la edad de su hijo/a',
-  reasons: 'está viendo la lista de motivos de consulta',
-  cards: 'está viendo las tarjetas de terapeutas recomendados',
-  explicacion: 'acaba de elegir un terapeuta y vio la explicación de la llamada',
-  slots: 'está viendo los horarios disponibles para su llamada',
+  cards: 'está viendo las tarjetas de los terapeutas recomendados para elegir uno',
+  reasons: 'le preguntamos qué le trae a terapia',
+  diagnostico_prompt: 'le pedimos que cuente su diagnóstico',
+  varios_prompt: 'le pedimos que cuente qué le trajo a terapia',
+  link_enviado: 'ya eligió terapeuta y recibió el link para agendar la llamada gratuita',
   answered: 'acaba de recibir una respuesta a una pregunta',
-  pregunta_abierta: 'pidió hacer otra pregunta',
+  pregunta_abierta: 'dijo que tiene otra pregunta',
   agendado: 'ya agendó su llamada gratuita',
 }
 
@@ -87,121 +88,144 @@ export async function buildFactSheet(supabase) {
   return `${facts}${team}`
 }
 
-// The known intents whose answer is FIXED, verbatim copy sent by the code
-// (leadBot CANNED). For these the model only CLASSIFIES — it must NOT write the
-// answer. "libre" = a legit question covered by the fact sheet but not one of the
-// fixed cases (the model writes the answer). Keep in sync with leadBot's CANNED.
-const INTENTS = [
+// #54 — Claude ONLY CLASSIFIES. It returns an ordered list of `intents` (the
+// lead's order, no duplicates, max 3); the code answers each with Nicolás's
+// verbatim CANNED copy or runs the step the old button tap ran. There is no
+// "libre" any more: a question no CANNED answer covers is DERIVED to Nicolás —
+// the model never composes text for a lead (except the urgent containment line).
+// Keep the CANNED keys in sync with leadBot's CANNED.
+export const CANNED_INTENTS = [
   'precio', 'ubicacion', 'saludsa', 'seguros', 'adolescentes', 'duracion',
   'horarios', 'psiquiatra', 'pareja', 'pago', 'objecion_precio',
-  'agendar', 'terapeuta_nombrado', 'saludo', 'libre',
 ]
+const FLOW_INTENTS = [
+  'afirmativo', 'negativo', 'quien_yo', 'quien_pareja', 'quien_hijo', 'edad',
+  'elige_terapeuta', 'motivo', 'agendar', 'saludo', 'gracias',
+]
+const INTENTS = [...CANNED_INTENTS, ...FLOW_INTENTS]
 
-const SYSTEM_RULES = `Eres el asistente de WhatsApp de Efimeramente, un consultorio de psicología en Cumbayá (Ecuador). Escribes a un posible paciente que llegó por un anuncio. Con cada mensaje de TEXTO LIBRE tu trabajo es CLASIFICARLO en un "intent" y decidir si el sistema debe "responder" o "derivar" (pasar a una persona del equipo).
+const SYSTEM_RULES = `Eres el clasificador del WhatsApp de Efimeramente, un consultorio de psicología en Cumbayá (Ecuador). Un posible paciente que llegó por un anuncio escribe TEXTO LIBRE. Tu ÚNICO trabajo es CLASIFICAR el mensaje: devolver la lista de "intents" que contiene (en el orden en que los escribió, sin repetir, máximo 3) y decidir si el sistema "responde" o "deriva" a una persona. NUNCA escribes la respuesta: el sistema envía textos ya redactados o ejecuta el paso del flujo.
 
-IMPORTANTE: para los intents con respuesta fija (precio, ubicacion, saludsa, seguros, adolescentes, duracion, horarios, psiquiatra, pareja, pago, objecion_precio, agendar, terapeuta_nombrado, saludo) el SISTEMA envía un texto ya redactado o ejecuta un flujo — NO escribas tú la respuesta, solo pon el intent correcto y deja "texto" vacío. SOLO cuando el intent sea "libre" escribe la respuesta en "texto", usando ÚNICAMENTE la HOJA DE DATOS.
+CONTEXTO: recibes el paso actual de la conversación, la ÚLTIMA PREGUNTA que le hizo el sistema y los terapeutas que se le mostraron. Úsalos para entender respuestas cortas: "si", "dale", "claro" responden a la última pregunta; "para mi hijo de 15" responde a "para quién"; "me gustaría con francisco por favor" elige a ese terapeuta.
 
-INTENTS:
+INTENTS CON RESPUESTA FIJA (una pregunta del cliente):
 - precio: costo / valor / cuánto cuesta la sesión.
 - ubicacion: dónde están / dirección / si es presencial u online.
 - saludsa: pregunta específicamente si Saludsa (o Ecuasanitas) cubre o reembolsa.
 - seguros: pregunta general por seguros/reembolso (otra aseguradora, o "aceptan seguros?").
-- adolescentes: si atienden adolescentes o jóvenes.
+- adolescentes: pregunta si atienden adolescentes o jóvenes.
 - duracion: cuánto dura la sesión o cada cuánto es la frecuencia.
 - horarios: qué días u horas atienden.
 - psiquiatra: si tienen psiquiatra o dan medicación.
-- pareja: terapia o sesiones de pareja.
+- pareja: busca terapia o sesiones de pareja (los dos juntos), o pregunta por ella.
 - pago: cómo o cuándo se paga / formas de pago.
 - objecion_precio: dice que es caro, que no le alcanza, que tiene poco presupuesto.
-- agendar: quiere agendar / reservar una cita o sesión, empezar terapia, SIN nombrar a ningún terapeuta (ej. "quiero agendar una cita", "me gustaría empezar mi primera cita"). El sistema le pregunta para quién es la terapia.
-- terapeuta_nombrado: menciona a un terapeuta por su nombre o apellido (con o sin "Dra./Dr."), por ejemplo "quiero una cita con Carolina Almeida" o "quiero con Mariana". Pon el nombre que mencionó en el campo "terapeuta". El sistema lo resuelve.
-- saludo: SOLO un saludo puro, sin ninguna pregunta ni intención (ej. "hola", "buenas", "buen día"). Si el mensaje pide agendar, nombra a un terapeuta o hace una pregunta, NO es saludo.
-- libre: pregunta legítima que SÍ está en la hoja de datos pero no encaja arriba (escribe la respuesta en "texto").
 
-REGLAS DE DERIVACIÓN (accion "derivar"):
-1. Si piden algo que la HOJA DE DATOS no cubre (incluye visitas a domicilio) → deriva, motivo "domicilio" o "fuera_de_alcance". Nunca inventes datos.
+INTENTS DEL FLUJO (responde a lo que el sistema preguntó o avanza):
+- afirmativo: acepta claramente la ÚLTIMA PREGUNTA ("si", "sí", "dale", "claro", "ok, sí", "por favor", "me gustaría verlos").
+- negativo: rechaza la última pregunta ("no", "no gracias", "todavía no").
+- quien_yo / quien_pareja / quien_hijo: para quién es la terapia (para sí mismo/a · en pareja · para su hijo/a).
+- edad: la edad del hijo/a. Pon el número en "valor" (ej. "15").
+- elige_terapeuta: elige o pide a un terapeuta por su nombre o apellido (con o sin "Dra./Dr."). Pon el nombre en "valor".
+- motivo: describe su motivo de consulta (ansiedad, depresión, duelo, ruptura, consumo, un diagnóstico...).
+- agendar: quiere agendar / empezar terapia SIN nombrar a ningún terapeuta.
+- saludo: solo saluda.
+- gracias: agradece o solo acusa recibo ("ok", "jaja", "perfecto", "gracias", "ya", un emoji) SIN aceptar ni pedir nada. "jaja ok" es gracias, NO afirmativo.
+
+REGLAS DE DERIVACIÓN (accion "derivar", intents vacío salvo lo que sí entendiste):
+1. Pregunta algo que NINGÚN intent de respuesta fija cubre (incluye visitas a domicilio, otros servicios, temas que no estén arriba) → deriva, motivo "fuera_de_alcance" (o "domicilio"). Nunca inventes.
 2. SOLO crisis real → motivo "urgente": ideas, intención o plan de autolesión o suicidio; violencia ocurriendo; o una pregunta clínica directa (diagnóstico, si necesita medicación, qué tratamiento). En "texto" una línea cálida breve de contención, y SOLO si hay riesgo de vida explícito añade: "Si estás en peligro inmediato, llama al 911 (ECU 911)." El malestar común NO es urgente.
-3. Historias personales o emocionales (tristeza, soledad, duelo, una ruptura contada con sentimiento), busca contención o conexión, quejas, temas de pacientes actuales, "cuál me recomiendas?", o si preguntan si hablan con un bot o una persona → deriva, "texto" vacío, motivo "emocional"/"queja"/"recomendacion"/"paciente_existente"/"bot". No es urgente, no mandes 911.
+3. Historias personales largas o muy emocionales, quejas, temas de pacientes actuales, "cuál me recomiendas?", o si preguntan si hablan con un bot o una persona → deriva, "texto" vacío, motivo "emocional"/"queja"/"recomendacion"/"paciente_existente"/"bot". No es urgente.
+Si el mensaje trae una pregunta fija Y algo que no cubres, deriva (una persona responde todo).
 
-ESTILO (aplica SOLO al texto del intent "libre"; los intents fijos ya vienen redactados):
-- Español, tú, corto, como una persona en WhatsApp. Hablas como "Nico", del equipo de Efimeramente.
-- NUNCA uses emojis. NUNCA abras con "¿" ni "¡" (solo el signo de cierre: "?" "!").
-- Responde SOLO lo que preguntaron (no menciones parqueadero si no lo preguntaron). Nunca cierres con "quieres agendar?": el sistema añade la invitación.
-- Máximo 4 líneas.
+"texto" va SIEMPRE vacío, salvo la línea de contención de una derivación "urgente" (español, tú, sin emojis, sin "¿" ni "¡" de apertura).
 
 CATEGORIA: si del mensaje se entiende el motivo de consulta, ponla (hijo, ruptura, problemas_pareja, depresion_ansiedad, consumo, terapia_pareja, diagnostico, trauma, varios, otro); si no, "".
 
-EJEMPLOS (así responde el sistema — TEXTO LITERAL; una barra "/" separa mensajes de WhatsApp distintos):
-- "cuánto cuesta" → intent precio → "Hola! La sesión cuesta $39, también tenemos paquetes de 4 sesiones por $35 c/u" / "Aceptamos tarjeta" / "Muchos seguros privados reembolsan la terapia — Nosotros te ayudamos con el trámite" / "*Te gustaría ver a nuestros terapeutas disponibles?*"
-- "dónde están" → intent ubicacion → https://maps.app.goo.gl/GZAFUpC1SAyW8GBT8 / "Estamos en Cumbayá, a 3 minutos del Scala" / "También atendemos online."
-- "me cubre saludsa" → intent saludsa → "Sí, Saludsa te cubre por reembolso. Avísanos cuando hayas terminado tu primera sesión y te ayudamos con el trámite"
-- "atienden adolescentes?" → intent adolescentes, categoria hijo → "Sí, tenemos varios psicólogos expertos en terapia juvenil. Deseas ver sus perfiles?"
-- "cuánto dura, cada cuánto es" → intent duracion → "Las sesiones individuales duran una hora. La frecuencia puede ser cada 7 o cada 15 días, según tu preferencia y la recomendación del psicólogo después de tu primera sesión"
-- "qué horarios tienen" → intent horarios → "Sí, trabajamos de Lunes a Sábado, de 8am a 8pm. Siempre en coordinación con tu terapeuta y con previa cita."
-- "tienen psiquiatra?" → intent psiquiatra → "No tenemos un psiquiatra propio del centro, pero trabajamos en conjunto con el Dr. Camino cuando el caso lo requiere. Se hace una valoración psicológica primero, y luego derivamos al Dr. Camino, si se recomienda medicación."
-- "terapia de pareja" → intent pareja, categoria terapia_pareja → "Sí, tenemos una psicóloga especialista, Carolina Almeida. Las sesiones de pareja duran una hora y media, y tienen un valor de $50. También puedes acceder a un paquete de 4 sesiones por $42 cada una" (+ tarjeta de Carolina)
-- "cómo se paga" → intent pago → "Recibirás un recordatorio de pago 2 días *después de la sesión*, con los datos de pago. Aceptamos transferencias y pagos con tarjeta."
-- "me parece caro" → intent objecion_precio → "Te entiendo totalmente. Me podrías decir qué presupuesto tenías en mente?"
-- "es para mi hijo de 15" → intent adolescentes (o saludo si no hay pregunta), categoria hijo.
-- "mi hija necesita medicación?" → derivar, motivo "urgente".
-- "quiero agendar una cita" / "me gustaría empezar mi primera cita" → intent agendar (sin terapeuta nombrado).
-- "quiero una cita con Carolina Almeida" → intent terapeuta_nombrado, terapeuta "Carolina Almeida".
-- "quiero con Mariana" → intent terapeuta_nombrado, terapeuta "Mariana".
-- "buen día" (solo el saludo) → intent saludo.
+EJEMPLOS:
+- "cuánto cuesta" → responder, [precio]
+- "Cuál es el precio? Donde están ubicados" → responder, [precio, ubicacion]
+- "cuánto dura la sesión" → responder, [duracion]
+- "atienden adolescentes?" → responder, [adolescentes], categoria hijo
+- "Busco terapia de pareja" → responder, [pareja], categoria terapia_pareja
+- "me parece caro" → responder, [objecion_precio]
+- (última pregunta "Te gustaría ver a nuestros terapeutas disponibles?") "si" → responder, [afirmativo]
+- (última pregunta "para quién buscas empezar terapia?") "para mi hijo, tiene 15" → responder, [quien_hijo, edad "15"], categoria hijo
+- (última pregunta "para quién...") "para mí" → responder, [quien_yo]
+- (paso: viendo terapeutas) "me gustaría con francisco por favor" → responder, [elige_terapeuta "Francisco"]
+- "quiero una cita con Carolina Almeida" → responder, [elige_terapeuta "Carolina Almeida"]
+- (última pregunta "Qué te trae a terapia?") "ansiedad" → responder, [motivo], categoria depresion_ansiedad
+- "quiero agendar una cita" → responder, [agendar]
+- "jaja ok" → responder, [gracias]
+- "buen día" → responder, [saludo]
+- "hacen visitas a domicilio?" → derivar, motivo domicilio
+- "mi hija necesita medicación?" → derivar, motivo urgente
 
-FORMATO DE SALIDA: llama a la herramienta "responder" con accion, intent, texto (vacío salvo intent "libre" o derivación "urgente"), motivo, categoria y terapeuta (solo si intent "terapeuta_nombrado").`
+FORMATO DE SALIDA: llama a la herramienta "clasificar".`
 
 const TOOL = {
-  name: 'responder',
-  description: 'Clasifica el mensaje del posible paciente y decide cómo responder.',
+  name: 'clasificar',
+  description: 'Clasifica el mensaje del posible paciente en intents y decide responder o derivar.',
   input_schema: {
     type: 'object',
     properties: {
       accion: { type: 'string', enum: ['responder', 'derivar'] },
-      intent: { type: 'string', enum: INTENTS },
-      texto: { type: 'string' },
+      intents: {
+        type: 'array',
+        maxItems: 3,
+        description: 'Intents en el orden del mensaje, sin repetir.',
+        items: {
+          type: 'object',
+          properties: {
+            intent: { type: 'string', enum: INTENTS },
+            valor: { type: 'string', description: 'edad → el número; elige_terapeuta → el nombre mencionado.' },
+          },
+          required: ['intent'],
+        },
+      },
+      texto: { type: 'string', description: 'Vacío salvo la línea de contención de una derivación urgente.' },
       motivo: { type: 'string' },
       categoria: { type: 'string', enum: CATEGORIA_CLAVES },
-      terapeuta: { type: 'string', description: 'Nombre o apellido del terapeuta mencionado (solo para intent "terapeuta_nombrado").' },
     },
-    required: ['accion', 'intent', 'texto', 'motivo'],
+    required: ['accion', 'intents', 'motivo'],
   },
 }
 
-// Ask Claude to classify+answer one free-text message. Returns
-// { accion, texto, motivo, categoria, model, latencyMs } or null (API missing/
-// error/timeout → caller uses the keyword fallback). `history` = recent inbound
-// lines (oldest first); `slots` = the chosen therapist's next free slots.
-export async function decideFreeText({ factSheet, history, step, slots, text }) {
+// Ask Claude to classify one free-text message. Returns
+// { accion, intents:[{intent, valor}], texto, motivo, categoria, model, latencyMs }
+// or null (API missing/error/timeout → the caller's keyword fallback).
+// `pregunta` = the bot's last question; `ofrecidos` = therapist names on offer.
+export async function decideFreeText({ history, step, pregunta, ofrecidos, text }) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return null
 
-  const stepLine = STEP_ES[step] || 'está conversando con el bot'
+  const stepLine = STEP_ES[step] || 'acaba de escribir por primera vez o está conversando'
   const histBlock = (history && history.length)
-    ? `\n\nMensajes recientes del cliente (más antiguo primero):\n${history.map((h) => `- "${h}"`).join('\n')}`
+    ? `\nMensajes anteriores del cliente (más antiguo primero):\n${history.map((h) => `- "${h}"`).join('\n')}`
     : ''
-  const slotBlock = (slots && slots.length)
-    ? `\n\nHorarios libres del terapeuta elegido (reales): ${slots.join(' · ')}`
-    : ''
-  const user = `HOJA DE DATOS (única fuente de hechos permitida):
-${factSheet}
-
-CONTEXTO: el cliente ${stepLine}.${histBlock}${slotBlock}
+  const user = `PASO ACTUAL: el cliente ${stepLine}.
+ÚLTIMA PREGUNTA DEL SISTEMA: ${pregunta ? `"${pregunta}"` : '(ninguna)'}
+TERAPEUTAS MOSTRADOS: ${ofrecidos && ofrecidos.length ? ofrecidos.join(', ') : '(ninguno)'}${histBlock}
 
 MENSAJE ACTUAL DEL CLIENTE:
 "${String(text).slice(0, 1000)}"
 
-Decide y llama a la herramienta "responder".`
+Clasifica y llama a la herramienta "clasificar".`
 
   const out = await callTool({ apiKey, system: SYSTEM_RULES, user, tool: TOOL })
   if (!out || (out.accion !== 'responder' && out.accion !== 'derivar')) return null
+  const seen = new Set()
+  const intents = (Array.isArray(out.intents) ? out.intents : [])
+    .map((i) => (typeof i === 'string' ? { intent: i } : i))
+    .filter((i) => i && INTENTS.includes(i.intent) && !seen.has(i.intent) && seen.add(i.intent))
+    .slice(0, 3)
+    .map((i) => ({ intent: i.intent, valor: typeof i.valor === 'string' ? i.valor.trim().slice(0, 80) : '' }))
   return {
     accion: out.accion,
-    intent: INTENTS.includes(out.intent) ? out.intent : 'libre',
+    intents,
     texto: typeof out.texto === 'string' ? out.texto.trim() : '',
     motivo: (out.motivo || '').toString().slice(0, 60),
     categoria: CATEGORIA_CLAVES.includes(out.categoria) ? (out.categoria || '') : '',
-    terapeuta: typeof out.terapeuta === 'string' ? out.terapeuta.trim().slice(0, 80) : '',
     model: MODEL,
     latencyMs: out.latencyMs,
   }
@@ -300,7 +324,7 @@ function excludedByMapa(nombre, sig) {
 }
 
 // Given the lead's free-text motive + the bookable roster, pick cards or derive.
-// roster: [{ nombre, caption }] (recibe_nuevos therapists). mode: 'diagnostico'|'varios'.
+// roster: [{ nombre, caption }] (recibe_nuevos therapists). mode: 'diagnostico'|'varios'|'motivo'.
 // Returns { accion:'cards'|'derivar', nombres:[], motivo, model, latencyMs } or null.
 export async function matchTherapistsForText({ roster, text, mode }) {
   const apiKey = process.env.ANTHROPIC_API_KEY
@@ -316,7 +340,9 @@ export async function matchTherapistsForText({ roster, text, mode }) {
   const mapaBlock = mapaBlockFor(allowed.map((t) => t.nombre))
   const modeLine = mode === 'diagnostico'
     ? 'El cliente eligió "Tengo un diagnóstico" y describe su diagnóstico o sospecha.'
-    : 'El cliente eligió "Varios motivos" y describe varias situaciones a la vez.'
+    : mode === 'motivo'
+      ? 'Le preguntamos "Qué te trae a terapia?" y el cliente describe su motivo de consulta.'
+      : 'El cliente eligió "Varios motivos" y describe varias situaciones a la vez.'
   const hijoLine = sig.paraHijo
     ? '\nOJO: el cliente habla de su hijo/a. Si no dice la edad, considera que podría ser menor de edad y prioriza a quien sí atiende niños y adolescentes.'
     : ''
