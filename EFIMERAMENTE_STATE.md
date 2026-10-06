@@ -102,6 +102,17 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-06 — #48 Carolina Sep payroll corrected: 34 / $828 (executor, data-only)
+- Paula Hidalgo 30/09 10:30 (session 27ae5bff) is now Cancelada → Carolina 35/$852 → **34/$828** (32×$24 + 2×$30 pareja).
+- Regenerated with the same `sessionReport.js` path as #48 (node, `save:false`, filters estado=confirmada,
+  2026-09-01→30, logo from public/logos). Text-diff vs original: only Paula removed + Isabella 29/09 & Sara 30/09
+  now Pagado=Sí. **NOT sent to Carolina** — Nicolás sends it himself.
+- Storage bucket `payroll`: `2026-09/carolina-v2.pdf` (original `carolina.pdf` kept). Local copy:
+  `~/Documents/Efimeramente/payroll/2026-09/carolina-v2.pdf` (+ original). Service key for node runs = local `.env`
+  `SUPABASE_SERVICE_KEY` (Netlify copy is secret/masked).
+- `payroll_runs` d5b8d28d: sesiones=34, monto=828, `detalle.correccion` {fecha, motivo, antes{35,852}, pdf_path};
+  estado stays enviado_ok; other therapists untouched.
+
 ### 2026-10-05 — #53 Mariana from 11:00 + reusable broadcasts + "Mariana retoma" broadcast (executor, 91c92e9, f09ff77, f43da55)
 - **R1 now 11:00–20:00** (start-only). `src/lib/therapistRules.js` startWindow `['11:00','20:00']`; migration
   `therapist_rules_r1_11am` (mirror `supabase/therapist-rules-r1-11am.sql`): `enforce_therapist_rules` <11:00 →
@@ -267,6 +278,7 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ### 🟠 Payroll Sep (#48) — follow-ups
 - [ ] **María Gracia delivery** — her 3 payroll messages were "sent" not "delivered" at 19:05 UTC 5 Oct; re-check
       `whatsapp_delivery_status` for her wamids (payroll_runs.detalle.wamids). Failed → resend via payroll-send.
+- [ ] **Carolina v2 PDF ($828)** — Nicolás sends it himself (Paula 30/09 cancelled); her invoice should be $828.
 - [ ] **Invoices to Mariana** — when each therapist sends theirs, set payroll_runs.estado='factura_recibida'.
 - [ ] **Monthly protocol** — turn #48 into a repeatable /nomina flow (payrollCopy.mjs + payroll-send + payroll_runs).
       Payroll = confirmed non-llamada sessions ONLY; llamadas never appear in the payroll conversation.
