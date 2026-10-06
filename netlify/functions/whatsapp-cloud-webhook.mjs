@@ -32,6 +32,7 @@ import { sendReadReceipt } from '../lib/waSend.mjs'
 import { isOwnerPhone, isFacturasCommand, facturaTap, handleFacturasCommand, handleDescartar } from '../lib/facturarAprobacion.mjs'
 import { flushOwnerOutbox, supersedeOwnerOutbox } from '../lib/ownerOutbox.mjs'
 import { handleEstadoTap } from '../lib/sesionesPendientes.mjs'
+import { routeOwnerMessage } from '../lib/botTestMode.mjs'
 
 // Fire the delayed-reply background function (~20s + typing, burst-coalesced) for
 // a lead's free text. Returns fast (Netlify 202s a background invocation). The
@@ -265,6 +266,18 @@ export default async (req) => {
         }
         if (await handleOwnerFacturar(supabase, msg)) continue
 
+        // ── Bot test mode (#56) — "modo prueba" / "reiniciar" / "fin prueba".
+        // While active (2h, renewed per message) the owner's other messages go
+        // to the lead flow as an es_prueba lead; expired → the owner path above.
+        let testLead = false
+        if (fromOwner) {
+          try {
+            const route = await routeOwnerMessage(supabase, msg)
+            if (route === 'command') continue
+            testLead = route === 'lead'
+          } catch (e) { console.error('[wa-cloud] test mode failed:', e.message) }
+        }
+
         // ── Therapist tapped Ocurrió / No ocurrió on a Pendiente reminder (#52) ──
         // est_ok:/est_no:<session_id>. Consumed here — never reaches the patient
         // estado flip or the lead bot. Only the session's own therapist counts.
@@ -310,18 +323,18 @@ export default async (req) => {
         // OCRs every inbound image+document and alerts Nicolás for unknown senders.
         // Routing a receipt to the bot made it greet with "¿motivo de consulta?".
         const isReceiptMedia = msg.type === 'image' || msg.type === 'document'
-        // The owner phone never enters the lead funnel (#45).
-        if (!handledResult && !fromOwner && !isReceiptMedia && (!patient || patient.es_lead)) {
+        // The owner phone never enters the lead funnel (#45) — except in test mode (#56).
+        if (!handledResult && !isReceiptMedia && (testLead || (!fromOwner && (!patient || patient.es_lead)))) {
           try {
-            if (!(await isTherapistOrPayer(supabase, msg.from))) {
+            if (testLead || !(await isTherapistOrPayer(supabase, msg.from))) {
               const contact = value.contacts?.[0] || null
-              const rec = await recordLead(supabase, { msg, contact })
+              const rec = await recordLead(supabase, { msg, contact, esPrueba: testLead })
               if (rec) {
                 const lead = rec.lead
                 if (isTap(msg)) {
                   // Button taps → immediate reply, inline (no delay).
                   await runBot(supabase, { lead, isNew: rec.isNew, msg })
-                } else if (!lead.bot_paused && botAllowedForPhone(lead.phone)) {
+                } else if (!lead.bot_paused && botAllowedForPhone(lead.phone, lead)) {
                   // Free text / media → background reply, no artificial delay (#54);
                   // each message answered on its own. Show "escribiendo…" now
                   // (text only); the background function classifies + replies,

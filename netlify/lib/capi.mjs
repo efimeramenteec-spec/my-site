@@ -177,13 +177,14 @@ export async function sweepCapiEvents(supabase) {
   const testCode = process.env.CAPI_TEST_CODE || null
 
   const { data: leads, error } = await supabase.from('leads')
-    .select('id, phone, ctwa_clid, precio_visto_at, eligio_terapeuta_at, agendo_at, session_id, patient_id, capi_lead_sent_at, capi_schedule_sent_at, capi_purchase_sent_at')
+    .select('id, phone, es_prueba, ctwa_clid, precio_visto_at, eligio_terapeuta_at, agendo_at, session_id, patient_id, capi_lead_sent_at, capi_schedule_sent_at, capi_purchase_sent_at')
     .not('ctwa_clid', 'is', null)
+    .eq('es_prueba', false) // #56 — the owner's test lead never reports to Meta
     .or('capi_lead_sent_at.is.null,capi_schedule_sent_at.is.null,capi_purchase_sent_at.is.null')
   if (error) { console.error('[capi] leads query:', error.message); summary.error = error.message; return summary }
 
   for (const lead of leads || []) {
-    if (!capiAllowedForPhone(lead.phone)) { summary.skipped++; continue }
+    if (lead.es_prueba || !capiAllowedForPhone(lead.phone)) { summary.skipped++; continue }
 
     // LeadSubmitted — kept talking after seeing the price, or picked a therapist (#40).
     if (!lead.capi_lead_sent_at && (lead.precio_visto_at || lead.eligio_terapeuta_at)) {
@@ -221,6 +222,7 @@ export async function sweepCapiEvents(supabase) {
 
 // Send one event and, on success, stamp its sent-timestamp so it never repeats.
 async function fire(supabase, { lead, datasetId, testCode, eventName, column, value, eventTime }) {
+  if (lead.es_prueba) { console.log(`[capi] ${eventName} skipped — es_prueba lead=${lead.id}`); return false } // #56
   try {
     const res = await sendCapiEvent({
       datasetId, eventName, ctwaClid: lead.ctwa_clid,

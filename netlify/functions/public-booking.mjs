@@ -21,6 +21,8 @@
 
 import { getSupabaseAdmin, normalizePhone } from '../lib/whatsapp.mjs'
 import { computeSlots, createBooking, KINDS, HHMM, ISO_DATE } from '../lib/booking.mjs'
+import { isOwnerPhone } from '../lib/facturarAprobacion.mjs'
+import { testModeActive } from '../lib/botTestMode.mjs'
 
 const ALLOWED_ORIGINS = [
   'https://efimeramente-panel.netlify.app',
@@ -139,7 +141,10 @@ export default async (req) => {
       supabase.from('booking_attempts').select('id', { count: 'exact', head: true })
         .eq('ip', ip).gte('created_at', new Date(Date.now() - 3600e3).toISOString()),
     ])
-    if ((phoneRes.count ?? 0) > MAX_PER_PHONE_PER_DAY || (ipRes.count ?? 0) > MAX_PER_IP_PER_HOUR) {
+    // Owner phone in bot test mode (#56) → a [PRUEBA] booking: no therapist push,
+    // no Calendar, and the per-phone daily cap doesn't apply (he re-tests).
+    const prueba = isOwnerPhone(phone) && await testModeActive(supabase).catch(() => false)
+    if ((!prueba && (phoneRes.count ?? 0) > MAX_PER_PHONE_PER_DAY) || (ipRes.count ?? 0) > MAX_PER_IP_PER_HOUR) {
       return json({ error: 'rate_limited' }, 429)
     }
 
@@ -157,6 +162,7 @@ export default async (req) => {
     const result = await createBooking(supabase, {
       therapist: t, date, startTime, kindKey, modalidad,
       patient: { nombre, apellido, telefono: phone, email: email || undefined, motivo: motivo || undefined },
+      prueba,
     })
     if (!result.ok) {
       const status = ['slot_taken', 'rooms_full', 'therapist_rule'].includes(result.error) ? 409

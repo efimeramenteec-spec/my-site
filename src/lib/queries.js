@@ -837,7 +837,8 @@ export async function getFunnelData() {
   if (isSupabaseConfigured) {
     try {
       const [lRes, cRes, tRes, kRes, aRes] = await Promise.all([
-        supabase.from('leads').select(FUNNEL_LEAD_SELECT).order('first_at', { ascending: false }),
+        // #56 — the owner's bot-test lead + its decisions never count.
+        supabase.from('leads').select(FUNNEL_LEAD_SELECT).eq('es_prueba', false).order('first_at', { ascending: false }),
         supabase.from('funnel_categorias')
           .select('id,clave,etiqueta,orden,terapeutas,especial,activo').order('orden', { ascending: true }),
         supabase.from('therapists')
@@ -847,6 +848,7 @@ export async function getFunnelData() {
           .select('id,clave,titulo,contenido,orden,activo').order('orden', { ascending: true }),
         supabase.from('lead_ai_decisions')
           .select('id,phone,texto_in,accion,motivo,reply,step,model,latency_ms,used_fallback,created_at')
+          .eq('es_prueba', false)
           .order('created_at', { ascending: false }).limit(80),
       ])
       if (lRes.error) throw lRes.error

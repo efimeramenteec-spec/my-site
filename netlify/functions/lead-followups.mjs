@@ -68,7 +68,7 @@ export default async () => {
 
   // ── A. Silent nudges ────────────────────────────────────────────────────────
   if (!quiet) {
-    const { data: leadsA } = await supabase.from('leads').select('*')
+    const { data: leadsA } = await supabase.from('leads').select('*').eq('es_prueba', false) // #56
       .eq('bot_paused', false).not('step_actual', 'is', null)
       .in('stage', ['nuevo', 'toco', 'eligio_terapeuta']).lt('nudges_sent', 1)
     for (const lead of leadsA || []) {
@@ -83,7 +83,7 @@ export default async () => {
 
   // ── B. Call reminders (~1h before) ────────────────────────────────────────────
   {
-    const { data: leadsB } = await supabase.from('leads').select('*')
+    const { data: leadsB } = await supabase.from('leads').select('*').eq('es_prueba', false) // #56
       .eq('bot_paused', false).not('session_id', 'is', null)
       .is('recordatorio_llamada_at', null).eq('stage', 'agendo')
     const sessions = await mapById(supabase, 'sessions',
@@ -104,7 +104,7 @@ export default async () => {
 
   // ── C. Therapist result (~5 min after end) ───────────────────────────────────
   {
-    const { data: leadsC } = await supabase.from('leads').select('*')
+    const { data: leadsC } = await supabase.from('leads').select('*').eq('es_prueba', false) // #56
       .not('session_id', 'is', null).is('resultado_llamada_at', null).eq('stage', 'agendo')
     const sessions = await mapById(supabase, 'sessions',
       'id, fecha, hora_inicio, hora_fin, estado, tipo, terapeuta_id', (leadsC || []).map((l) => l.session_id))
@@ -124,7 +124,7 @@ export default async () => {
 
   // ── D. 48h first-session nudge ────────────────────────────────────────────────
   if (!quiet) {
-    const { data: leadsD } = await supabase.from('leads').select('*')
+    const { data: leadsD } = await supabase.from('leads').select('*').eq('es_prueba', false) // #56
       .eq('bot_paused', false).eq('stage', 'llamada_hecha')
       .is('nudge48_sent_at', null).not('llamada_hecha_at', 'is', null)
     const sessions = await mapById(supabase, 'sessions', 'id, convirtio', (leadsD || []).map((l) => l.session_id))

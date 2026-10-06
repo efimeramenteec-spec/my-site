@@ -25,13 +25,27 @@ class Query {
   is(c, v) { this.filters.push((r) => (getPath(r, c) ?? null) === v); return this }
   not(c, op, v) { this.filters.push((r) => (getPath(r, c) ?? null) !== v); return this }
   lt(c, v) { this.filters.push((r) => getPath(r, c) < v); return this }
+  gt(c, v) { this.filters.push((r) => getPath(r, c) > v); return this }
+  neq(c, v) { this.filters.push((r) => getPath(r, c) !== v); return this }
+  // "a.is.null,b.is.null" only (the CAPI sweep's shape).
+  or(expr) { const cols = expr.split(',').map((x) => x.split('.')[0]); this.filters.push((r) => cols.some((c) => (getPath(r, c) ?? null) === null)); return this }
+  delete() { this.op = 'delete'; return this }
   order(c, { ascending = true } = {}) { this._order = { c, ascending }; return this }
   limit(n) { this._limit = n; return this }
   maybeSingle() { this._single = 'maybe'; return this }
   single() { this._single = 'one'; return this }
   update(patch) { this.op = 'update'; this.patch = patch; return this }
   insert(row) { this.op = 'insert'; this.rows = Array.isArray(row) ? row : [row]; return this }
-  upsert(row) { return this.insert(row) }
+  upsert(row, { onConflict } = {}) {
+    const rows = Array.isArray(row) ? row : [row]
+    const all = this.rowsOf()
+    const fresh = []
+    for (const r of rows) {
+      const hit = onConflict && all.find((x) => x[onConflict] === r[onConflict])
+      if (hit) Object.assign(hit, structuredClone(r)); else fresh.push(r)
+    }
+    return this.insert(fresh)
+  }
   rowsOf() { return (this.db[this.table] ||= []) }
   run() {
     const all = this.rowsOf()
@@ -41,6 +55,10 @@ class Query {
       return this.finish(made)
     }
     let rows = all.filter((r) => this.filters.every((f) => f(r)))
+    if (this.op === 'delete') {
+      this.db[this.table] = all.filter((r) => !rows.includes(r))
+      return this.finish(null)
+    }
     if (this.op === 'update') {
       for (const r of rows) Object.assign(r, structuredClone(this.patch))
       return this.finish(this._returning ? rows : null)

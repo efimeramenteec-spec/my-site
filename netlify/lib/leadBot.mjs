@@ -32,9 +32,11 @@ const APP_BASE = process.env.URL || 'https://efimeramente-panel.netlify.app'
 const stripAccents = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
 // The bot may SEND to a lead when it's globally live OR when that lead's phone is
-// in the test allow-list (LEAD_BOT_TEST_PHONES, comma-separated, last-9 match).
-export function botAllowedForPhone(phone) {
+// in the test allow-list (LEAD_BOT_TEST_PHONES, comma-separated, last-9 match),
+// or the lead is the owner's test lead (#56, es_prueba).
+export function botAllowedForPhone(phone, lead = null) {
   if (process.env.LEAD_BOT_LIVE === 'true') return true
+  if (lead?.es_prueba) return true
   const list = (process.env.LEAD_BOT_TEST_PHONES || '')
     .split(',').map((s) => s.trim()).filter(Boolean).map(last9)
   return !!phone && list.includes(last9(phone))
@@ -96,8 +98,9 @@ async function hasEarlierOutbound(supabase, from, beforeMs) {
 }
 
 // Create the lead row on first contact, or return the existing one. Measurement
-// only — sends nothing. Returns { lead, isNew } or null.
-export async function recordLead(supabase, { msg, contact }) {
+// only — sends nothing. Returns { lead, isNew } or null. esPrueba (#56): the
+// owner's test lead — skips the known-contact checks, row flagged es_prueba.
+export async function recordLead(supabase, { msg, contact, esPrueba = false }) {
   const phone = normalizePhone(msg.from)
   if (!phone) return null
 
@@ -110,6 +113,8 @@ export async function recordLead(supabase, { msg, contact }) {
     if (waName && !existing.wa_name) patch.wa_name = waName
     // A later ad click backfills the click id if the first contact was organic (#22).
     if (ctwa_clid && !existing.ctwa_clid) patch.ctwa_clid = ctwa_clid
+    // The owner phone is never a real lead (#45): in test mode its row is a test row.
+    if (esPrueba && !existing.es_prueba) patch.es_prueba = true
     if (Object.keys(patch).length) {
       patch.updated_at = new Date().toISOString()
       await supabase.from('leads').update(patch).eq('id', existing.id)
@@ -118,7 +123,7 @@ export async function recordLead(supabase, { msg, contact }) {
     return { lead: existing, isNew: false }
   }
 
-  if (source === 'whatsapp_organico') {
+  if (source === 'whatsapp_organico' && !esPrueba) {
     if (await hasEarlierInbound(supabase, msg.from)) {
       console.log(`[lead] skip — organic known contact phone=${phone}`)
       return null
@@ -130,6 +135,7 @@ export async function recordLead(supabase, { msg, contact }) {
     }
   }
   const row = { phone, wa_name: contact?.profile?.name || null, source, ad_source_id, ad_headline, ctwa_clid, stage: 'nuevo' }
+  if (esPrueba) row.es_prueba = true
   const { data, error } = await supabase.from('leads').insert(row).select('*').single()
   if (error) {
     const { data: raced } = await supabase.from('leads').select('*').eq('phone', phone).maybeSingle()
@@ -526,6 +532,7 @@ async function logDecision(supabase, lead, { text, accion, motivo, reply, model,
       model: fallback ? 'keyword' : (model || null),
       latency_ms: latencyMs ?? null,
       used_fallback: fallback,
+      es_prueba: !!lead.es_prueba,
     })
   } catch (e) { console.warn('[bot] logDecision failed:', e.message) }
 }
@@ -780,7 +787,7 @@ async function bookSlot(supabase, lead, rest) {
   const result = await createBooking(supabase, {
     therapist: t, date, startTime: time, kindKey: 'llamada', modalidad: 'en_linea',
     patient: { nombre: nombre || 'Lead', apellido: apParts.join(' '), telefono: lead.phone },
-    esLead: true, fuente: lead.source,
+    esLead: true, fuente: lead.source, prueba: !!lead.es_prueba,
   })
   if (!result.ok) {
     if (result.error === 'slot_taken') return sendBookingLink(supabase, lead, t.id)
@@ -1123,7 +1130,7 @@ async function firstSessionInterest(supabase, lead) {
 // crashes before sending — derives to Nicolás with motivo 'sin_respuesta'.
 export async function runBot(supabase, { lead, isNew, msg }) {
   if (!lead || lead.bot_paused) return
-  if (!botAllowedForPhone(lead.phone)) return
+  if (!botAllowedForPhone(lead.phone, lead)) return
   lead.__sent = 0
   lead.__derived = false
   let err = null
@@ -1247,7 +1254,7 @@ export async function handleTherapistResult(supabase, msg) {
     return true
   }
   await advanceStage(supabase, lead, 'no_contesto')
-  if (!lead.rebook_sent_at && !lead.bot_paused && botAllowedForPhone(lead.phone)) {
+  if (!lead.rebook_sent_at && !lead.bot_paused && botAllowedForPhone(lead.phone, lead)) {
     try {
       await sendRebook(lead.phone, { name: leadFirstName(lead), therapist: await therapistShort(supabase, lead.therapist_id) })
       await patchLead(supabase, lead, { rebook_sent_at: new Date().toISOString() })

@@ -32,8 +32,8 @@ export default async (req) => {
     const supabase = getSupabaseAdmin()
     let counts = null
     if (supabase) {
-      const { count: total } = await supabase.from('leads').select('id', { count: 'exact', head: true })
-      const { count: withClid } = await supabase.from('leads').select('id', { count: 'exact', head: true }).not('ctwa_clid', 'is', null)
+      const { count: total } = await supabase.from('leads').select('id', { count: 'exact', head: true }).eq('es_prueba', false)
+      const { count: withClid } = await supabase.from('leads').select('id', { count: 'exact', head: true }).eq('es_prueba', false).not('ctwa_clid', 'is', null)
       counts = { total_leads: total ?? null, with_ctwa_clid: withClid ?? null }
     }
     return json({

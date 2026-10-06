@@ -139,9 +139,12 @@ export async function nextSlots(supabase, therapist, kindKey = 'llamada', count 
 // and the bot. Returns { ok, error?, sessionId?, patientId?, endTime?, therapistName? }.
 // Never throws for expected outcomes (slot_taken / rooms_full / booking_failed) —
 // callers map those to user-facing copy. `notify` toggles the therapist push.
+// `prueba` (#56, owner phone in bot test mode): notas "[PRUEBA] …", NO therapist
+// push and NO Calendar event (owner push only), the patient row is reused (or
+// created as es_lead) and never promoted.
 export async function createBooking(supabase, {
   therapist: t, date, startTime, kindKey = 'llamada', modalidad = 'en_linea',
-  patient, esLead, fuente, notify = true,
+  patient, esLead, fuente, notify = true, prueba = false,
 }) {
   const kind = KINDS[kindKey] || KINDS.llamada
   // A therapist restricted to one modalidad (Mariana: en línea) can't be booked
@@ -182,7 +185,7 @@ export async function createBooking(supabase, {
       nombre: String(patient.nombre || '').trim() || 'Lead',
       apellido: String(patient.apellido || '').trim(),
       telefono: phone, terapeuta_id: t.id,
-      es_lead: esLead ?? (kindKey === 'llamada'),
+      es_lead: prueba ? true : (esLead ?? (kindKey === 'llamada')),
     }
     if (patient.email) newPatient.email = patient.email
     if (patient.motivo) newPatient.motivo_consulta = patient.motivo
@@ -199,6 +202,7 @@ export async function createBooking(supabase, {
       patient_id: patientId, terapeuta_id: t.id, fecha: date,
       hora_inicio: `${startTime}:00`, hora_fin: `${endTime}:00`,
       tipo: kind.tipo, modalidad, estado: 'programada', monto, pagado: false,
+      ...(prueba ? { notas: '[PRUEBA] Agendada en modo prueba del bot' } : {}),
     }).select('id').single()
   if (sErr) {
     console.error('[booking] session insert:', sErr.message)
@@ -208,11 +212,18 @@ export async function createBooking(supabase, {
     return { ok: false, error: 'booking_failed' }
   }
 
-  if (kindKey === 'sesion') {
+  if (kindKey === 'sesion' && !prueba) {
     await supabase.from('patients').update({ es_lead: false }).eq('id', patientId).eq('es_lead', true)
   }
 
-  if (notify) {
+  if (prueba) {
+    const [, mm, dd] = date.split('-')
+    await notifyTherapist(supabase, null, {
+      title: '[PRUEBA] Llamada agendada 📞',
+      body: `Modo prueba — con ${t.nombre} ${t.apellido || ''}, ${dd}/${mm} ${startTime}. No se avisó a la terapeuta ni se creó evento.`,
+      url: '/sesiones',
+    })
+  } else if (notify) {
     const [, mm, dd] = date.split('-')
     await notifyTherapist(supabase, t.id, {
       title: kindKey === 'sesion' ? 'Nueva sesión agendada 📅' : 'Nueva llamada agendada 📞',
@@ -221,7 +232,7 @@ export async function createBooking(supabase, {
     })
   }
 
-  if (t.calendar_email) {
+  if (t.calendar_email && !prueba) {
     try {
       const name = `${patient.nombre || ''} ${patient.apellido || ''}`.trim()
       const summary = kindKey === 'sesion'
