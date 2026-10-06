@@ -103,6 +103,28 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-06 — #56 Modo prueba del bot desde el teléfono del dueño (executor, fda357c)
+Nicolás (owner phone 593968029896, the only phone he has) can test the lead flow as a first-time lead.
+- **Commands** (owner → 9933, exact message, case/accent-insensitive; replies via `sendStaffText`, no sanitizer/greeting):
+  "modo prueba" → `bot_test_mode` activo, expira_at now+2h · "reiniciar" → `resetTestLead` (mode stays as it was) ·
+  "fin prueba" → off. Logic in **`netlify/lib/botTestMode.mjs`** (`testCommand`, `routeOwnerMessage` → 'command'|'lead'|'owner',
+  `testModeActive`, `resetTestLead`). Webhook calls it AFTER the outbox flush/"Ver"/facturas/Aprobar handling, so those keep working.
+- **Active** → every other owner message (text/taps/audio; images/PDFs still go to comprobantes) goes to `recordLead({esPrueba:true})`
+  (skips the known-contact rules; an existing owner row gets flagged es_prueba) + runBot; each message renews expira_at.
+  `botAllowedForPhone(phone, lead)` lets an es_prueba lead talk even with LEAD_BOT_LIVE off. Expired → owner path, silent.
+- **reiniciar:** DELETE leads WHERE es_prueba AND last-9=owner (its `lead_ai_decisions` kept, flagged es_prueba, lead_id → null — FK);
+  owner-phone llamadas with notas "[PRUEBA]…" → cancelada + calendar cancel (best-effort).
+- **Isolation (es_prueba):** CAPI sweep filters `.eq('es_prueba', false)` + guard in `fire()`; lead-followups A–D filter it;
+  `getFunnelData` excludes test leads + decisions; capi-admin counts too. `/agendar` with the owner phone while active →
+  `createBooking({prueba:true})`: notas "[PRUEBA] Agendada en modo prueba del bot", owner-only push, NO therapist push, NO Calendar,
+  patient reused (owner already has an es_lead row) / created es_lead, never promoted; the per-phone daily cap is skipped.
+- **Migration** `lead_funnel_11_modo_prueba` (mirror `supabase/lead-funnel-11-modo-prueba.sql`): table `bot_test_mode`
+  (owner-only RLS) + `leads.es_prueba` + `lead_ai_decisions.es_prueba`. Data: the stale owner lead 794b3525 (2 Oct, paused,
+  empty) was removed exactly like "reiniciar" would (1 decision kept as es_prueba).
+- **Harness** `node scripts/harness-modo-prueba.mjs` (mirrors the webhook's owner routing on leadBotSim's in-memory DB, which
+  gained gt/neq/or/delete/upsert-onConflict): all checks pass, incl. CAPI 0 events for es_prueba with CAPI_LIVE + test phone allowed.
+  Prod real-Claude dryrun scenario 1 unchanged ("Hola, hablas con Nico. La sesión cuesta $39…").
+
 ### 2026-10-06 — #55 Bot solo habla como Nico (executor, f88159c)
 The lead bot speaks ONLY as Nico, first person; never mentions Nicolás in the third person or admits to being a bot.
 - **`handoff()`** (leadBot.mjs): day 07–23 GYE → "Dame un momento y te respondo."; night → "Te respondo mañana a
@@ -268,33 +290,12 @@ next typed text (lead b64e16df: "Mi hijo/a\n24" → classified `agendar` → res
   llamadas. `ESTADO_COLOR` in views.jsx is dead code (unused). No DB bulk update (triggers).
 - CLAUDE.md Enums: llamadas' estado is legacy and ignored; never report/query/ask about llamadas as Pendiente.
 
-### 2026-10-05 — #48/#48b September therapist payroll: first run (executor, 003b71f, 27286f6)
-- **Trial rate:** `therapists.prueba_hasta date` (migration `therapists_prueba_hasta_and_payroll_runs`, mirror
-  `supabase/therapists-prueba-hasta.sql`); Sophia = 2026-10-31. `src/lib/provision.js` PROVISION_PRUEBA = 20:
-  `sessionProvision(session, base, pruebaHasta)` → 0 if base 0 · 30 pareja · 20 if fecha <= pruebaHasta · else base.
-  prueba_hasta added to the 3 therapist selects in `queries.js`; Finanzas `rateOf` + `sessionReport` pass it.
-  Verified old-vs-new on all Sep sessions: only Sophia changes (144 → 120); Sophia 2026-11-02 → 24.
-- **`sessionReport.js`** opt-in params for payroll (app unchanged): `notes[]`, `payAdjustment`, `logo`, `save:false`
-  (returns { pdf, count, pay }). Runs in node (jsPDF ok; pass `logo` from public/logos + PNG header dims).
-  Gotcha: Helvetica can't render U+2212 — ASCII '-' only.
-- **`netlify/functions/payroll-send.mjs`** — POST ?token=PAYROLL_TOKEN (non-secret, functions scope)
-  {to, steps:[text|document]}; plain session messages (NO cleanBotText — signature emoji); document = upload to
-  private bucket `payroll` (created 5 Oct) + 1h signed URL; stops at first failure. **`netlify/lib/payrollCopy.mjs`**
-  = FIRMA + match / pedir-lista / mismatch copy for the monthly protocol (no llamadas step, #48c).
-- **Table `payroll_runs`** (mirror `supabase/payroll-runs.sql`, owner RLS, unique periodo+terapeuta_id): 6 rows for
-  2026-09, all `enviado_ok` with wamids, exclusions, adjustments in detalle.
-- **Sent 5 Oct ~19:02 UTC from the 9933** (text → PDF; a "llamadas en Pendiente" question also went to 5 of them by mistake — Nicolás deleted those
-  messages; the step is removed for good, #48c): Camila 21/$504, Carolina 35/$852,
-  Sophia 6/$120, Francisco 19/$456 (Elisa Zoghbi 30/09 excluded), María Gracia 16/$380 (Sabine 24/09 at $20),
-  Daniela 41/$984 (#48b; "Camila Mena" = Karina Almache). All delivered except María Gracia (3 msgs "sent",
-  not delivered at 19:05 UTC, no failure).
-- **Data fix:** Francisco 16/09 Ramesvary Henao 00:00 → 12:00–13:00 (session 0271e091; Calendar not synced, past).
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
 - [ ] **#55 decide (Nicolás):** lead-facing lines still naming a team/third person — see the #55 TO-DO entry (urgente fallback, "Escríbenos", "Att: Nico" templates).
-- [ ] **#54 real test (Nicolás, phone that isn't his or a patient's):** price prefill → si → para mí → ansiedad → name → link → book → check `leads.agendo_at`.
+- [ ] **#56 live test (Nicolás, his own phone):** "modo prueba" → write as a lead → "reiniciar" to start over → "fin prueba".
+- [ ] **#54 real test (now doable from his own phone via #56 modo prueba):** price prefill → si → para mí → ansiedad → name → link → book → check `leads.agendo_at`.
 - [ ] "Lead atascado en el inicio" push fires on the 3rd message even when the lead IS advancing (pre-existing; seen in the #54 sim) — tune `maybeStuckPush`.
 - [ ] **#53** — 3 patients didn't get "Mariana retoma" (Diana Romero 131049, Luna Guamán + Emily Rivera 131026) → Nicolás
       sends by hand / fixes their phones. Broadcast 4e56df3a closes itself ~21:46 UTC 5 Oct (estado enviado + one owner notice).

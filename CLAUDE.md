@@ -322,9 +322,24 @@ in `owner_outbox` (owner-only RLS, `supabase/owner-outbox.sql`):
   `submit-lead-templates?name=ping_nico`); several pending → "{n} pendientes: …" (≤100 chars);
 - `ping_nico` not APPROVED as UTILITY, or the send fails → Web Push fallback, row stays `pendiente`.
 - `whatsapp-cloud-webhook` calls `flushOwnerOutbox()` on ANY owner inbound (oldest first) before his
-  command; the "Ver" tap does nothing else. Owner-phone messages never enter the lead bot.
+  command; the "Ver" tap does nothing else. Owner-phone messages never enter the lead bot (except in bot test mode, #56).
 First consumer: `facturar-report` (Mon+Thu 09:00 GYE) → snapshot (origen `cron`) + the same list +
 [Aprobar] [Ahora no] the "facturas" command sends. Invoices are emitted ONLY by his Aprobar tap.
+
+### Bot test mode — `netlify/lib/botTestMode.mjs` (#56, 2026-10-06)
+Nicolás tests the lead flow from the OWNER phone. Commands to the 9933 (exact message, case/accent-insensitive;
+replies go to him via `sendStaffText`, no sanitizer, no "Hola, hablas con Nico"):
+- **"modo prueba"** → `bot_test_mode` (one row per owner phone, owner-only RLS) activo, `expira_at` = now + 2h.
+- **"reiniciar"** → deletes his TEST lead (`leads.es_prueba` AND last-9 = owner) so the next message is a first contact;
+  its `lead_ai_decisions` are kept (flagged `es_prueba`, `lead_id` → null); his "[PRUEBA]" llamadas → cancelada + calendar cancel.
+- **"fin prueba"** → off. Expired → the normal owner path, no warning.
+While active, every other owner message goes to recordLead(`esPrueba`) + runBot, renewing expira_at; "facturas",
+Aprobar/Ahora no, the "Ver" tap and `flushOwnerOutbox` keep working as owner (handled first in the webhook).
+**`es_prueba` isolation — keep it in any new lead query/sender:** no CAPI event (sweep filter + guard in `capi.mjs#fire`),
+no lead-followups (A–D filter), excluded from `getFunnelData` (leads + decisions) and capi-admin counts. `/agendar` booked
+with the owner phone while active → `createBooking({prueba:true})`: notas "[PRUEBA] …", owner-only push, no therapist push,
+no Calendar, patient reused/created as es_lead and never promoted. Handoff pushes to Nicolás work normally.
+Harness: `node scripts/harness-modo-prueba.mjs`. Migration `supabase/lead-funnel-11-modo-prueba.sql`.
 
 ### `sesiones-pendientes.mjs` — past sessions can't stay in Pendiente (#52, 2026-10-05)
 Scheduled `30 13 * * *` (08:30 GYE), logic in `netlify/lib/sesionesPendientes.mjs`. Scope: estado

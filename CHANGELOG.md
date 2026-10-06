@@ -5,6 +5,29 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-06 (#56) -->
+### 2026-10-05 — #48/#48b September therapist payroll: first run (executor, 003b71f, 27286f6)
+- **Trial rate:** `therapists.prueba_hasta date` (migration `therapists_prueba_hasta_and_payroll_runs`, mirror
+  `supabase/therapists-prueba-hasta.sql`); Sophia = 2026-10-31. `src/lib/provision.js` PROVISION_PRUEBA = 20:
+  `sessionProvision(session, base, pruebaHasta)` → 0 if base 0 · 30 pareja · 20 if fecha <= pruebaHasta · else base.
+  prueba_hasta added to the 3 therapist selects in `queries.js`; Finanzas `rateOf` + `sessionReport` pass it.
+  Verified old-vs-new on all Sep sessions: only Sophia changes (144 → 120); Sophia 2026-11-02 → 24.
+- **`sessionReport.js`** opt-in params for payroll (app unchanged): `notes[]`, `payAdjustment`, `logo`, `save:false`
+  (returns { pdf, count, pay }). Runs in node (jsPDF ok; pass `logo` from public/logos + PNG header dims).
+  Gotcha: Helvetica can't render U+2212 — ASCII '-' only.
+- **`netlify/functions/payroll-send.mjs`** — POST ?token=PAYROLL_TOKEN (non-secret, functions scope)
+  {to, steps:[text|document]}; plain session messages (NO cleanBotText — signature emoji); document = upload to
+  private bucket `payroll` (created 5 Oct) + 1h signed URL; stops at first failure. **`netlify/lib/payrollCopy.mjs`**
+  = FIRMA + match / pedir-lista / mismatch copy for the monthly protocol (no llamadas step, #48c).
+- **Table `payroll_runs`** (mirror `supabase/payroll-runs.sql`, owner RLS, unique periodo+terapeuta_id): 6 rows for
+  2026-09, all `enviado_ok` with wamids, exclusions, adjustments in detalle.
+- **Sent 5 Oct ~19:02 UTC from the 9933** (text → PDF; a "llamadas en Pendiente" question also went to 5 of them by mistake — Nicolás deleted those
+  messages; the step is removed for good, #48c): Camila 21/$504, Carolina 35/$852,
+  Sophia 6/$120, Francisco 19/$456 (Elisa Zoghbi 30/09 excluded), María Gracia 16/$380 (Sabine 24/09 at $20),
+  Daniela 41/$984 (#48b; "Camila Mena" = Karina Almache). All delivered except María Gracia (3 msgs "sent",
+  not delivered at 19:05 UTC, no failure).
+- **Data fix:** Francisco 16/09 Ramesvary Henao 00:00 → 12:00–13:00 (session 0271e091; Calendar not synced, past).
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-05 (#52) -->
 ### 2026-10-05 — #47 RIDEs go out on their own: 15-min sweep (executor, 9363f78)
 - **Bug:** Aprobar's in-request RIDE retries (RIDE_ATTEMPTS/sleep) left unauthorized RIDEs in
