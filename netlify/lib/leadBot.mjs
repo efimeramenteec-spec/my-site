@@ -1139,6 +1139,16 @@ export async function runBot(supabase, { lead, isNew, msg }) {
     if (!isNew && lead.nudges_sent > 0) await patchLead(supabase, lead, { nudges_sent: 0 })
     // Audio at ANY point → a person (spec).
     if (msg?.type === 'audio') await handoff(supabase, lead, 'audio')
+    // #58: "Message unavailable" (unsupported, e.g. 131060) — the text never reached
+    // the API though Nicolás sees it in the app → ZERO text at any hour, push + pause.
+    else if (msg?.type === 'unsupported') {
+      const code = msg.errors?.[0]?.code
+      await logDecision(supabase, lead, { text: `[unsupported${code ? ` ${code}` : ''}]`, accion: 'derivar', motivo: 'mensaje_no_disponible', reply: null, model: 'regla' })
+      await escalate(supabase, lead, 'mensaje_no_disponible', {
+        title: 'Mensaje no disponible',
+        body: `${lead.wa_name || lead.phone} te escribió y no se pudo leer el mensaje. Respóndele tú.`,
+      })
+    }
     else if (tap) await handleTap(supabase, lead, tap)
     else if (msg?.type === 'text' && msg.text?.body) {
       await handleFreeText(supabase, lead, msg.text.body, { firstTouch: isNew || !lead.step_actual })
