@@ -103,6 +103,24 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-07 — #60 Facturación en espera + concepto general + 9 facturas (executor, f184057)
+- **Migration** `supabase/patients-facturacion-espera-concepto.sql` (additive): `patients.facturacion_en_espera`,
+  `patients.factura_concepto_general` (bool, default false); `factura_aprobaciones.origen` now allows `'chat'`.
+- **En espera:** `facturarCore#fetchEligible` filters `patient.facturacion_en_espera=false`; `fetchEnEspera()` (obligatoria
+  AND en_espera, count of paid/uninvoiced/non-llamada sessions, **no floor**) → `dryRun().enEspera` → `prepareFacturas`
+  adds "En espera: {name} ({n} sesiones)" lines (never in the snapshot); `runReport` also notifies when only en-espera
+  exists; HTTP dry-run shows `en_espera`. Lifting a hold on pre-floor sessions also needs `patients.facturar_desde`.
+- **Concepto general:** `buildDescripcion` → "Sesión Psicológica Individual | Sesión {fecha}" (no patient, no CIE);
+  billing still the payer. The RIDE WhatsApp still names the patient to the payer ("la sesión de Mila…").
+- Both flags: owner-only Toggles in Pacientes → Configuración; in PATIENT_SELECT + PATIENT_COLUMNS.
+- **Data:** Mauro Baquero obligatoria + en_espera (8 paid sessions, all pre-floor). Marthin Spatz concepto_general,
+  facturar_desde 2026-07-29. Mila: new payer Sébastien Paque (1004438295, +593985506258, sebpaque@gmail.com),
+  obligatoria + concepto_general, facturar_desde 2026-09-15 (6 Oct unpaid → normal list). Thomas Quevedo
+  facturar_desde 2026-08-14. (facturar_desde = how the floor is lifted per patient so the RIDE sweep sends them.)
+- **Emitted via emit-one:** 001-001-000000304..306 (Gabriela, $35×3), 307..309 (Shariam, $39×3), 310..312
+  (Sébastien, $39/$32/$32). Logged `factura_aprobaciones` 272d6249… origen chat, $325. RIDEs via factura-rides-sweep.
+- Not emitted (outside #60, ready for Thursday's list): Valentina Loor 2 Oct, Cinthya Perez 3 Oct.
+
 ### 2026-10-07 — #59 Turnos coherentes + terapia familiar (executor, 5d5c3e3)
 Evidence: lead +59398590… sent "atienden terapia para 16 años manejo de ira ?" + "O terapias familiares ?" 2 s apart →
 two PARALLEL turns: question + cards in turn 1; turn 2 repeated adolescentes and answered FAMILY with the COUPLES canned.
@@ -257,36 +275,11 @@ next typed text (lead b64e16df: "Mi hijo/a\n24" → classified `agendar` → res
 - Meta status seen: `sesion_pendiente` (#52) **APPROVED but as MARKETING** → the 08:30 job requires UTILITY, so it keeps
   using free-form/push fallback until decided; `ping_nico` PENDING/MARKETING.
 
-### 2026-10-05 — #46 Mariana R1: last session STARTS at 20:00 (executor, fffbe07)
-- R1 is now start-only: `hora_inicio` 10:00–20:00 inclusive, end not checked (she's done by 21:00). R2–R4 unchanged.
-- `src/lib/therapistRules.js`: `window` → `startWindow`; `allowedWindow` → `allowedStartWindow` (+ `startWindowCopy`).
-  Copy: >20:00 "La última sesión de Mariana empieza a las 20:00"; <10:00 "La primera sesión de Mariana empieza a las 10:00".
-- `netlify/lib/booking.mjs#computeSlots`: clamp limits STARTS only (`if (clamp && s > clamp[1]) break`); the end is bounded
-  by her `booking_availability`, now mon–sat 10:00–21:15. Other therapists' slots diffed identical before/after.
-- Migration `therapist_rules_r1_start_only` (mirror `supabase/therapist-rules-r1-start-only.sql`): CREATE OR REPLACE
-  `enforce_therapist_rules` + her availability update. Verified in rolled-back tx: 20:00/10:00 ok, 20:30/09:30 fail,
-  19:00+20:00 fails R2. Live `?action=slots` 2026-10-07 → last slot 20:00.
-
-### 2026-10-05 — #52 Daily 08:30 reminder to therapists: past sessions can't stay in Pendiente (executor, 674003b)
-- `netlify/functions/sesiones-pendientes.mjs` (scheduled `30 13 * * *` = 08:30 GYE, registered in deploy 6ac40723) →
-  `netlify/lib/sesionesPendientes.mjs#runSesionesPendientes`. Scope: estado programada, tipo ≠ llamada (query + code
-  re-check), fecha < today GYE, therapist activo + telefono. One msg per session; window open → `waSend#sendStaffButtons`
-  (new, NO sanitizer — 🐚✨ kept), ids `est_ok:/est_no:<id>`; closed → template `sesion_pendiente` (only if APPROVED as
-  UTILITY; `leadTemplates#STAFF_TEMPLATES` + `sendSesionPendiente`, per-send quick-reply payloads); else ONE push per
-  therapist per day, `skipOwner`. Daniela → "Dani". Same-day rerun doesn't resend.
-- New table `session_estado_reminders` (migration `session_estado_reminders`, mirror `supabase/session-estado-reminders.sql`,
-  owner-only RLS; + `escalated_at`). 3 distinct days unanswered → `notifyOwner` kind `sesion_sin_cerrar` once.
-- Webhook: `handleEstadoTap` runs after owner/facturar, BEFORE the patient estado flip + lead bot. Therapist last-9 must
-  match; closeSession = guarded `UPDATE … WHERE estado='programada'` (saldo trigger fires — verified on the real DB in a
-  rolled-back tx: pagado=t, credit 35→0); est_no also clears pagado + calendar `cancel`. No push.
-- Template `sesion_pendiente` submitted → Meta id 1751621786066092, PENDING/UTILITY. Until approved, closed-window
-  therapists get the push. Harness `scripts/harness-sesiones-pendientes.mjs` 14/14 PASS.
-- First run Tue 6 Oct 08:30: Sophia (Cecilia Saltos + Valentina Loor, 2 Oct) + Mariana (3 Oct), plus any 5 Oct session
-  still Pendiente at run time.
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **#60 Mauro Baquero en espera** (8 paid, all pre-floor): when his insurer's diagnosis arrives → set diagnóstico, untoggle "Facturación en espera" AND set `facturar_desde` to his first session to back-invoice.
+- [ ] **#60 Mila (Sébastien Paque):** 6 Oct (unpaid) + 6 future insured sessions go out via the normal Mon+Thu list in concepto-general format once paid.
 - [ ] **#55 decide (Nicolás):** lead-facing lines still naming a team/third person — see the #55 TO-DO entry (urgente fallback, "Escríbenos", "Att: Nico" templates).
 - [ ] **#56 live test (Nicolás, his own phone):** "modo prueba" → write as a lead → "reiniciar" to start over → "fin prueba".
 - [ ] **#54 real test (now doable from his own phone via #56 modo prueba):** price prefill → si → para mí → ansiedad → name → link → book → check `leads.agendo_at`.

@@ -5,6 +5,34 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-07 (#60) -->
+### 2026-10-05 — #46 Mariana R1: last session STARTS at 20:00 (executor, fffbe07)
+- R1 is now start-only: `hora_inicio` 10:00–20:00 inclusive, end not checked (she's done by 21:00). R2–R4 unchanged.
+- `src/lib/therapistRules.js`: `window` → `startWindow`; `allowedWindow` → `allowedStartWindow` (+ `startWindowCopy`).
+  Copy: >20:00 "La última sesión de Mariana empieza a las 20:00"; <10:00 "La primera sesión de Mariana empieza a las 10:00".
+- `netlify/lib/booking.mjs#computeSlots`: clamp limits STARTS only (`if (clamp && s > clamp[1]) break`); the end is bounded
+  by her `booking_availability`, now mon–sat 10:00–21:15. Other therapists' slots diffed identical before/after.
+- Migration `therapist_rules_r1_start_only` (mirror `supabase/therapist-rules-r1-start-only.sql`): CREATE OR REPLACE
+  `enforce_therapist_rules` + her availability update. Verified in rolled-back tx: 20:00/10:00 ok, 20:30/09:30 fail,
+  19:00+20:00 fails R2. Live `?action=slots` 2026-10-07 → last slot 20:00.
+
+### 2026-10-05 — #52 Daily 08:30 reminder to therapists: past sessions can't stay in Pendiente (executor, 674003b)
+- `netlify/functions/sesiones-pendientes.mjs` (scheduled `30 13 * * *` = 08:30 GYE, registered in deploy 6ac40723) →
+  `netlify/lib/sesionesPendientes.mjs#runSesionesPendientes`. Scope: estado programada, tipo ≠ llamada (query + code
+  re-check), fecha < today GYE, therapist activo + telefono. One msg per session; window open → `waSend#sendStaffButtons`
+  (new, NO sanitizer — 🐚✨ kept), ids `est_ok:/est_no:<id>`; closed → template `sesion_pendiente` (only if APPROVED as
+  UTILITY; `leadTemplates#STAFF_TEMPLATES` + `sendSesionPendiente`, per-send quick-reply payloads); else ONE push per
+  therapist per day, `skipOwner`. Daniela → "Dani". Same-day rerun doesn't resend.
+- New table `session_estado_reminders` (migration `session_estado_reminders`, mirror `supabase/session-estado-reminders.sql`,
+  owner-only RLS; + `escalated_at`). 3 distinct days unanswered → `notifyOwner` kind `sesion_sin_cerrar` once.
+- Webhook: `handleEstadoTap` runs after owner/facturar, BEFORE the patient estado flip + lead bot. Therapist last-9 must
+  match; closeSession = guarded `UPDATE … WHERE estado='programada'` (saldo trigger fires — verified on the real DB in a
+  rolled-back tx: pagado=t, credit 35→0); est_no also clears pagado + calendar `cancel`. No push.
+- Template `sesion_pendiente` submitted → Meta id 1751621786066092, PENDING/UTILITY. Until approved, closed-window
+  therapists get the push. Harness `scripts/harness-sesiones-pendientes.mjs` 14/14 PASS.
+- First run Tue 6 Oct 08:30: Sophia (Cecilia Saltos + Valentina Loor, 2 Oct) + Mariana (3 Oct), plus any 5 Oct session
+  still Pendiente at run time.
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-07 (#57/#58) -->
 ### 2026-10-05 — #49b Package credit consumed whoever confirms + new credit pays existing debt (executor)
 - Migration `saldo_consume_security_definer` (mirror `supabase/saldo-consume-security-definer.sql`):

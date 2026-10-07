@@ -46,6 +46,9 @@ that cannot be quietly undone — work carefully.**
 A session is eligible when ALL are true:
 `estado='confirmada'` AND `pagado=true` AND `NOT facturada` AND `tipo <> 'llamada'`
 AND `patient.facturacion_obligatoria = true` AND `fecha >= FACTURAR_SINCE` (**2026-09-24**).
+AND NOT `patient.facturacion_en_espera` (#60 hold — listed as "En espera: {name} ({n} sesiones)", never emitted
+until Nicolás lifts it). `patient.factura_concepto_general` (#60) → Observaciones
+`Sesión Psicológica Individual | Sesión {fecha}` (no patient, no diagnosis), billed to the payer as usual.
 
 - **Non-retroactive:** `FACTURAR_SINCE` is a hard floor. Every session before it was
   already invoiced manually; the protocol must never touch the historical backlog.
