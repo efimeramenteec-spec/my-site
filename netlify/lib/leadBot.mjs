@@ -13,8 +13,10 @@
 // derivation to Nicolás. Everything the bot SENDS is gated by LEAD_BOT_LIVE (or
 // the test allow-list); recording leads is measurement and always runs.
 //
-// Free text is answered by a background function with no artificial delay (just
-// the processing time); template quick-reply taps are answered inline.
+// Free text is answered by a background function: messages from the same lead
+// within 4 s are merged into ONE turn (#59), and each turn sends ONE coherent
+// reply — texts, then at most one tail (link, cards or a question). Template
+// quick-reply taps are answered inline.
 
 import { normalizePhone } from './whatsapp.mjs'
 import { sendText, sendImage, sendLinkText } from './waSend.mjs'
@@ -233,8 +235,72 @@ const tx = { sendText, sendImage, sendLinkText, notifyTherapist }
 export function _setTransport(over) { Object.assign(tx, over) }
 
 async function txt(supabase, lead, body, { previewUrl = false, greet = true } = {}) {
+  if (lead.__turn) { lead.__turn.texts.push({ body, previewUrl, greet }); return }
+  await sendNow(supabase, lead, body, { previewUrl, greet })
+}
+async function sendNow(supabase, lead, body, { previewUrl = false, greet = true } = {}) {
   await tx.sendText(lead.phone, greet ? await withGreeting(supabase, lead, body) : body, { previewUrl })
   lead.__sent = (lead.__sent || 0) + 1
+}
+
+// ── #59 ONE REPLY PER TURN ─────────────────────────────────────────────────────
+// runBot composes the whole turn before sending anything: texts (greeting on the
+// first, then the canned answers in order) and AT MOST ONE tail — the booking
+// link, OR one card block, OR one question. Steps register their tail on
+// lead.__turn instead of sending; endTurn() picks it (link > cards > question),
+// drops every other question, and merges all card requests into one block.
+const MAX_CARDS = 4
+function beginTurn(lead) {
+  lead.__mayGreet = !(lead.saludo_enviado || lead.last_bot_at)
+  lead.__turn = { texts: [], question: null, link: null, cards: [], adolescentes: false }
+}
+
+async function endTurn(supabase, lead) {
+  const t = lead.__turn
+  if (!t) return
+  lead.__turn = null
+  let tail = null
+  if (!lead.bot_paused) tail = t.link ? 'link' : t.cards.length ? 'cards' : t.question ? 'question' : null
+
+  // "Deseas ver sus perfiles?" belongs to the adolescentes bubble: when it's the
+  // tail and that bubble is the last text, send them as the original one bubble.
+  if (tail === 'question' && t.question.joinTo && t.texts[t.texts.length - 1] === t.question.joinTo) {
+    t.question.joinTo.body = `${t.question.joinTo.body} ${t.question.text}`
+    t.question.joined = true
+  }
+  for (const m of t.texts) await sendNow(supabase, lead, m.body, m)
+
+  if (tail === 'link') return sendBookingLinkNow(supabase, lead, t.link)
+  if (tail === 'cards') {
+    // "atienden adolescentes?" in a turn that already shows cards → its profiles
+    // join the block instead of the question.
+    if (t.adolescentes && !t.cards.some((c) => /^hijo_/.test(c.clave || ''))) {
+      t.cards.push({ therapists: await resolveCards(supabase, ADOLESCENTES_CARDS), clave: ADOLESCENTES_CARDS })
+    }
+    // Card-ending answers first (their bubble introduces the block), then the rest
+    // in the order asked; no duplicates; max 4.
+    const ordered = [...t.cards.filter((c) => c.primary), ...t.cards.filter((c) => !c.primary)]
+    const seen = new Set()
+    const therapists = ordered.flatMap((c) => c.therapists).filter((th) => !seen.has(th.id) && seen.add(th.id)).slice(0, MAX_CARDS)
+    const intro = ordered.some((c) => c.noIntro) ? null : (ordered.find((c) => c.intro)?.intro || DEFAULT_CARDS_INTRO)
+    return renderCardsNow(supabase, lead, therapists, { intro })
+  }
+  if (tail === 'question') {
+    const q = t.question
+    if (!q.joined) await sendNow(supabase, lead, q.text)
+    return patchLead(supabase, lead, { last_bot_at: new Date().toISOString(), ...q.patch })
+  }
+}
+
+// A step's question (or closing line). In a turn: only the FIRST one counts, and
+// it's dropped if the turn ends with cards or a link.
+async function question(supabase, lead, text, patch = {}, { joinTo = null } = {}) {
+  if (lead.__turn) {
+    if (!lead.__turn.question) lead.__turn.question = { text, patch, joinTo }
+    return
+  }
+  await sendNow(supabase, lead, text)
+  await patchLead(supabase, lead, { last_bot_at: new Date().toISOString(), ...patch })
 }
 
 // #55 — ONE greeting per conversation, on the bot's first message: "Hola, hablas
@@ -247,7 +313,10 @@ const HOLA_RE = /^hola\s*[!,.]?\s*/i
 async function withGreeting(supabase, lead, body) {
   const rest = String(body).replace(HOLA_RE, '')
   const bare = rest === String(body) ? rest : rest.charAt(0).toUpperCase() + rest.slice(1)
-  if (lead.saludo_enviado || lead.last_bot_at) return bare
+  // #59: eligibility is fixed when the turn starts — the turn's own state
+  // patches (last_bot_at) must not cancel the greeting of its first bubble.
+  const may = lead.__mayGreet ?? !(lead.saludo_enviado || lead.last_bot_at)
+  if (!may) return bare
   return (await claimOnce(supabase, lead, 'saludo_enviado')) ? `${GREETING}${bare}` : bare
 }
 
@@ -271,9 +340,10 @@ async function claimOnce(supabase, lead, col) {
 }
 
 // A step's question: send it and remember it as the pending question.
+// `extra` (who / category facts) is saved now; the step itself only if asked.
 async function ask(supabase, lead, text, step, extra = {}) {
-  await txt(supabase, lead, text)
-  await patchLead(supabase, lead, { step_actual: step, last_bot_text: text, last_bot_at: new Date().toISOString(), parse_misses: 0, ...extra })
+  if (Object.keys(extra).length) await patchLead(supabase, lead, { ...extra })
+  await question(supabase, lead, text, { step_actual: step, last_bot_text: text, parse_misses: 0 })
 }
 
 // Fire-and-forget heads-up to Nicolás (owner push, no bot pause). Used by the
@@ -349,8 +419,14 @@ const CANNED = {
   seguros: { end: 'invite', bubbles: [
     { text: 'Muchos seguros privados reembolsan la terapia según tu plan. Bupa y Humana reembolsan hasta el 80%, con un tope anual según tu plan. Saludsa y Ecuasanitas también cubren por reembolso. Te damos la factura con el formato que piden y te ayudamos con el trámite.' },
   ] },
-  adolescentes: { end: 'invite_custom', categoria: 'hijo', bubbles: [
-    { text: 'Sí, tenemos varios psicólogos expertos en terapia juvenil. Deseas ver sus perfiles?' },
+  // #59: the closing question is the turn's tail — dropped when the turn shows
+  // cards; "si" to it → the adolescent cards (hijo_adolescente).
+  adolescentes: { end: 'invite_custom', categoria: 'hijo_adolescente', bubbles: [
+    { text: 'Sí, tenemos varios psicólogos expertos en terapia juvenil.', question: 'Deseas ver sus perfiles?' },
+  ] },
+  // #59 — family therapy (Nicolás, 7 Oct): its bubble introduces the cards.
+  familia: { end: 'cards', categoria: 'terapia_familiar', noIntro: true, bubbles: [
+    { text: 'Aquí te adjunto los perfiles de los profesionales que trabajan terapia familiar.' },
   ] },
   duracion: { end: 'invite', bubbles: [
     { text: 'Las sesiones individuales duran una hora. La frecuencia puede ser cada 7 o cada 15 días, según tu preferencia y la recomendación del psicólogo después de tu primera sesión' },
@@ -382,31 +458,50 @@ async function markPrecioVisto(supabase, lead) {
 }
 
 // Just the bubbles of a canned answer (no tail). Returns the answer's `end`.
+// #59: remembered in leads.canned_enviados; the code paths that would re-send an
+// answer on their own (chooseQuien 'pareja') skip one already sent. Intents from
+// the classifier are always sent — Claude only repeats one when it's asked again.
 async function sendBubbles(supabase, lead, key) {
   const c = CANNED[key]
   if (c.categoria) await patchLead(supabase, lead, { categoria: c.categoria })
   if (PRICE_CANNED.has(key)) await markPrecioVisto(supabase, lead)
-  for (const b of c.bubbles) await txt(supabase, lead, b.text, { previewUrl: !!b.preview })
-  await patchLead(supabase, lead, { last_bot_at: new Date().toISOString() })
-  if (c.end === 'invite_custom') {
-    // The last bubble IS the invitation question.
-    await claimOnce(supabase, lead, 'invitacion_enviada')
-    await patchLead(supabase, lead, { step_actual: 'answered', last_bot_text: c.bubbles[c.bubbles.length - 1].text })
+  for (const b of c.bubbles) {
+    await txt(supabase, lead, b.text, { previewUrl: !!b.preview })
+    if (b.question) {
+      // The bubble's closing question is the turn's tail (dropped if cards show).
+      const joinTo = lead.__turn ? lead.__turn.texts[lead.__turn.texts.length - 1] : null
+      if (lead.__turn && key === 'adolescentes') lead.__turn.adolescentes = true
+      await claimOnce(supabase, lead, 'invitacion_enviada')
+      await question(supabase, lead, b.question, { step_actual: 'answered', last_bot_text: `${b.text} ${b.question}`, parse_misses: 0 }, { joinTo })
+    }
   }
+  const sent = Array.isArray(lead.canned_enviados) ? lead.canned_enviados : []
+  await patchLead(supabase, lead, { last_bot_at: new Date().toISOString(), ...(sent.includes(key) ? {} : { canned_enviados: [...sent, key] }) })
   return c.end
 }
 
 // One canned answer + its tail (the single-answer path: chooseQuien 'pareja').
+// An answer already sent in this conversation isn't repeated — only its tail runs.
 async function sendCanned(supabase, lead, key) {
-  return finishAnswers(supabase, lead, [await sendBubbles(supabase, lead, key)])
+  if ((lead.canned_enviados || []).includes(key)) return finishAnswers(supabase, lead, [key])
+  await sendBubbles(supabase, lead, key)
+  return finishAnswers(supabase, lead, [key])
 }
 
-// Run the tail of one or more canned answers ONCE: a handoff wins; then cards;
-// then (if any answer asked for it) the one-time invitation — or, when the lead
-// is already mid-flow, the step's pending question again.
-async function finishAnswers(supabase, lead, ends) {
+// Run the tail of one or more canned answers ONCE: a handoff wins; then cards
+// (every card-ending answer joins the turn's one card block); then (if any
+// answer asked for it) the one-time invitation — or, when the lead is already
+// mid-flow, the step's pending question again.
+async function finishAnswers(supabase, lead, keys) {
+  const ends = keys.map((k) => CANNED[k].end)
   if (ends.includes('handoff')) return escalate(supabase, lead, 'objecion_precio') // line sent; Nicolás negotiates
-  if (ends.includes('cards')) return showCards(supabase, lead, 'terapia_pareja') // pareja → Carolina, no invitation
+  if (ends.includes('cards')) {
+    for (const k of keys) {
+      const c = CANNED[k]
+      if (c.end === 'cards') await showCards(supabase, lead, c.categoria, { primary: true, noIntro: !!c.noIntro })
+    }
+    return
+  }
   if (!ends.includes('invite')) return
   if (!inFlow(lead)) {
     if (await sendInvitationOnce(supabase, lead)) return
@@ -437,6 +532,7 @@ function classifyKeywords(text, { step } = {}) {
   if (has(/seguro|aseguradora|reembolso|cobertura/)) add('seguros')
   if (has(/tarjeta|transferencia|pagar|paquete/)) add('pago')
   if (has(/\bdura\b|duraci[oó]n|frecuencia|cada cu[aá]nto/)) add('duracion')
+  if (has(/familia|familiar/)) add('familia')
   if (has(/pareja|espos[oa]|novi[oa]|matrimonio/) && has(/terapia|sesi[oó]n|juntos|los dos|ambos|busco|pareja y yo/)) add('pareja')
   else if (/\b(en pareja|mi pareja y yo|para los dos|para ambos)\b/.test(n)) add('quien_pareja')
   const askingWho = !step || step === 'quien' || step === 'answered'
@@ -549,8 +645,7 @@ async function showReasonList(supabase, lead) {
 const QUIEN_Q = 'Cuéntame, para quién buscas empezar terapia? Para ti, en pareja o para tu hijo/a?'
 async function showQuien(supabase, lead) {
   await advanceStage(supabase, lead, 'toco')
-  await txt(supabase, lead, QUIEN_Q) // greeted by txt() only if it's the first message
-  await patchLead(supabase, lead, { step_actual: 'quien', last_bot_text: QUIEN_Q, last_bot_at: new Date().toISOString(), parse_misses: 0 })
+  await ask(supabase, lead, QUIEN_Q, 'quien') // greeted only if it's the first message
 }
 
 async function chooseQuien(supabase, lead, who) {
@@ -579,8 +674,9 @@ async function chooseEdad(supabase, lead, key) {
   if (!e) return askEdad(supabase, lead)
   await advanceStage(supabase, lead, 'toco')
   await patchLead(supabase, lead, { quien: 'hijo', categoria: e.clave })
-  return renderCards(supabase, lead, await resolveCards(supabase, e.clave), { intro: e.intro })
+  return renderCards(supabase, lead, await resolveCards(supabase, e.clave), { intro: e.intro, clave: e.clave })
 }
+const ADOLESCENTES_CARDS = 'hijo_adolescente'
 
 // The bookable therapist pool (recibe_nuevos + active), with the fields cards +
 // matching need.
@@ -613,13 +709,19 @@ function captionSansEnfoque(caption) {
 }
 
 // Render the resolved therapist cards: photo + name + caption + the gendered
-// line. No button — the lead answers with a name (elige_terapeuta).
-async function renderCards(supabase, lead, therapists, { intro } = {}) {
+// line. No button — the lead answers with a name (elige_terapeuta). In a turn
+// (#59) the request joins the turn's single card block (endTurn renders it).
+const DEFAULT_CARDS_INTRO = 'Aquí tienes a los profesionales especializados en tu motivo de consulta.'
+async function renderCards(supabase, lead, therapists, { intro, clave = null, primary = false, noIntro = false } = {}) {
   if (!therapists.length) {
     await txt(supabase, lead, 'En este momento no tengo terapeutas disponibles para ese tema. Escríbenos y te ayudamos directamente.')
     return escalate(supabase, lead, 'sin_terapeutas')
   }
-  await txt(supabase, lead, intro || 'Aquí tienes a los profesionales especializados en tu motivo de consulta.')
+  if (lead.__turn) { lead.__turn.cards.push({ therapists, intro, clave, primary, noIntro }); return }
+  return renderCardsNow(supabase, lead, therapists, { intro: noIntro ? null : intro || DEFAULT_CARDS_INTRO })
+}
+async function renderCardsNow(supabase, lead, therapists, { intro } = {}) {
+  if (intro) await sendNow(supabase, lead, intro)
   for (const t of therapists) {
     const line = t.genero === 'M' ? '*Puedes agendar una llamada gratuita para conocerlo*' : '*Puedes agendar una llamada gratuita para conocerla*'
     const caption = captionSansEnfoque(t.funnel_caption)
@@ -635,9 +737,9 @@ async function renderCards(supabase, lead, therapists, { intro } = {}) {
   })
 }
 
-async function showCards(supabase, lead, clave) {
+async function showCards(supabase, lead, clave, opts = {}) {
   const cards = await resolveCards(supabase, clave)
-  return renderCards(supabase, lead, cards)
+  return renderCards(supabase, lead, cards, { clave, ...opts })
 }
 
 // A reason was chosen (detected). Special reasons branch off; the rest show cards.
@@ -755,6 +857,10 @@ async function resolveTherapistByName(supabase, nameText) {
 // (sendLinkText skips the sanitizer). The link goes on its own line.
 export const LINK_COPY = 'Aquí te dejo el link para agendar la llamada gratuita. Escoge el día y hora que prefieras, el terapeuta te contactará vía whatsapp al momento de la llamada.\nGracias por la confianza❤️‍🩹'
 async function sendBookingLink(supabase, lead, therapistId) {
+  if (lead.__turn) { lead.__turn.link = therapistId; return }
+  return sendBookingLinkNow(supabase, lead, therapistId)
+}
+async function sendBookingLinkNow(supabase, lead, therapistId) {
   await tx.sendLinkText(lead.phone, `${await withGreeting(supabase, lead, LINK_COPY)}\n${freeCallLink(therapistId)}`)
   lead.__sent = (lead.__sent || 0) + 1
   await patchLead(supabase, lead, { step_actual: 'link_enviado', last_bot_text: null, last_bot_at: new Date().toISOString(), parse_misses: 0 })
@@ -827,14 +933,8 @@ function pendingQuestion(lead) {
 // for a fresh lead; after the link / booking → a short "Con gusto!".
 async function askPending(supabase, lead) {
   const q = pendingQuestion(lead)
-  if (q) {
-    await txt(supabase, lead, lead.step_actual === 'reasons' ? 'Qué te trae a terapia?' : q)
-    return patchLead(supabase, lead, { last_bot_at: new Date().toISOString() })
-  }
-  if (['link_enviado', 'agendado'].includes(lead.step_actual)) {
-    await txt(supabase, lead, 'Con gusto!')
-    return patchLead(supabase, lead, { last_bot_at: new Date().toISOString() })
-  }
+  if (q) return question(supabase, lead, lead.step_actual === 'reasons' ? 'Qué te trae a terapia?' : q)
+  if (['link_enviado', 'agendado'].includes(lead.step_actual)) return question(supabase, lead, 'Con gusto!')
   return showQuien(supabase, lead)
 }
 
@@ -925,7 +1025,7 @@ function typedTemplateReply(lead, text) {
 // Deterministic rules first (prefills, typed template replies), then Claude
 // classifies into ordered intents (keyword fallback if the model is down), a
 // named therapist found deterministically is merged in, and runIntents answers.
-async function handleFreeText(supabase, lead, text, { firstTouch = false } = {}) {
+async function handleFreeText(supabase, lead, text, { firstTouch = false, nMsgs = 1 } = {}) {
   const typed = typedTemplateReply(lead, text)
   if (typed) {
     await logDecision(supabase, lead, { text, accion: 'responder', motivo: `plantilla_texto:${typed}`, reply: null, model: 'regla' })
@@ -940,7 +1040,7 @@ async function handleFreeText(supabase, lead, text, { firstTouch = false } = {})
   const history = await recentInbound(supabase, lead.phone)
   // Safety nets — heads-up to Nicolás; they don't change what the bot replies.
   await maybeReengagePush(supabase, lead)
-  await maybeStuckPush(supabase, lead, history)
+  await maybeStuckPush(supabase, lead, history.slice(nMsgs - 1)) // a merged turn counts once
 
   // (0) Ad prefills / "más información" — fixed rules, no model.
   const pre = prefillKind(text)
@@ -961,7 +1061,8 @@ async function handleFreeText(supabase, lead, text, { firstTouch = false } = {})
   let d = null
   try {
     d = await decideFreeText({
-      history: history.slice(0, -1).slice(-8),
+      history: history.slice(0, -nMsgs).slice(-8),
+      yaRespondidos: lead.canned_enviados || [],
       step: lead.step_actual,
       pregunta: pendingQuestion(lead),
       ofrecidos: await offeredNames(supabase, lead),
@@ -1010,7 +1111,7 @@ async function handleFreeText(supabase, lead, text, { firstTouch = false } = {})
 
 function mergeNamed(intents, named) {
   if (!named || intents.some((i) => i.intent === 'elige_terapeuta')) return intents
-  return [...intents.filter((i) => i.intent !== 'agendar'), { intent: 'elige_terapeuta', valor: `${named.nombre} ${named.apellido}` }].slice(-3)
+  return [...intents.filter((i) => i.intent !== 'agendar'), { intent: 'elige_terapeuta', valor: `${named.nombre} ${named.apellido}` }].slice(-4)
 }
 
 // Act on the ordered intents. CANNED answers go out in the lead's order (one
@@ -1021,16 +1122,20 @@ function mergeNamed(intents, named) {
 const FLOW_ORDER = ['elige_terapeuta', 'edad', 'quien_hijo', 'quien_pareja', 'quien_yo', 'afirmativo', 'negativo', 'motivo', 'agendar']
 const PROMPT_MODE = { reasons: 'motivo', diagnostico_prompt: 'diagnostico', varios_prompt: 'varios' }
 async function runIntents(supabase, lead, text, intents, { named = null } = {}) {
-  const ends = []
+  const answered = []
   for (const i of intents) {
-    if (CANNED[i.intent]) ends.push(await sendBubbles(supabase, lead, i.intent))
+    if (CANNED[i.intent] && !answered.includes(i.intent)) {
+      await sendBubbles(supabase, lead, i.intent)
+      answered.push(i.intent)
+    }
     if (lead.bot_paused) return
   }
+  const ends = answered.map((k) => CANNED[k].end)
   const flow = FLOW_ORDER.map((k) => intents.find((i) => i.intent === k)).find(Boolean)
   const mode = PROMPT_MODE[lead.step_actual]
 
   // Answers that end in a handoff or Carolina's cards win over any flow step.
-  if (ends.includes('handoff') || ends.includes('cards')) return finishAnswers(supabase, lead, ends)
+  if (ends.includes('handoff') || ends.includes('cards')) return finishAnswers(supabase, lead, answered)
 
   if (flow) {
     const done = await runFlow(supabase, lead, text, flow, intents, { named, mode })
@@ -1039,7 +1144,7 @@ async function runIntents(supabase, lead, text, intents, { named = null } = {}) 
     // A prompt step answered with a description the classifier didn't tag.
     return matchFlow(supabase, lead, text, mode)
   }
-  if (ends.length) return finishAnswers(supabase, lead, ends)
+  if (ends.length) return finishAnswers(supabase, lead, answered)
   return askPending(supabase, lead) // saludo / gracias / nothing actionable
 }
 
@@ -1056,7 +1161,7 @@ async function runFlow(supabase, lead, text, flow, intents, { named, mode }) {
     }
     case 'edad': {
       const n = parseInt(String(flow.valor || '').match(/\d{1,2}/)?.[0] || '', 10)
-      const forKid = step === 'edad' || lead.quien === 'hijo' || intents.some((i) => i.intent === 'quien_hijo')
+      const forKid = step === 'edad' || lead.quien === 'hijo' || intents.some((i) => i.intent === 'quien_hijo' || i.intent === 'adolescentes')
       if (Number.isFinite(n) && forKid) return chooseEdad(supabase, lead, edadKey(n))
       if (intents.some((i) => i.intent === 'quien_hijo')) return chooseQuien(supabase, lead, 'hijo')
       return false
@@ -1124,16 +1229,31 @@ async function firstSessionInterest(supabase, lead) {
   } catch (e) { console.warn('[bot] first-session push failed:', e.message) }
 }
 
+// #59 — the inbound messages of one turn (oldest first) as ONE message: audio or
+// an unreadable message still goes to a person; texts are joined with line
+// breaks, in order; anything else (stickers…) → the first one.
+export function mergeMessages(msgs) {
+  const list = (msgs || []).filter(Boolean)
+  const special = list.find((m) => m.type === 'audio') || list.find((m) => m.type === 'unsupported')
+  if (special) return special
+  const texts = list.filter((m) => m.type === 'text' && m.text?.body)
+  if (!texts.length) return list[0] || null
+  if (texts.length === 1) return texts[0]
+  return { ...texts[texts.length - 1], text: { body: texts.map((m) => m.text.body.trim()).join('\n') }, __n: texts.length }
+}
+
 // Entry point, called from the webhook (taps, inline) and the background function
 // (free text / media). Self-gates on LEAD_BOT_LIVE + bot_paused. Never throws.
 // ZERO SILENCE (#54): a turn that ends with no send and no derivation — or that
 // crashes before sending — derives to Nicolás with motivo 'sin_respuesta'.
-export async function runBot(supabase, { lead, isNew, msg }) {
+export async function runBot(supabase, { lead, isNew, msg, msgs = null }) {
   if (!lead || lead.bot_paused) return
   if (!botAllowedForPhone(lead.phone, lead)) return
+  if (msgs) msg = mergeMessages(msgs)
   lead.__sent = 0
   lead.__derived = false
   let err = null
+  beginTurn(lead)
   try {
     const tap = extractTap(msg)
     if (!isNew && lead.nudges_sent > 0) await patchLead(supabase, lead, { nudges_sent: 0 })
@@ -1151,7 +1271,7 @@ export async function runBot(supabase, { lead, isNew, msg }) {
     }
     else if (tap) await handleTap(supabase, lead, tap)
     else if (msg?.type === 'text' && msg.text?.body) {
-      await handleFreeText(supabase, lead, msg.text.body, { firstTouch: isNew || !lead.step_actual })
+      await handleFreeText(supabase, lead, msg.text.body, { firstTouch: isNew || !lead.step_actual, nMsgs: msg.__n || 1 })
     } else {
       // Any other inbound (sticker/reaction/etc) → the pending question.
       await askPending(supabase, lead)
@@ -1160,6 +1280,12 @@ export async function runBot(supabase, { lead, isNew, msg }) {
     err = e
     console.warn('[bot] runBot failed (non-blocking):', e.message)
   }
+  try { await endTurn(supabase, lead) } catch (e) {
+    err = err || e
+    lead.__turn = null
+    console.warn('[bot] endTurn failed (non-blocking):', e.message)
+  }
+  lead.__mayGreet = undefined
   if (!lead.__sent && !lead.__derived && !lead.bot_paused) {
     const text = msg?.text?.body || extractTap(msg)?.title || `[${msg?.type || 'desconocido'}]`
     console.warn(`[bot] lead ${lead.id} turn ended silent${err ? ` (error: ${err.message})` : ''} → derive sin_respuesta`)

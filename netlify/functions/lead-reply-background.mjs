@@ -5,24 +5,21 @@
 // so the webhook can answer Meta with a 200 instantly while the bot classifies
 // (Claude) and replies to a lead's FREE-TEXT message.
 //
-// #54: NO artificial delay (REPLY_DELAY_MS = 0 — only the processing time) and NO
-// burst coalescing: two messages seconds apart are each answered on their own;
-// the once-per-conversation tail (the invitation) is guarded by an atomic claim in
-// leadBot, so it never repeats. (Coalescing also folded tap titles like
-// "Mi hijo/a" into the next typed text and misclassified it — gone with it.)
+// #59 (replaces #54's "no delay"): the webhook queues each message in lead_inbox
+// and wakes this function; processInbox (netlify/lib/leadTurns.mjs) waits until
+// 4 s pass with no new message from that lead, then answers ALL the unanswered
+// messages as ONE turn, one turn per lead at a time (leads.turn_lock_at).
 //
-// Invoked by whatsapp-cloud-webhook.mjs with { phone, msg, isNew } and the shared
+// Invoked by whatsapp-cloud-webhook.mjs with { phone, leadId } and the shared
 // verify token in `x-lead-verify` (same secret both functions already hold, so no
 // new env var and no open relay that could make the bot send arbitrary messages).
+// A legacy body { phone, msg, isNew } (in flight during a deploy) is queued here.
 //
 // Env: SUPABASE_SERVICE_KEY, WA_CLOUD_VERIFY_TOKEN, WA_DUALHOOK_API_KEY,
 //      ANTHROPIC_API_KEY, LEAD_BOT_LIVE / LEAD_BOT_TEST_PHONES.
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
-import { runBot } from '../lib/leadBot.mjs'
-
-const REPLY_DELAY_MS = 0 // #54 — no artificial wait
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+import { enqueueInbound, processInbox } from '../lib/leadTurns.mjs'
 
 export default async (req) => {
   if (req.method !== 'POST') return new Response('method not allowed', { status: 405 })
@@ -35,22 +32,24 @@ export default async (req) => {
 
   let body
   try { body = await req.json() } catch { return new Response('bad body', { status: 400 }) }
-  const { phone, msg, isNew } = body || {}
-  if (!phone || !msg) return new Response('missing phone/msg', { status: 400 })
+  const { phone, leadId, msg, isNew } = body || {}
+  if (!phone && !leadId) return new Response('missing phone/leadId', { status: 400 })
 
   const supabase = getSupabaseAdmin()
   if (!supabase) { console.error('[lead-bg] no SUPABASE_SERVICE_KEY'); return new Response('ok', { status: 200 }) }
 
-  if (REPLY_DELAY_MS > 0) await sleep(REPLY_DELAY_MS)
-
-  const { data: lead } = await supabase.from('leads').select('*').eq('phone', phone).maybeSingle()
-  if (!lead) { console.warn(`[lead-bg] no lead for ${phone}`); return new Response('ok', { status: 200 }) }
-  if (lead.bot_paused) return new Response('ok', { status: 200 })
+  let id = leadId
+  if (!id) {
+    const { data: lead } = await supabase.from('leads').select('id').eq('phone', phone).maybeSingle()
+    if (!lead) { console.warn(`[lead-bg] no lead for ${phone}`); return new Response('ok', { status: 200 }) }
+    id = lead.id
+    if (msg) await enqueueInbound(supabase, { lead, msg, isNew })
+  }
 
   try {
-    await runBot(supabase, { lead, isNew: !!isNew, msg })
+    await processInbox(supabase, id)
   } catch (e) {
-    console.warn('[lead-bg] runBot failed (non-blocking):', e.message)
+    console.warn('[lead-bg] processInbox failed (non-blocking):', e.message)
   }
   return new Response('ok', { status: 200 })
 }

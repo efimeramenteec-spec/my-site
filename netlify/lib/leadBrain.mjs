@@ -47,7 +47,7 @@ const TIMEOUT_MS = 8000
 // The reason claves the model may attach to an answer (must mirror funnel_categorias).
 const CATEGORIA_CLAVES = [
   'hijo', 'ruptura', 'problemas_pareja', 'depresion_ansiedad', 'consumo',
-  'terapia_pareja', 'diagnostico', 'trauma', 'varios', 'otro', '',
+  'terapia_pareja', 'terapia_familiar', 'diagnostico', 'trauma', 'varios', 'otro', '',
 ]
 
 const STEP_ES = {
@@ -89,14 +89,14 @@ export async function buildFactSheet(supabase) {
 }
 
 // #54 — Claude ONLY CLASSIFIES. It returns an ordered list of `intents` (the
-// lead's order, no duplicates, max 3); the code answers each with Nicolás's
+// lead's order, no duplicates, max 4); the code answers each with Nicolás's
 // verbatim CANNED copy or runs the step the old button tap ran. There is no
 // "libre" any more: a question no CANNED answer covers is DERIVED to Nicolás —
 // the model never composes text for a lead (except the urgent containment line).
 // Keep the CANNED keys in sync with leadBot's CANNED.
 export const CANNED_INTENTS = [
   'precio', 'ubicacion', 'saludsa', 'seguros', 'adolescentes', 'duracion',
-  'horarios', 'psiquiatra', 'pareja', 'pago', 'objecion_precio',
+  'horarios', 'psiquiatra', 'pareja', 'familia', 'pago', 'objecion_precio',
 ]
 const FLOW_INTENTS = [
   'afirmativo', 'negativo', 'quien_yo', 'quien_pareja', 'quien_hijo', 'edad',
@@ -104,7 +104,11 @@ const FLOW_INTENTS = [
 ]
 const INTENTS = [...CANNED_INTENTS, ...FLOW_INTENTS]
 
-const SYSTEM_RULES = `Eres el clasificador del WhatsApp de Efimeramente, un consultorio de psicología en Cumbayá (Ecuador). Un posible paciente que llegó por un anuncio escribe TEXTO LIBRE. Tu ÚNICO trabajo es CLASIFICAR el mensaje: devolver la lista de "intents" que contiene (en el orden en que los escribió, sin repetir, máximo 3) y decidir si el sistema "responde" o "deriva" a una persona. NUNCA escribes la respuesta: el sistema envía textos ya redactados o ejecuta el paso del flujo.
+const SYSTEM_RULES = `Eres el clasificador del WhatsApp de Efimeramente, un consultorio de psicología en Cumbayá (Ecuador). Un posible paciente que llegó por un anuncio escribe TEXTO LIBRE. Tu ÚNICO trabajo es CLASIFICAR el mensaje: devolver la lista de "intents" que contiene (en el orden en que los escribió, sin repetir, máximo 4) y decidir si el sistema "responde" o "deriva" a una persona. NUNCA escribes la respuesta: el sistema envía textos ya redactados o ejecuta el paso del flujo.
+
+MENSAJES SEGUIDOS: si el cliente mandó varios mensajes seguidos, llegan juntos en el MENSAJE ACTUAL, uno por línea. Clasifícalos como UN solo turno.
+
+YA RESPONDIDO: recibes la lista de respuestas fijas que ya se le enviaron en esta conversación. NO vuelvas a poner un intent solo porque aparece en los mensajes anteriores. Si en el MENSAJE ACTUAL vuelve a preguntar algo ya respondido, usa el mismo intent (se le responde de nuevo).
 
 CONTEXTO: recibes el paso actual de la conversación, la ÚLTIMA PREGUNTA que le hizo el sistema y los terapeutas que se le mostraron. Úsalos para entender respuestas cortas: "si", "dale", "claro" responden a la última pregunta; "para mi hijo de 15" responde a "para quién"; "me gustaría con francisco por favor" elige a ese terapeuta.
 
@@ -117,7 +121,8 @@ INTENTS CON RESPUESTA FIJA (una pregunta del cliente):
 - duracion: cuánto dura la sesión o cada cuánto es la frecuencia.
 - horarios: qué días u horas atienden.
 - psiquiatra: si tienen psiquiatra o dan medicación.
-- pareja: busca terapia o sesiones de pareja (los dos juntos), o pregunta por ella.
+- pareja: busca terapia o sesiones de pareja, o pregunta por ella. SOLO para una pareja (dos adultos en una relación). NUNCA para "familia" / "familiar".
+- familia: terapia familiar, dinámicas familiares, padres e hijos juntos ("terapias familiares?", "terapia para toda la familia").
 - pago: cómo o cuándo se paga / formas de pago.
 - objecion_precio: dice que es caro, que no le alcanza, que tiene poco presupuesto.
 
@@ -140,7 +145,7 @@ Si el mensaje trae una pregunta fija Y algo que no cubres, deriva (una persona r
 
 "texto" va SIEMPRE vacío, salvo la línea de contención de una derivación "urgente" (español, tú, sin emojis, sin "¿" ni "¡" de apertura).
 
-CATEGORIA: si del mensaje se entiende el motivo de consulta, ponla (hijo, ruptura, problemas_pareja, depresion_ansiedad, consumo, terapia_pareja, diagnostico, trauma, varios, otro); si no, "".
+CATEGORIA: si del mensaje se entiende el motivo de consulta, ponla (hijo, ruptura, problemas_pareja, depresion_ansiedad, consumo, terapia_pareja, terapia_familiar, diagnostico, trauma, varios, otro); si no, "". Familia/familiar es terapia_familiar, nunca terapia_pareja.
 
 EJEMPLOS:
 - "cuánto cuesta" → responder, [precio]
@@ -148,6 +153,8 @@ EJEMPLOS:
 - "cuánto dura la sesión" → responder, [duracion]
 - "atienden adolescentes?" → responder, [adolescentes], categoria hijo
 - "Busco terapia de pareja" → responder, [pareja], categoria terapia_pareja
+- "hacen terapia familiar?" → responder, [familia], categoria terapia_familiar
+- "Hola ustedes atienden terapia para 16 años manejo de ira ?" + salto de línea + "O terapias familiares ?" → responder, [saludo, adolescentes, edad "16", familia], categoria terapia_familiar
 - "me parece caro" → responder, [objecion_precio]
 - (última pregunta "Te gustaría ver a nuestros terapeutas disponibles?") "si" → responder, [afirmativo]
 - (última pregunta "para quién buscas empezar terapia?") "para mi hijo, tiene 15" → responder, [quien_hijo, edad "15"], categoria hijo
@@ -172,7 +179,7 @@ const TOOL = {
       accion: { type: 'string', enum: ['responder', 'derivar'] },
       intents: {
         type: 'array',
-        maxItems: 3,
+        maxItems: 4,
         description: 'Intents en el orden del mensaje, sin repetir.',
         items: {
           type: 'object',
@@ -195,7 +202,7 @@ const TOOL = {
 // { accion, intents:[{intent, valor}], texto, motivo, categoria, model, latencyMs }
 // or null (API missing/error/timeout → the caller's keyword fallback).
 // `pregunta` = the bot's last question; `ofrecidos` = therapist names on offer.
-export async function decideFreeText({ history, step, pregunta, ofrecidos, text }) {
+export async function decideFreeText({ history, step, pregunta, ofrecidos, text, yaRespondidos = [] }) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return null
 
@@ -205,7 +212,8 @@ export async function decideFreeText({ history, step, pregunta, ofrecidos, text 
     : ''
   const user = `PASO ACTUAL: el cliente ${stepLine}.
 ÚLTIMA PREGUNTA DEL SISTEMA: ${pregunta ? `"${pregunta}"` : '(ninguna)'}
-TERAPEUTAS MOSTRADOS: ${ofrecidos && ofrecidos.length ? ofrecidos.join(', ') : '(ninguno)'}${histBlock}
+TERAPEUTAS MOSTRADOS: ${ofrecidos && ofrecidos.length ? ofrecidos.join(', ') : '(ninguno)'}
+YA RESPONDIDO: ${yaRespondidos.length ? yaRespondidos.join(', ') : '(nada)'}${histBlock}
 
 MENSAJE ACTUAL DEL CLIENTE:
 "${String(text).slice(0, 1000)}"
@@ -218,7 +226,7 @@ Clasifica y llama a la herramienta "clasificar".`
   const intents = (Array.isArray(out.intents) ? out.intents : [])
     .map((i) => (typeof i === 'string' ? { intent: i } : i))
     .filter((i) => i && INTENTS.includes(i.intent) && !seen.has(i.intent) && seen.add(i.intent))
-    .slice(0, 3)
+    .slice(0, 4)
     .map((i) => ({ intent: i.intent, valor: typeof i.valor === 'string' ? i.valor.trim().slice(0, 80) : '' }))
   return {
     accion: out.accion,

@@ -8,6 +8,7 @@
 // and by the token-gated lead-bot-dryrun function (real Claude classifier).
 
 import { runBot, _setTransport, _setHourGYE } from './leadBot.mjs'
+import { enqueueInbound, processInbox, QUIET_MS } from './leadTurns.mjs'
 
 // ── A tiny in-memory PostgREST look-alike (only what the bot uses) ────────────
 function getPath(row, col) {
@@ -96,6 +97,7 @@ const NEW_LEAD = {
   stage: 'nuevo', step_actual: null, bot_paused: false, invitacion_enviada: false, saludo_enviado: false,
   nudges_sent: 0, categoria: null, quien: null, therapist_id: null, last_bot_at: null, last_bot_text: null,
   precio_visto_at: null, eligio_terapeuta_at: null, toco_at: null, stuck_push_at: null, cards_ofrecidas: null,
+  turn_lock_at: null, canned_enviados: [],
   source: 'meta_ctwa', wa_name: 'Prueba Harness',
 }
 
@@ -121,13 +123,18 @@ export async function simulate(seed, scenarios) {
     _setHourGYE(sc.hourGYE ?? null) // pin the GYE hour for the day/night handoff copy
     const turns = []
     let k = 0
-    const one = async (step) => {
+    // #59: free text / media go through the real merge + lock path (lead_inbox →
+    // processInbox); a sequential step needs no quiet wait, a parallel group
+    // waits the real 4 s. Taps stay inline.
+    const one = async (step, quietMs = 0) => {
       const msg = step.tap
         ? { id: `m${n}-${++k}`, from: phone.slice(1), type: 'interactive', interactive: { type: 'button_reply', button_reply: step.tap } }
         : { id: `m${n}-${++k}`, from: phone.slice(1), type: step.type || 'text', ...(step.text != null ? { text: { body: step.text } } : {}) }
       sb.db.whatsapp_messages.push({ id: msg.id, direccion: 'inbound', twilio_sid: msg.id, cuerpo: step.text || step.tap?.title || `[${msg.type}]`, received_at: new Date().toISOString(), raw_payload: { message: msg } })
       const { data: lead } = await sb.from('leads').select('*').eq('phone', phone).maybeSingle()
-      await runBot(sb, { lead, isNew: k === 1, msg })
+      if (step.tap) return runBot(sb, { lead, isNew: k === 1, msg })
+      await enqueueInbound(sb, { lead, msg, isNew: k === 1 })
+      await processInbox(sb, lead.id, { quietMs })
     }
     for (const step of sc.steps) {
       const before = (outbox.get(phone) || []).length
@@ -135,7 +142,7 @@ export async function simulate(seed, scenarios) {
       if (step.parallel) {
         // Seconds apart: both turns start from the DB state before either finishes.
         const runs = []
-        for (const s of step.parallel) { runs.push(one(s)); await new Promise((r) => setTimeout(r, step.gapMs ?? 50)) }
+        for (const s of step.parallel) { runs.push(one(s, QUIET_MS)); await new Promise((r) => setTimeout(r, step.gapMs ?? 50)) }
         await Promise.all(runs)
       } else {
         const { data: cur } = await sb.from('leads').select('bot_paused').eq('phone', phone).maybeSingle()
@@ -207,4 +214,10 @@ export const SCENARIOS = [
   { name: '19. domicilio 15:00', hourGYE: 15, steps: [{ text: 'hacen visitas a domicilio?' }] },
   { name: '20. domicilio 23:30', hourGYE: 23, steps: [{ text: 'hacen visitas a domicilio?' }] },
   { name: '21. urgente', steps: [{ text: 'quiero hacerme daño' }] },
+  // #59 — one coherent reply per turn + family therapy.
+  { name: '22. adolescente 16 + familiar, 2 s aparte', steps: [{ parallel: [{ text: 'Hola ustedes atienden terapia para 16 años manejo de ira ?' }, { text: 'O terapias familiares ?' }], gapMs: 2000 }] },
+  { name: '23. adolescentes solo → si', steps: [{ text: 'atienden adolescentes?' }, { text: 'si' }] },
+  { name: '24. cuánto cuesta dos veces (turnos separados)', steps: [{ text: 'cuánto cuesta?' }, { text: 'cuánto cuesta?' }] },
+  { name: '25. precio dos veces en el mismo turno', steps: [{ parallel: [{ text: 'cuánto cuesta?' }, { text: 'cuál es el precio de la sesión?' }], gapMs: 1500 }] },
+  { name: '26. 3 mensajes en 5 s', steps: [{ parallel: [{ text: 'Hola' }, { text: 'cuánto cuesta?' }, { text: 'dónde están ubicados?' }], gapMs: 2500 }] },
 ]

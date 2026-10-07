@@ -1,5 +1,5 @@
 {
-  "_fuente": "MAPA DE CASOS — encuesta respondida por el equipo el 27–28 sep 2026. Mariana no responde (solo referidos, nunca se ofrece a leads).",
+  "_fuente": "MAPA DE CASOS — encuesta respondida por el equipo el 27–28 sep 2026. Familias → Carolina ★, Francisco ★ (Nicolás, 7 oct 2026). Mariana no responde (solo referidos, nunca se ofrece a leads).",
   "_escala": { "★": "especialidad", "○": "puede trabajarlo", "✗": "no lo trabaja" },
 
   "siempre_a_nicolas": [
@@ -39,7 +39,7 @@
       },
       "poblaciones": {
         "ninos_hasta_11": "✗", "adolescentes_12_17": "○", "jovenes_adultos_18_25": "★",
-        "adultos": "★", "familias_y_pautas_de_crianza": "○"
+        "adultos": "★", "familias_y_pautas_de_crianza": "★"
       },
       "diagnosticos": {
         "tdah": "○", "autismo": "✗", "toc": "○", "tlp": "○", "bipolar": "✗",
@@ -81,7 +81,7 @@
       },
       "poblaciones": {
         "ninos_hasta_11": "★", "adolescentes_12_17": "★", "jovenes_adultos_18_25": "★",
-        "adultos": "★", "familias_y_pautas_de_crianza": "○"
+        "adultos": "★", "familias_y_pautas_de_crianza": "★"
       },
       "diagnosticos": {
         "tdah": "○", "autismo": "○", "toc": "○", "tlp": "○", "bipolar": "○",

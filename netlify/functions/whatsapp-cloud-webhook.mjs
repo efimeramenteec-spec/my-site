@@ -33,9 +33,10 @@ import { isOwnerPhone, isFacturasCommand, facturaTap, handleFacturasCommand, han
 import { flushOwnerOutbox, supersedeOwnerOutbox } from '../lib/ownerOutbox.mjs'
 import { handleEstadoTap } from '../lib/sesionesPendientes.mjs'
 import { routeOwnerMessage } from '../lib/botTestMode.mjs'
+import { enqueueInbound } from '../lib/leadTurns.mjs'
 
-// Fire the delayed-reply background function (~20s + typing, burst-coalesced) for
-// a lead's free text. Returns fast (Netlify 202s a background invocation). The
+// Wake the reply background function for a lead's queued free text (#59: it waits
+// for 4 s of quiet and answers everything queued as one turn). Returns fast (Netlify 202s a background invocation). The
 // shared verify token gates it so the endpoint can't be abused to make the bot send.
 async function invokeLeadReplyBackground(payload) {
   const base = process.env.URL || 'https://efimeramente-panel.netlify.app'
@@ -335,15 +336,16 @@ export default async (req) => {
                   // Button taps → immediate reply, inline (no delay).
                   await runBot(supabase, { lead, isNew: rec.isNew, msg })
                 } else if (!lead.bot_paused && botAllowedForPhone(lead.phone, lead)) {
-                  // Free text / media → background reply, no artificial delay (#54);
-                  // each message answered on its own. Show "escribiendo…" now
-                  // (text only); the background function classifies + replies,
-                  // so we can 200 Meta fast.
+                  // Free text / media → queued for the lead's next turn (#59):
+                  // messages within 4 s are answered together, one turn at a
+                  // time. Show "escribiendo…" now (text only); the background
+                  // function classifies + replies, so we can 200 Meta fast.
                   if (msg.type === 'text' && msg.id) {
                     try { await sendReadReceipt(msg.id, { typing: true }) }
                     catch (e) { console.warn('[wa-cloud] typing indicator failed (non-blocking):', e.message) }
                   }
-                  await invokeLeadReplyBackground({ phone: lead.phone, msg, isNew: rec.isNew })
+                  await enqueueInbound(supabase, { lead, msg, isNew: rec.isNew })
+                  await invokeLeadReplyBackground({ phone: lead.phone, leadId: lead.id })
                 }
                 // else: dark lead (measurement recorded) — nothing to send.
               }
