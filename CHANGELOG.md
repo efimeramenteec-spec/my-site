@@ -6,6 +6,20 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 Newest first.
 
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-07 (#57/#58) -->
+### 2026-10-05 — #49b Package credit consumed whoever confirms + new credit pays existing debt (executor)
+- Migration `saldo_consume_security_definer` (mirror `supabase/saldo-consume-security-definer.sql`):
+  (a) `consume_saldo_on_confirm()` → SECURITY DEFINER, `search_path = public, pg_temp`, owner postgres; logic unchanged.
+  (b) new `apply_new_saldo_lote()` + AFTER INSERT trigger `apply_new_saldo_lote` on saldo_lotes: pays the patient's
+  confirmada+unpaid+non-llamada sessions oldest fecha first, full coverage only, FIFO lotes; stops at first uncovered.
+  **Guard: skips lotes with proof_id** — proofReconcile.applyPlan inserts its lote FIRST, then draws credit + marks its
+  own sessions; settling there too would double-consume. Only manual inserts (e.g. #51) reach (b).
+  RLS on saldo_lotes unchanged (`saldo_lotes_owner: is_owner()`), therapists still see 0 lotes.
+- Pre-deploy test (migration + test in one aborted tx, as Carolina's JWT, role authenticated): Andrea paid, lote 101→62;
+  no credit → unchanged; proof_id lote → nothing paid; $20 lote < $35 → nothing; +$15 → paid, both lotes → 0; 0 negative.
+- Deploy changed no lote (16 matched snapshot). (c) settled via no-op `estado='confirmada'` update (trigger, not by hand):
+  Andrea 1 Oct $39 (lote f0b7af8c 101→62), Luis 2 Oct $35 (lote 14db84f9 50→15). Re-scan: 0 left.
+- Shyam lote af4ba5c9 is 35 (not 70): his 6 Oct session was confirmed 19:49 UTC pre-deploy and paid from credit — correct.
+
 ### 2026-10-05 — #50 Marthin Spatz billed to Shariam Narváez + #51 Valentina Yanchaluiza 4-pack (executor, data-only)
 - #50: new `payers` row 4d0597f1-0b09-4bd9-babb-d0b41c68201a (Shariam Alexandra Narváez Celi, cédula =
   contifico_id 1722319439, tel +593995879307); patient 6f9b2b87 → payer_id set, nombre 'Sharian'→'Shariam'

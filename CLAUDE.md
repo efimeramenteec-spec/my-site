@@ -298,6 +298,11 @@ only SENDS when `LEAD_BOT_LIVE=true`. See `EFIMERAMENTE_STATE.md` for the go-liv
   required for T2** — absent ⇒ silent keyword fallback. Fact sheet editable in Marketing → Configuración
   ("Hoja de datos"); it deliberately excludes home visits (those derive to Nicolás). Migration
   `supabase/lead-funnel-04-knowledge.sql`.
+- **Turns (#59, 2026-10-07):** free text is queued in `lead_inbox` and answered by `lead-reply-background` →
+  `netlify/lib/leadTurns.mjs#processInbox`: 4 s of quiet → ALL queued messages = ONE turn, one turn per lead
+  (`leads.turn_lock_at`). Inside `runBot` every send is buffered (`beginTurn`/`endTurn`): texts, then at most ONE
+  tail — link > one card block (≤4, merged) > one question. New sends in a turn must go through `txt`/`question`/
+  `renderCards`/`sendBookingLink`, never `tx.*` directly. CANNED already sent → `leads.canned_enviados`.
 - **`netlify/lib/waSend.mjs`** — Cloud-API session sends (text, reply buttons, list, image cards) via
   Dualhook, valid inside the free 72h CTWA window ($0). Templates live in **`netlify/lib/leadTemplates.mjs`**
   (recordatorio_llamada, resultado_llamada, rebook_llamada, primera_sesion + submit/send).

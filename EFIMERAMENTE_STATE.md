@@ -103,6 +103,30 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-07 — #59 Turnos coherentes + terapia familiar (executor, 5d5c3e3)
+Evidence: lead +59398590… sent "atienden terapia para 16 años manejo de ira ?" + "O terapias familiares ?" 2 s apart →
+two PARALLEL turns: question + cards in turn 1; turn 2 repeated adolescentes and answered FAMILY with the COUPLES canned.
+- **MERGE + LOCK** (`netlify/lib/leadTurns.mjs`): the webhook queues every free-text/media inbound in **`lead_inbox`**
+  (`enqueueInbound`, unique wamid) and wakes `lead-reply-background` with `{phone, leadId}`; `processInbox` waits until
+  `QUIET_MS`=4 s pass with no new inbound from that lead, takes the **`leads.turn_lock_at`** lock (stale after 2 min),
+  claims ALL unanswered rows and calls `runBot({msgs})` → `mergeMessages` joins texts with `\n` (audio/unsupported win).
+  Losers exit; the holder loops back for messages that arrived during its turn. Taps stay inline. Replaces #54's "no delay".
+- **ONE REPLY PER TURN** (`leadBot.mjs` `beginTurn`/`endTurn`): every send in a turn is buffered; `endTurn` sends texts
+  in order then AT MOST ONE tail: link > one card block > one question (`question()` keeps the first only; `ask`,
+  `showQuien`, `askPending` go through it). Card requests merge: card-ending CANNED first (their bubble introduces the
+  block), then the rest in order, no dups, max 4. Greeting eligibility is snapshotted at turn start (`lead.__mayGreet`).
+- CANNED `adolescentes`: the sentence "Deseas ver sus perfiles?" is now a `question` field — dropped when the turn shows
+  cards, otherwise re-joined into the original single bubble. Its categoria is now `hijo_adolescente`, so "si" → cards
+  (was the age question). In a card turn its profiles (hijo_adolescente) join the block.
+- **NO REPEATS:** `leads.canned_enviados text[]`; sent to Claude as "YA RESPONDIDO" (re-tag only if asked again in the
+  current message); `sendCanned` (chooseQuien pareja) skips an answer already sent. Duplicate intents in a turn are deduped.
+- **FAMILY:** CANNED `familia` (end cards, `noIntro`, categoria `terapia_familiar`); `funnel_categorias` row
+  `terapia_familiar` = [Carolina, Francisco]; leadBrain intent `familia`, `pareja` only for couples; max intents 3→4;
+  keyword fallback catches "familia/familiar". `mapaCasos.json` familias → Carolina ★, Francisco ★.
+- Migration `supabase/lead-funnel-12-turnos.sql` (applied via execute_sql — `apply_migration` errored "Invalid or
+  expired requestState"). Dry-run scenarios 22–26 added to `leadBotSim.mjs` (parallel groups use the real inbox path
+  with a 4 s quiet; sequential steps quiet 0). Real-Claude dry run: all VERIFY cases pass, 1–21 unchanged, 0 silences.
+
 ### 2026-10-07 — #58 "Mensaje no disponible" → handoff silencioso a Nicolás (executor, e441d2f)
 - ~1.4% of inbounds arrive `message.type='unsupported'` + `errors[0].code=131060` (text never reaches the API,
   though Nicolás sees it in the app). Before: runBot fell into `askPending` (lead e4f6ecd6 got "para quién"
@@ -259,20 +283,6 @@ next typed text (lead b64e16df: "Mi hijo/a\n24" → classified `agendar` → res
   therapists get the push. Harness `scripts/harness-sesiones-pendientes.mjs` 14/14 PASS.
 - First run Tue 6 Oct 08:30: Sophia (Cecilia Saltos + Valentina Loor, 2 Oct) + Mariana (3 Oct), plus any 5 Oct session
   still Pendiente at run time.
-
-### 2026-10-05 — #49b Package credit consumed whoever confirms + new credit pays existing debt (executor)
-- Migration `saldo_consume_security_definer` (mirror `supabase/saldo-consume-security-definer.sql`):
-  (a) `consume_saldo_on_confirm()` → SECURITY DEFINER, `search_path = public, pg_temp`, owner postgres; logic unchanged.
-  (b) new `apply_new_saldo_lote()` + AFTER INSERT trigger `apply_new_saldo_lote` on saldo_lotes: pays the patient's
-  confirmada+unpaid+non-llamada sessions oldest fecha first, full coverage only, FIFO lotes; stops at first uncovered.
-  **Guard: skips lotes with proof_id** — proofReconcile.applyPlan inserts its lote FIRST, then draws credit + marks its
-  own sessions; settling there too would double-consume. Only manual inserts (e.g. #51) reach (b).
-  RLS on saldo_lotes unchanged (`saldo_lotes_owner: is_owner()`), therapists still see 0 lotes.
-- Pre-deploy test (migration + test in one aborted tx, as Carolina's JWT, role authenticated): Andrea paid, lote 101→62;
-  no credit → unchanged; proof_id lote → nothing paid; $20 lote < $35 → nothing; +$15 → paid, both lotes → 0; 0 negative.
-- Deploy changed no lote (16 matched snapshot). (c) settled via no-op `estado='confirmada'` update (trigger, not by hand):
-  Andrea 1 Oct $39 (lote f0b7af8c 101→62), Luis 2 Oct $35 (lote 14db84f9 50→15). Re-scan: 0 left.
-- Shyam lote af4ba5c9 is 35 (not 70): his 6 Oct session was confirmed 19:49 UTC pre-deploy and paid from credit — correct.
 
 ## Pending / Backlog
 
