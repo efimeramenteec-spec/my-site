@@ -103,6 +103,30 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-07 — #58 "Mensaje no disponible" → handoff silencioso a Nicolás (executor, e441d2f)
+- ~1.4% of inbounds arrive `message.type='unsupported'` + `errors[0].code=131060` (text never reaches the API,
+  though Nicolás sees it in the app). Before: runBot fell into `askPending` (lead e4f6ecd6 got "para quién"
+  after asking the price).
+- `leadBot.mjs#runBot`: `msg.type==='unsupported'` (ANY error code) → before tap/text → `logDecision`
+  (accion derivar, motivo `mensaje_no_disponible`, model `regla`, texto_in `[unsupported 131060]`) +
+  `escalate()` = `bot_paused` + push "Mensaje no disponible" / "{wa_name|phone} te escribió y no se pudo leer
+  el mensaje. Respóndele tú." ZERO text to the lead at any hour (no greeting either). Stickers/reactions/images
+  unchanged. es_prueba same path (decision flagged).
+- Harness `node scripts/harness-mensaje-no-disponible.mjs` (real e4f6ecd6 payload; 6 scenarios). Other 3 harnesses pass.
+
+### 2026-10-07 — #57 Excepción a reglas por sesión (executor, 12878a3)
+- `sessions.excepcion_reglas bool not null default false` (`supabase/sessions-excepcion-reglas.sql`, migration
+  `sessions_excepcion_reglas`). `enforce_therapist_rules` returns early when true → skips ALL MARIANA_RULE checks.
+  **Only owner/service_role/postgres may set it true** — guard at the top of the trigger (raises
+  `EXCEPCION_REGLAS: …`); keeping an already-true flag on an edit is allowed. Verified as Mariana (authenticated,
+  rolled back): insert + update with the flag both rejected. Trigger never disabled; room cap etc. untouched.
+- JS mirror: `therapistRules.js#violatesRules` returns null when `excepcion_reglas`; drawer + Sesiones pass the
+  initial row's flag. `queries.js`: in SESSION_SELECT + SESSION_COLUMNS; `friendlySessionError` maps EXCEPCION_REGLAS.
+- Data: Mariana × Belén y Orlando 2026-10-07 17:20–18:50 en_linea pareja $35 programada, `excepcion_reglas=true`
+  (id c5fbacea…, Calendar event fdgk94b3h1rcmgb2ups7ghs7l0). Mariana = 4 sessions that day. A 5th without the
+  flag is still rejected ("máximo 3 sesiones por día", rolled back).
+- Note: an excepted session still COUNTS for her other sessions' checks (moving the 19:00 that day would be blocked).
+
 ### 2026-10-06 — #56 Modo prueba del bot desde el teléfono del dueño (executor, fda357c)
 Nicolás (owner phone 593968029896, the only phone he has) can test the lead flow as a first-time lead.
 - **Commands** (owner → 9933, exact message, case/accent-insensitive; replies via `sendStaffText`, no sanitizer/greeting):
@@ -249,34 +273,6 @@ next typed text (lead b64e16df: "Mi hijo/a\n24" → classified `agendar` → res
 - Deploy changed no lote (16 matched snapshot). (c) settled via no-op `estado='confirmada'` update (trigger, not by hand):
   Andrea 1 Oct $39 (lote f0b7af8c 101→62), Luis 2 Oct $35 (lote 14db84f9 50→15). Re-scan: 0 left.
 - Shyam lote af4ba5c9 is 35 (not 70): his 6 Oct session was confirmed 19:49 UTC pre-deploy and paid from credit — correct.
-
-### 2026-10-05 — #50 Marthin Spatz billed to Shariam Narváez + #51 Valentina Yanchaluiza 4-pack (executor, data-only)
-- #50: new `payers` row 4d0597f1-0b09-4bd9-babb-d0b41c68201a (Shariam Alexandra Narváez Celi, cédula =
-  contifico_id 1722319439, tel +593995879307); patient 6f9b2b87 → payer_id set, nombre 'Sharian'→'Shariam'
-  (old cedula/contifico_id 1724765266 kept on the patient). Contífico persona for 1722319439 did NOT exist
-  (recon empty) → created inline by the first POST, like #44. Gotcha: her Tumbaco address is NOT used —
-  `buildPayloadCore` locks direccion='Quito' (Nicolás rule 2026-10-02). Scratch assemble() of the 18 Sep
-  session (unpaid, not eligible yet): billing 1722319439 "SHARIAM ALEXANDRA NARVÁEZ CELI", descripcion
-  "Paciente Marthin Spatz | F43.2 …"; rideRecipient → payer +593995879307. Nothing emitted; no emitted doc touched.
-- #51: `saldo_lotes` 8c803ca8 (Valentina a2ad3f7c, package $120 @ $30, remaining $90, source 1 Oct d97a7f25,
-  payphone trx 91928931). 8 Oct (226665fc) left unpaid → consume_saldo_on_confirm pays it ($90→$60).
-
-### 2026-10-05 — #49 Shyam package credit fixed + diagnosis: credit not consumed (executor)
-- **Fix (authorized):** lote `af4ba5c9…` (Shyam Yelpi, backfill package) remaining 105 → **70** + note
-  "5 Oct: ajuste manual a 70 (22 y 29 sep consumidas; quedan 6 oct + la siguiente)". 22/29 Sep left as-is
-  (pagado by hand today 14:37, payphone). 6 Oct (`99e99563…`, programada) NOT pre-marked: trigger pays it on confirm.
-- **ROOT CAUSE (verified):** `consume_saldo_on_confirm()` is NOT `security definer`. `saldo_lotes` RLS = `is_owner()`
-  only. When a THERAPIST confirms in the app, the trigger runs as that user → `select sum(remaining)` sees 0 lotes
-  → silent skip (and it couldn't UPDATE the lote anyway). Verified read-only: as Daniela's auth uid,
-  `is_owner()=false`, lotes visible = 0, session visible = 1. Only owner/service-role writes consume credit.
-  - Shyam 29 Sep (Daniela): created 28 Sep 19:10, no reminder sent, no WA reply → confirmed in-app by therapist.
-  - Andrea Torres 1 Oct $39 (Carolina): lote $101 created 29 Sep 21:10 (proof 67e6facf), session last updated
-    30 Sep 20:04 — AFTER the lote → not a timing issue, it's the RLS issue. Credit covers it.
-  - Luis Vaca 2 Oct $35 (Carolina): prepay lote $50 created 1 Oct (proof c546274d), session created 3 Oct 08:27 /
-    updated 18:21 — AFTER the lote → RLS again. Credit covers it ($15 left after).
-- **Secondary gap:** the trigger only fires on session writes; a lote created after a session is already
-  confirmada+unpaid never applies itself (the backfill and proofReconcile only settle what they explicitly match).
-- **Full scan (confirmada + unpaid + non-llamada + enough credit):** only Andrea 1 Oct and Luis 2 Oct. Untouched.
 
 ## Pending / Backlog
 

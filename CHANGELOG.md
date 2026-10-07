@@ -5,7 +5,35 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
-<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-06 (#56) -->
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-07 (#57/#58) -->
+### 2026-10-05 — #50 Marthin Spatz billed to Shariam Narváez + #51 Valentina Yanchaluiza 4-pack (executor, data-only)
+- #50: new `payers` row 4d0597f1-0b09-4bd9-babb-d0b41c68201a (Shariam Alexandra Narváez Celi, cédula =
+  contifico_id 1722319439, tel +593995879307); patient 6f9b2b87 → payer_id set, nombre 'Sharian'→'Shariam'
+  (old cedula/contifico_id 1724765266 kept on the patient). Contífico persona for 1722319439 did NOT exist
+  (recon empty) → created inline by the first POST, like #44. Gotcha: her Tumbaco address is NOT used —
+  `buildPayloadCore` locks direccion='Quito' (Nicolás rule 2026-10-02). Scratch assemble() of the 18 Sep
+  session (unpaid, not eligible yet): billing 1722319439 "SHARIAM ALEXANDRA NARVÁEZ CELI", descripcion
+  "Paciente Marthin Spatz | F43.2 …"; rideRecipient → payer +593995879307. Nothing emitted; no emitted doc touched.
+- #51: `saldo_lotes` 8c803ca8 (Valentina a2ad3f7c, package $120 @ $30, remaining $90, source 1 Oct d97a7f25,
+  payphone trx 91928931). 8 Oct (226665fc) left unpaid → consume_saldo_on_confirm pays it ($90→$60).
+
+### 2026-10-05 — #49 Shyam package credit fixed + diagnosis: credit not consumed (executor)
+- **Fix (authorized):** lote `af4ba5c9…` (Shyam Yelpi, backfill package) remaining 105 → **70** + note
+  "5 Oct: ajuste manual a 70 (22 y 29 sep consumidas; quedan 6 oct + la siguiente)". 22/29 Sep left as-is
+  (pagado by hand today 14:37, payphone). 6 Oct (`99e99563…`, programada) NOT pre-marked: trigger pays it on confirm.
+- **ROOT CAUSE (verified):** `consume_saldo_on_confirm()` is NOT `security definer`. `saldo_lotes` RLS = `is_owner()`
+  only. When a THERAPIST confirms in the app, the trigger runs as that user → `select sum(remaining)` sees 0 lotes
+  → silent skip (and it couldn't UPDATE the lote anyway). Verified read-only: as Daniela's auth uid,
+  `is_owner()=false`, lotes visible = 0, session visible = 1. Only owner/service-role writes consume credit.
+  - Shyam 29 Sep (Daniela): created 28 Sep 19:10, no reminder sent, no WA reply → confirmed in-app by therapist.
+  - Andrea Torres 1 Oct $39 (Carolina): lote $101 created 29 Sep 21:10 (proof 67e6facf), session last updated
+    30 Sep 20:04 — AFTER the lote → not a timing issue, it's the RLS issue. Credit covers it.
+  - Luis Vaca 2 Oct $35 (Carolina): prepay lote $50 created 1 Oct (proof c546274d), session created 3 Oct 08:27 /
+    updated 18:21 — AFTER the lote → RLS again. Credit covers it ($15 left after).
+- **Secondary gap:** the trigger only fires on session writes; a lote created after a session is already
+  confirmada+unpaid never applies itself (the backfill and proofReconcile only settle what they explicitly match).
+- **Full scan (confirmada + unpaid + non-llamada + enough credit):** only Andrea 1 Oct and Luis 2 Oct. Untouched.
+
 ### 2026-10-05 — #48c Llamadas removed from the payroll protocol (executor)
 - Nicolás: the "llamadas en Pendiente" step was meaningless — llamadas have no Pendiente; their only state is
   Convirtió/No convirtió (`convirtio` + `src/lib/conversion.js`). The director's query read the legacy raw
