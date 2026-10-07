@@ -493,6 +493,7 @@ export async function deleteSession(id) {
 const PATIENT_SELECT =
   'id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,email,cedula,contifico_id,fecha_nacimiento,terapeuta_id,' +
   'motivo_consulta,estado_general,es_lead,tarifa,metodo_pago,frecuencia,payer_id,facturacion_obligatoria,' +
+  'facturacion_en_espera,factura_concepto_general,' +
   'diagnostico_codigo,diagnostico_texto,created_at,updated_at'
 
 // patients.notas (the "Expediente" free-text) intentionally dropped from the
@@ -507,6 +508,8 @@ const PATIENT_COLUMNS = [
   // facturacion_obligatoria are billing-scoped: set via DB/owner tooling,
   // read-only through the standard patient write path for now.
   'diagnostico_codigo', 'diagnostico_texto',
+  // #60 invoicing flags — owner-only toggles in Pacientes → Configuración.
+  'facturacion_en_espera', 'factura_concepto_general',
 ]
 const pickPatientColumns = (obj) =>
   Object.fromEntries(PATIENT_COLUMNS.filter((k) => k in obj).map((k) => [k, obj[k]]))

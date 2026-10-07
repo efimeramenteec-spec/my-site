@@ -113,6 +113,7 @@ export async function fetchEligible(supabase, { ignoreFloor = false } = {}) {
         id, nombre, apellido, tipo_paciente, nombre_2, apellido_2,
         cedula, contifico_id, diagnostico_codigo, diagnostico_texto,
         facturacion_obligatoria, nombre_factura, facturar_desde,
+        facturacion_en_espera, factura_concepto_general,
         payer:payers ( id, nombre, apellido, cedula, contifico_id,
                        razon_social, email, telefono )
       )
@@ -122,6 +123,8 @@ export async function fetchEligible(supabase, { ignoreFloor = false } = {}) {
     .neq('tipo', 'llamada')
     .or('facturada.is.null,facturada.eq.false')
     .eq('patient.facturacion_obligatoria', true)
+    // #60 hold: en-espera patients are never emitted — listed apart (fetchEnEspera).
+    .eq('patient.facturacion_en_espera', false)
     .order('fecha', { ascending: true })
   const { data, error } = await query
   if (error) throw new Error('supabase eligible query failed: ' + error.message)
@@ -133,6 +136,30 @@ export async function fetchEligible(supabase, { ignoreFloor = false } = {}) {
   // (dry-run ?all=1) lifts it for inspection ONLY — dry-run makes no Contífico calls.
   return (data || []).filter((s) => s.patient && s.patient.facturacion_obligatoria === true
     && (ignoreFloor || s.fecha >= (s.patient.facturar_desde || FACTURAR_SINCE)))
+}
+
+// #60 "En espera": obligatoria patients on hold (facturacion_en_espera) with their
+// count of paid, uninvoiced, real sessions — shown on the facturas list as
+// "En espera: {name} ({n} sesiones)", NEVER emitted. The count ignores the floor:
+// the hold usually covers sessions from before it (e.g. Mauro Baquero, waiting on
+// his insurer's diagnosis); lifting it for pre-floor sessions also needs
+// patients.facturar_desde. Returns [{ patient_id, nombre, sesiones }].
+export async function fetchEnEspera(supabase) {
+  const { data: pats, error } = await supabase.from('patients')
+    .select('id, nombre, apellido, tipo_paciente, nombre_2, apellido_2, nombre_factura')
+    .eq('facturacion_obligatoria', true).eq('facturacion_en_espera', true)
+  if (error) throw new Error('supabase en-espera query failed: ' + error.message)
+  if (!pats?.length) return []
+  const { data: ses, error: e2 } = await supabase.from('sessions')
+    .select('patient_id')
+    .in('patient_id', pats.map((p) => p.id))
+    .eq('estado', 'confirmada').eq('pagado', true).neq('tipo', 'llamada')
+    .or('facturada.is.null,facturada.eq.false')
+  if (e2) throw new Error('supabase en-espera sessions query failed: ' + e2.message)
+  return pats.map((p) => ({
+    patient_id: p.id, nombre: patientDisplayName(p),
+    sesiones: (ses || []).filter((x) => x.patient_id === p.id).length,
+  }))
 }
 
 // The patient's own display name (always names the PATIENT in the descripcion,
@@ -183,7 +210,11 @@ function billingIdentity(p) {
 
 // The Observaciones string (goes in `descripcion`, mirrored to `referencia`):
 //   Paciente {NOMBRE PACIENTE} | {CIE} {diagnóstico} | Sesión {fecha en texto}
+// #60 concepto general (patients.factura_concepto_general): an adult paying through
+// their own insurance for another person → no patient name, no diagnosis:
+//   Sesión Psicológica Individual | Sesión {fecha en texto}
 function buildDescripcion(p, session) {
+  if (p.factura_concepto_general) return `Sesión Psicológica Individual | Sesión ${fechaTexto(session.fecha)}`
   const paciente = patientDisplayName(p)
   const cie = [p.diagnostico_codigo, p.diagnostico_texto].filter(Boolean).join(' ').trim()
   const sesion = `Sesión ${fechaTexto(session.fecha)}`
@@ -456,9 +487,9 @@ export async function ridePlan(supabase, onlyId, { floor = false } = {}) {
 // Dry-run core: eligible sessions → assembled items, split ready/blocked.
 // ZERO Contífico calls. `ignoreFloor` is inspection-only (dry-run ?all=1).
 export async function dryRun(supabase, { ignoreFloor = false } = {}) {
-  const sessions = await fetchEligible(supabase, { ignoreFloor })
+  const [sessions, enEspera] = await Promise.all([fetchEligible(supabase, { ignoreFloor }), fetchEnEspera(supabase)])
   const items = assemble(sessions)
-  return { items, ready: items.filter((i) => i.ready), blocked: items.filter((i) => !i.ready) }
+  return { items, ready: items.filter((i) => i.ready), blocked: items.filter((i) => !i.ready), enEspera }
 }
 
 // WhatsApp each READY ride-plan item to its billing party and stamp

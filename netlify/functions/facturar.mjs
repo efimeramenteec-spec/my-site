@@ -46,7 +46,7 @@ import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
 import { submitFacturaTemplate, facturaTemplateStatus } from '../lib/facturaWhatsapp.mjs'
 import {
   API_KEY, POS_TOKEN, SESION_PRODUCT, FACTURAR_SINCE, fechaTexto, cfGet, fetchEligible,
-  assemble, buildPayloadCore, emitPayload, emitOne, ridePlan, sendRides,
+  assemble, buildPayloadCore, fetchEnEspera, emitPayload, emitOne, ridePlan, sendRides,
 } from '../lib/facturarCore.mjs'
 
 // Guard token lives ONLY in the Netlify env (CONTIFICO_FACTURAR_TOKEN, secret,
@@ -142,8 +142,10 @@ export default async (req) => {
       const items = assemble(sessions)
       const ready = items.filter((i) => i.ready)
       const blocked = items.filter((i) => !i.ready)
+      const enEspera = await fetchEnEspera(supabase)
       return json({
         mode, contifico_calls: 0,
+        en_espera: enEspera,          // #60 — on hold, never emitted
         since: FACTURAR_SINCE,
         floor_ignored: ignoreFloor,   // ?all=1 — inspection only; emit paths always honor the floor
         product_configured: !!SESION_PRODUCT.id,

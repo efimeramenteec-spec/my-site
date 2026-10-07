@@ -86,13 +86,17 @@ const EXPIRED = 'Esa lista ya no está vigente. Escribe facturas para una nueva.
 // 'pendiente' snapshot: only the newest list is ever approvable.
 // messages: [{ type:'text', body } | { type:'buttons', body, buttons }]
 export async function prepareFacturas(supabase, origen, deps = defaultDeps) {
-  const { ready, blocked } = await deps.dryRun(supabase)
+  const { ready, blocked, enEspera = [] } = await deps.dryRun(supabase)
 
   await supabase.from(TABLE).update({ estado: 'vencida' }).eq('estado', 'pendiente')
 
   const blockedLines = blocked.length
     ? [`Bloqueadas (${blocked.length}):`, ...blocked.map((b) => `- ${b.patient} — ${motivoEs(b)}`)]
     : []
+  // #60: on hold — listed so Nicolás sees them, never in the snapshot (never emitted).
+  for (const e of enEspera) {
+    blockedLines.push(`En espera: ${e.nombre} (${e.sesiones} ${e.sesiones === 1 ? 'sesión' : 'sesiones'})`)
+  }
 
   if (!ready.length) {
     const body = ['No hay sesiones listas para facturar.', ...(blockedLines.length ? ['', ...blockedLines] : [])].join('\n')
@@ -228,13 +232,15 @@ export async function runAprobacion(supabase, to, snapshotId, deps = defaultDeps
 // open, else ping_nico → his tap flushes it). Nothing is emitted here: emission
 // only ever follows his [Aprobar] tap (fac_ok → runAprobacion).
 export async function runReport(supabase, deps = defaultDeps) {
-  const { ready, blocked } = await deps.dryRun(supabase)
-  if (!ready.length && !blocked.length) return { notified: false, ready: 0, blocked: 0 }
-  const once = { ...deps, dryRun: async () => ({ ready, blocked }) }
+  const { ready, blocked, enEspera = [] } = await deps.dryRun(supabase)
+  if (!ready.length && !blocked.length && !enEspera.length) return { notified: false, ready: 0, blocked: 0 }
+  const once = { ...deps, dryRun: async () => ({ ready, blocked, enEspera }) }
   const r = await prepareFacturas(supabase, 'cron', once)
   const resumen = ready.length
     ? `${ready.length} facturas listas para aprobar`
-    : `${blocked.length} facturas bloqueadas por datos faltantes`
+    : blocked.length
+      ? `${blocked.length} facturas bloqueadas por datos faltantes`
+      : `${enEspera.length} ${enEspera.length === 1 ? 'paciente' : 'pacientes'} con facturación en espera`
   await deps.supersedeOwnerOutbox(supabase, 'facturas')
   const n = await deps.notifyOwner(supabase, { kind: 'facturas', resumen, messages: r.messages })
   return { notified: true, ready: ready.length, blocked: blocked.length, snapshot: r.snapshot, via: n?.via, resumen }

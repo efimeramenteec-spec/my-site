@@ -6,6 +6,7 @@ import { Badge } from '../components/Badge/Badge.jsx'
 import { Button } from '../components/Button/Button.jsx'
 import { Input } from '../components/Input/Input.jsx'
 import { Select } from '../components/Select/Select.jsx'
+import { Toggle } from '../components/Toggle/Toggle.jsx'
 
 import { useAuth } from '../lib/auth.jsx'
 import { getPatientsData, createPatient, updatePatient, deletePatient } from '../lib/queries.js'
@@ -108,6 +109,8 @@ const formFromPatient = (patient) => ({
   frecuencia: patient.frecuencia || '',
   diagnostico_codigo: patient.diagnostico_codigo || '',
   diagnostico_texto: patient.diagnostico_texto || '',
+  facturacion_en_espera: !!patient.facturacion_en_espera,
+  factura_concepto_general: !!patient.factura_concepto_general,
 })
 
 function PatientDetail({ patient, therapist, therapists = [], sessions, saldoLotes = [], fullAccess = true, onClose, onSave, onDelete }) {
@@ -171,6 +174,8 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, saldoLot
     }
     if (fullAccess) {
       patch.terapeuta_id = form.terapeuta_id || null
+      patch.facturacion_en_espera = form.facturacion_en_espera
+      patch.factura_concepto_general = form.factura_concepto_general
     }
     const res = await onSave(patient.id, patch)
     setSaving(false)
@@ -392,6 +397,28 @@ function PatientDetail({ patient, therapist, therapists = [], sessions, saldoLot
             onChange={(e) => set('diagnostico_texto', e.target.value)}
             hint="Descripción de la categoría clínica. Opcional."
           />
+          {fullAccess && (
+            <div className="space-y-2 rounded-card border border-stroke/50 bg-surface-warm px-4 py-3">
+              <Toggle
+                id="toggle-facturacion-en-espera"
+                label="Facturación en espera"
+                checked={form.facturacion_en_espera}
+                onChange={(v) => set('facturacion_en_espera', v)}
+              />
+              <p className="font-caption text-xs text-content-muted">
+                Sus sesiones aparecen en la lista de facturas como “En espera” y no se emiten hasta desactivarlo.
+              </p>
+              <Toggle
+                id="toggle-factura-concepto-general"
+                label="Factura con concepto general"
+                checked={form.factura_concepto_general}
+                onChange={(v) => set('factura_concepto_general', v)}
+              />
+              <p className="font-caption text-xs text-content-muted">
+                Observaciones: “Sesión Psicológica Individual | Sesión {'{fecha}'}”, sin nombre del paciente ni diagnóstico.
+              </p>
+            </div>
+          )}
           {error && <p className="font-caption text-xs text-red-500">{error}</p>}
           <Button
             variant="secondary"
