@@ -225,6 +225,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     terapeuta_id: form.terapeuta_id, fecha: form.fecha, modalidad: form.modalidad,
     hora_inicio: form.hora_inicio ? form.hora_inicio + ':00' : '',
     hora_fin: endTime ? endTime + ':00' : '',
+    excepcion_reglas: mode === 'edit' && initial ? !!initial.excepcion_reglas : false,
   }
   const ruleError = scheduleChanged(mode === 'edit' ? initial : null, candidate)
     ? violatesRules(candidate, sessions)

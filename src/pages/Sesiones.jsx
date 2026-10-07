@@ -134,7 +134,7 @@ export default function Sesiones() {
     // Per-therapist hard rules (#43 — Mariana). Edits are checked only when the
     // schedule changes, like the DB trigger, so flag-only re-saves never block.
     if (scheduleChanged(drawer.mode === 'edit' ? drawer.initial : null, payload)) {
-      const ruleError = violatesRules({ ...payload, id: excludeId }, data?.sessions || [])
+      const ruleError = violatesRules({ ...payload, id: excludeId, excepcion_reglas: drawer.mode === 'edit' && !!drawer.initial.excepcion_reglas }, data?.sessions || [])
       if (ruleError) return { ok: false, error: ruleError }
     }
     const res = drawer.mode === 'edit' ? await updateSession(drawer.initial.id, payload) : await createSession(payload)

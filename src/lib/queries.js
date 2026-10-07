@@ -10,13 +10,14 @@ import {
 } from './demoStore.js'
 // Joined select used everywhere we need patient + therapist names/colors.
 const SESSION_SELECT =
-  'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,facturada,metodo_pago,notas,convirtio,google_event_id,reminder_sent_at,' +
+  'id,patient_id,terapeuta_id,fecha,hora_inicio,hora_fin,tipo,modalidad,estado,monto,pagado,facturada,metodo_pago,notas,convirtio,google_event_id,reminder_sent_at,excepcion_reglas,' +
   'patient:patients(id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,facturacion_obligatoria),therapist:therapists(id,nombre,apellido,color,calendar_email)'
 
 // Only real columns may be written to the sessions table.
 const SESSION_COLUMNS = [
   'patient_id', 'terapeuta_id', 'fecha', 'hora_inicio', 'hora_fin',
   'tipo', 'modalidad', 'estado', 'monto', 'pagado', 'facturada', 'metodo_pago', 'notas', 'convirtio', 'google_event_id',
+  'excepcion_reglas', // #57 — only the owner can set it true (DB trigger guards it)
 ]
 const pickColumns = (obj) =>
   Object.fromEntries(SESSION_COLUMNS.filter((k) => k in obj).map((k) => [k, obj[k]]))
@@ -177,6 +178,8 @@ function friendlySessionError(err, fallback) {
   // enforce_therapist_rules (#43) raises "MARIANA_RULE: <friendly reason>".
   const rule = /MARIANA_RULE:\s*(.+)/.exec(msg)
   if (rule) return rule[1].trim()
+  const exc = /EXCEPCION_REGLAS:\s*(.+)/.exec(msg)
+  if (exc) return exc[1].trim()
   return msg || fallback
 }
 

@@ -63,6 +63,7 @@ export const onlyModalidadCopy = (terapeutaId) => {
 export function violatesRules(session, sameDaySessions = []) {
   const r = rulesFor(session?.terapeuta_id)
   if (!r || !session.fecha || !session.hora_inicio || isFreed(session)) return null
+  if (session.excepcion_reglas) return null // #57: owner-approved per-session exception
 
   if (r.onlyModalidad && session.modalidad && session.modalidad !== r.onlyModalidad) {
     return `${r.nombre} atiende solo en línea por ahora`
