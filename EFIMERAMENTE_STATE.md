@@ -103,13 +103,16 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
-### 2026-10-08 — #66 Texto de cada envío del bot + vista funnel_v (executor)
+### 2026-10-08 — #66 Texto de cada envío del bot + vista funnel_v (executor, e29b64f)
 - Table `lead_bot_sends` (migration `lead_bot_sends_66` = `supabase/lead-bot-sends-66.sql`, owner-only RLS, #62 grants).
   Logged from `leadBot.mjs` (text/question/cards/link, +22h nudge as text, recordatorio_llamada/primera_sesion/
   rebook_llamada as template — base name, a `_v2` swap is not recorded). `resultado_llamada` (therapist) not logged.
 - View `funnel_v` (migration `funnel_v_66` = `supabase/funnel-v-66.sql`): 72 ad leads at ship time. `silent_turns`
   counts turns (distinct processed_at) and only after logging began; older leads show bot_sends 0.
 - Harness `scripts/harness-sendlog-66.mjs`: wamid + es_prueba logged, failed send re-thrown, slow/failing DB = 0 ms delay.
+- `botSendLog.mjs`: `loggedSend` (wraps a send), `logBotSend` (fire-and-forget insert into a module-level pending Set),
+  `flushBotSendLogs(3000)` called at the end of `runBot`, after the rebook in `handleTherapistResult`, and before CAPI in
+  `lead-followups`. The table was empty at close: no bot send since the deploy (deploy 6ac7ee00, ready).
 
 ### 2026-10-08 — #62 Bot silencioso por #59 (executor, 4b87b4e + ed4b2ab)
 - **Cause (exact):** `lead_inbox` (#59, `supabase/lead-funnel-12-turnos.sql`) was created with NO table grants →
@@ -280,6 +283,9 @@ next typed text (lead b64e16df: "Mi hijo/a\n24" → classified `agendar` → res
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **#66 live proof** — (a) Nicolás: "modo prueba" → "cuánto cuesta" → "reiniciar" → "fin prueba"; then check
+      `lead_bot_sends` rows es_prueba=true with a wamid that appears in `whatsapp_delivery_status`. (b) First real ad lead
+      after e29b64f: its sends have a wamid, `select * from funnel_v` shows it; report 3 sample rows (phone last 4 only).
 - [ ] **#62 proof with a real lead message** — Nicolás: "modo prueba" → write as a lead → bot answers; check a `lead_inbox` row gets `processed_at`.
 - [ ] **#61 bad phones (listed, not changed):** normalizePhone → null: Cristina Gomez, Maria Emilia Buitron, Andres Luzuriaga (hidden U+202A/202C marks), Daniel y Daniela ("8"), Michelle Tinajero ("9"). Malformed EC: Connie Ayala, Ana Belén Quisiguiña, Noeleen Rodriguez (+5930…), Sophia Chica, Stefanny Lopez, Fátima Tubon (+59398067281), Maria de Lourdes Altamirano, Amparito Vargas (8-digit mobiles).
 - [ ] **#61 Dorian Solis (payer of Cecília + Elena Saltos) has no phone** → their payment reminders still go to the patient.
