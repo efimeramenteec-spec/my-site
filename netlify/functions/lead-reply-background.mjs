@@ -14,12 +14,14 @@
 // verify token in `x-lead-verify` (same secret both functions already hold, so no
 // new env var and no open relay that could make the bot send arbitrary messages).
 // A legacy body { phone, msg, isNew } (in flight during a deploy) is queued here.
+// #62: { phone, msg, isNew, direct: true } = the queue failed → answered directly.
 //
 // Env: SUPABASE_SERVICE_KEY, WA_CLOUD_VERIFY_TOKEN, WA_DUALHOOK_API_KEY,
 //      ANTHROPIC_API_KEY, LEAD_BOT_LIVE / LEAD_BOT_TEST_PHONES.
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
-import { enqueueInbound, processInbox } from '../lib/leadTurns.mjs'
+import { enqueueInbound, logInboxError, processInbox } from '../lib/leadTurns.mjs'
+import { runBot } from '../lib/leadBot.mjs'
 
 export default async (req) => {
   if (req.method !== 'POST') return new Response('method not allowed', { status: 405 })
@@ -32,7 +34,7 @@ export default async (req) => {
 
   let body
   try { body = await req.json() } catch { return new Response('bad body', { status: 400 }) }
-  const { phone, leadId, msg, isNew } = body || {}
+  const { phone, leadId, msg, isNew, direct } = body || {}
   if (!phone && !leadId) return new Response('missing phone/leadId', { status: 400 })
 
   const supabase = getSupabaseAdmin()
@@ -40,10 +42,21 @@ export default async (req) => {
 
   let id = leadId
   if (!id) {
-    const { data: lead } = await supabase.from('leads').select('id').eq('phone', phone).maybeSingle()
+    const { data: lead } = await supabase.from('leads').select('*').eq('phone', phone).maybeSingle()
     if (!lead) { console.warn(`[lead-bg] no lead for ${phone}`); return new Response('ok', { status: 200 }) }
     id = lead.id
-    if (msg) await enqueueInbound(supabase, { lead, msg, isNew })
+    // #62: `direct` = the webhook couldn't queue it; a legacy body whose enqueue
+    // fails here gets the same treatment. Either way: answer it alone, no merge.
+    let answerDirect = !!(direct && msg)
+    if (msg && !answerDirect) {
+      try { await enqueueInbound(supabase, { lead, msg, isNew }) }
+      catch (e) { await logInboxError(supabase, { lead, msg, error: e }); answerDirect = true }
+    }
+    if (answerDirect) {
+      try { if (!lead.bot_paused) await runBot(supabase, { lead, isNew: !!isNew, msg }) }
+      catch (e) { console.warn('[lead-bg] direct runBot failed (non-blocking):', e.message) }
+      return new Response('ok', { status: 200 })
+    }
   }
 
   try {

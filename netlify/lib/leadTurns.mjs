@@ -27,6 +27,22 @@ export async function enqueueInbound(supabase, { lead, msg, isNew = false }) {
   if (error) throw new Error(`lead_inbox insert: ${error.message}`)
 }
 
+// #62 — the queue must never silence the bot. If enqueueInbound fails (any
+// error), log it (console + lead_ai_decisions motivo 'inbox_error', error text in
+// `reply`) and the caller answers this message directly, as before #59.
+export async function logInboxError(supabase, { lead, msg, error }) {
+  const err = String(error?.message || error).slice(0, 1000)
+  console.error(`[turn] lead_inbox enqueue failed for lead ${lead?.id} — answering directly: ${err}`)
+  try {
+    await supabase.from('lead_ai_decisions').insert({
+      lead_id: lead.id, phone: lead.phone,
+      texto_in: String(msg?.text?.body || `[${msg?.type || '?'}]`).slice(0, 1000),
+      accion: 'responder', motivo: 'inbox_error', reply: err,
+      step: lead.step_actual || null, model: 'regla', used_fallback: true, es_prueba: !!lead.es_prueba,
+    })
+  } catch (e) { console.warn('[turn] inbox_error log failed:', e.message) }
+}
+
 async function newestPending(supabase, leadId) {
   const { data } = await supabase.from('lead_inbox').select('received_at')
     .eq('lead_id', leadId).is('processed_at', null)

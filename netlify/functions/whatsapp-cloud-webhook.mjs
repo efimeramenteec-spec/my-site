@@ -33,7 +33,7 @@ import { isOwnerPhone, isFacturasCommand, facturaTap, handleFacturasCommand, han
 import { flushOwnerOutbox, supersedeOwnerOutbox } from '../lib/ownerOutbox.mjs'
 import { handleEstadoTap } from '../lib/sesionesPendientes.mjs'
 import { routeOwnerMessage } from '../lib/botTestMode.mjs'
-import { enqueueInbound } from '../lib/leadTurns.mjs'
+import { enqueueInbound, logInboxError } from '../lib/leadTurns.mjs'
 
 // Wake the reply background function for a lead's queued free text (#59: it waits
 // for 4 s of quiet and answers everything queued as one turn). Returns fast (Netlify 202s a background invocation). The
@@ -344,8 +344,13 @@ export default async (req) => {
                     try { await sendReadReceipt(msg.id, { typing: true }) }
                     catch (e) { console.warn('[wa-cloud] typing indicator failed (non-blocking):', e.message) }
                   }
-                  await enqueueInbound(supabase, { lead, msg, isNew: rec.isNew })
-                  await invokeLeadReplyBackground({ phone: lead.phone, leadId: lead.id })
+                  let queued = true
+                  try { await enqueueInbound(supabase, { lead, msg, isNew: rec.isNew }) }
+                  catch (e) { queued = false; await logInboxError(supabase, { lead, msg, error: e }) }
+                  // #62: queue down → answer this message on its own (pre-#59 path).
+                  await invokeLeadReplyBackground(queued
+                    ? { phone: lead.phone, leadId: lead.id }
+                    : { phone: lead.phone, msg, isNew: rec.isNew, direct: true })
                 }
                 // else: dark lead (measurement recorded) — nothing to send.
               }
