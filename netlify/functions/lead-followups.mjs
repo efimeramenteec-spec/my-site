@@ -24,6 +24,7 @@ import { getSupabaseAdmin, TZ_OFFSET, formatHora } from '../lib/whatsapp.mjs'
 import { nudgeLead, sendReminderForLead, sendResultForLead, sendFirstSessionForLead, botAllowedForPhone } from '../lib/leadBot.mjs'
 import { sweepCapiEvents } from '../lib/capi.mjs'
 import { primeTemplateStatuses } from '../lib/leadTemplates.mjs'
+import { flushBotSendLogs } from '../lib/botSendLog.mjs'
 
 export const config = { schedule: '*/15 * * * *' }
 
@@ -139,6 +140,9 @@ export default async () => {
       if (r === 'sent' || r === 'dry') counts.nudge48++
     }
   }
+
+  // #66: the lead sends above logged best-effort; let those inserts land.
+  await flushBotSendLogs()
 
   // ── E. Meta Conversions API (#22) ─────────────────────────────────────────────
   // Report Lead / Schedule / Purchase for ad-sourced leads (keyed on ctwa_clid) so

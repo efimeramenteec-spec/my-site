@@ -103,6 +103,14 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-08 — #66 Texto de cada envío del bot + vista funnel_v (executor)
+- Table `lead_bot_sends` (migration `lead_bot_sends_66` = `supabase/lead-bot-sends-66.sql`, owner-only RLS, #62 grants).
+  Logged from `leadBot.mjs` (text/question/cards/link, +22h nudge as text, recordatorio_llamada/primera_sesion/
+  rebook_llamada as template — base name, a `_v2` swap is not recorded). `resultado_llamada` (therapist) not logged.
+- View `funnel_v` (migration `funnel_v_66` = `supabase/funnel-v-66.sql`): 72 ad leads at ship time. `silent_turns`
+  counts turns (distinct processed_at) and only after logging began; older leads show bot_sends 0.
+- Harness `scripts/harness-sendlog-66.mjs`: wamid + es_prueba logged, failed send re-thrown, slow/failing DB = 0 ms delay.
+
 ### 2026-10-08 — #62 Bot silencioso por #59 (executor, 4b87b4e + ed4b2ab)
 - **Cause (exact):** `lead_inbox` (#59, `supabase/lead-funnel-12-turnos.sql`) was created with NO table grants →
   `service_role` had only TRUNCATE/REFERENCES/TRIGGER → every `enqueueInbound` upsert failed with Postgres

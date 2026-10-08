@@ -306,6 +306,11 @@ only SENDS when `LEAD_BOT_LIVE=true`. See `EFIMERAMENTE_STATE.md` for the go-liv
   (`leads.turn_lock_at`). Inside `runBot` every send is buffered (`beginTurn`/`endTurn`): texts, then at most ONE
   tail — link > one card block (≤4, merged) > one question. New sends in a turn must go through `txt`/`question`/
   `renderCards`/`sendBookingLink`, never `tx.*` directly. CANNED already sent → `leads.canned_enviados`.
+- **Send log (#66, 2026-10-08):** every LEAD-facing send (sendNow/cards/link/nudge/lead templates) goes through
+  `netlify/lib/botSendLog.mjs#loggedSend` → `lead_bot_sends` (text + wamid + es_prueba; failed send → `error`, re-thrown
+  unchanged). Inserts are fire-and-forget, flushed after the sends (`flushBotSendLogs`, 3 s cap) — never delay a send.
+  New lead sends must use it; staff/owner/broadcast sends must not. View **`funnel_v`** (one row per real ad lead,
+  outage excluded) = `supabase/funnel-v-66.sql`. Harness: `node scripts/harness-sendlog-66.mjs`.
 - **`netlify/lib/waSend.mjs`** — Cloud-API session sends (text, reply buttons, list, image cards) via
   Dualhook, valid inside the free 72h CTWA window ($0). Templates live in **`netlify/lib/leadTemplates.mjs`**
   (recordatorio_llamada, resultado_llamada, rebook_llamada, primera_sesion + submit/send).

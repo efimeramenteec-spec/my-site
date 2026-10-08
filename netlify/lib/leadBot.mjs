@@ -20,6 +20,7 @@
 
 import { normalizePhone } from './whatsapp.mjs'
 import { sendText, sendImage, sendLinkText } from './waSend.mjs'
+import { loggedSend, flushBotSendLogs } from './botSendLog.mjs'
 import { createBooking } from './booking.mjs'
 import { notifyTherapist } from './push.mjs'
 import { sendCallReminder, sendCallResult, sendRebook, sendFirstSessionNudge } from './leadTemplates.mjs'
@@ -238,8 +239,9 @@ async function txt(supabase, lead, body, { previewUrl = false, greet = true } = 
   if (lead.__turn) { lead.__turn.texts.push({ body, previewUrl, greet }); return }
   await sendNow(supabase, lead, body, { previewUrl, greet })
 }
-async function sendNow(supabase, lead, body, { previewUrl = false, greet = true } = {}) {
-  await tx.sendText(lead.phone, greet ? await withGreeting(supabase, lead, body) : body, { previewUrl })
+async function sendNow(supabase, lead, body, { previewUrl = false, greet = true, kind = 'text' } = {}) {
+  const text = greet ? await withGreeting(supabase, lead, body) : body
+  await loggedSend(supabase, { lead, phone: lead.phone, kind, body: text }, () => tx.sendText(lead.phone, text, { previewUrl }))
   lead.__sent = (lead.__sent || 0) + 1
 }
 
@@ -287,7 +289,7 @@ async function endTurn(supabase, lead) {
   }
   if (tail === 'question') {
     const q = t.question
-    if (!q.joined) await sendNow(supabase, lead, q.text)
+    if (!q.joined) await sendNow(supabase, lead, q.text, { kind: 'question' })
     return patchLead(supabase, lead, { last_bot_at: new Date().toISOString(), ...q.patch })
   }
 }
@@ -299,7 +301,7 @@ async function question(supabase, lead, text, patch = {}, { joinTo = null } = {}
     if (!lead.__turn.question) lead.__turn.question = { text, patch, joinTo }
     return
   }
-  await sendNow(supabase, lead, text)
+  await sendNow(supabase, lead, text, { kind: 'question' })
   await patchLead(supabase, lead, { last_bot_at: new Date().toISOString(), ...patch })
 }
 
@@ -725,10 +727,8 @@ async function renderCardsNow(supabase, lead, therapists, { intro } = {}) {
   for (const t of therapists) {
     const line = t.genero === 'M' ? '*Puedes agendar una llamada gratuita para conocerlo*' : '*Puedes agendar una llamada gratuita para conocerla*'
     const caption = captionSansEnfoque(t.funnel_caption)
-    await tx.sendImage(lead.phone, {
-      imageLink: t.funnel_card_url || null,
-      caption: `*${t.nombre} ${t.apellido}*${caption ? `\n${caption}` : ''}\n\n${line}`,
-    })
+    const card = { imageLink: t.funnel_card_url || null, caption: `*${t.nombre} ${t.apellido}*${caption ? `\n${caption}` : ''}\n\n${line}` }
+    await loggedSend(supabase, { lead, phone: lead.phone, kind: 'cards', body: card.caption }, () => tx.sendImage(lead.phone, card))
     lead.__sent = (lead.__sent || 0) + 1
   }
   await patchLead(supabase, lead, {
@@ -861,7 +861,8 @@ async function sendBookingLink(supabase, lead, therapistId) {
   return sendBookingLinkNow(supabase, lead, therapistId)
 }
 async function sendBookingLinkNow(supabase, lead, therapistId) {
-  await tx.sendLinkText(lead.phone, `${await withGreeting(supabase, lead, LINK_COPY)}\n${freeCallLink(therapistId)}`)
+  const body = `${await withGreeting(supabase, lead, LINK_COPY)}\n${freeCallLink(therapistId)}`
+  await loggedSend(supabase, { lead, phone: lead.phone, kind: 'link', body }, () => tx.sendLinkText(lead.phone, body))
   lead.__sent = (lead.__sent || 0) + 1
   await patchLead(supabase, lead, { step_actual: 'link_enviado', last_bot_text: null, last_bot_at: new Date().toISOString(), parse_misses: 0 })
 }
@@ -1292,6 +1293,7 @@ export async function runBot(supabase, { lead, isNew, msg, msgs = null }) {
     await logDecision(supabase, lead, { text, accion: 'derivar', motivo: 'sin_respuesta', reply: err ? `error: ${err.message}` : null, model: 'guardia' })
     try { await handoff(supabase, lead, 'sin_respuesta') } catch (e) { console.warn('[bot] sin_respuesta handoff failed:', e.message) }
   }
+  await flushBotSendLogs() // #66: send-log inserts, after every send of the turn
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1312,7 +1314,7 @@ export async function nudgeLead(supabase, lead) {
   if (lead.bot_paused) return 'skipped'
   const n = (lead.nudges_sent || 0) + 1
   try {
-    await sendText(lead.phone, NUDGE_TEXT)
+    await loggedSend(supabase, { lead, phone: lead.phone, kind: 'text', body: NUDGE_TEXT }, () => sendText(lead.phone, NUDGE_TEXT))
   } catch (e) { console.error('[followups] nudge failed:', e.message); return 'failed' }
   const patch = { nudges_sent: n, last_bot_at: new Date().toISOString() }
   if (n >= 1) { patch.stage = 'frio'; if (!lead.frio_at) patch.frio_at = new Date().toISOString() }
@@ -1326,7 +1328,8 @@ export async function sendReminderForLead(supabase, lead, therapist, hora) {
   const toE164 = normalizePhone(lead.phone)
   if (!toE164) return 'skipped'
   try {
-    await sendCallReminder(toE164, { name: leadFirstName(lead), therapist: shortName(therapist.nombre), hora })
+    const p = { name: leadFirstName(lead), therapist: shortName(therapist.nombre), hora }
+    await loggedSend(supabase, { lead, phone: toE164, kind: 'template', templateName: 'recordatorio_llamada', body: JSON.stringify(p) }, () => sendCallReminder(toE164, p))
     await patchLead(supabase, lead, { recordatorio_llamada_at: new Date().toISOString() })
     return 'sent'
   } catch (e) { console.error('[followups] call reminder failed:', e.message); return 'failed' }
@@ -1349,7 +1352,8 @@ export async function sendFirstSessionForLead(supabase, lead, therapist) {
   const toE164 = normalizePhone(lead.phone)
   if (!toE164) return 'skipped'
   try {
-    await sendFirstSessionNudge(toE164, { name: leadFirstName(lead), therapist: shortName(therapist.nombre) })
+    const p = { name: leadFirstName(lead), therapist: shortName(therapist.nombre) }
+    await loggedSend(supabase, { lead, phone: toE164, kind: 'template', templateName: 'primera_sesion', body: JSON.stringify(p) }, () => sendFirstSessionNudge(toE164, p))
     await patchLead(supabase, lead, { nudge48_sent_at: new Date().toISOString() })
     return 'sent'
   } catch (e) { console.error('[followups] 48h nudge failed:', e.message); return 'failed' }
@@ -1392,10 +1396,12 @@ export async function handleTherapistResult(supabase, msg) {
   await advanceStage(supabase, lead, 'no_contesto')
   if (!lead.rebook_sent_at && !lead.bot_paused && botAllowedForPhone(lead.phone, lead)) {
     try {
-      await sendRebook(lead.phone, { name: leadFirstName(lead), therapist: await therapistShort(supabase, lead.therapist_id) })
+      const p = { name: leadFirstName(lead), therapist: await therapistShort(supabase, lead.therapist_id) }
+      await loggedSend(supabase, { lead, phone: lead.phone, kind: 'template', templateName: 'rebook_llamada', body: JSON.stringify(p) }, () => sendRebook(lead.phone, p))
       await patchLead(supabase, lead, { rebook_sent_at: new Date().toISOString() })
       console.log(`[bot] lead ${lead.id} rebook sent`)
     } catch (e) { console.warn('[bot] rebook send failed:', e.message) }
+    await flushBotSendLogs()
   }
   return true
 }
