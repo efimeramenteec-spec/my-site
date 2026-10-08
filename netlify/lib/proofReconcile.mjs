@@ -14,6 +14,15 @@
 //   • recipient is Mariana (or unstated) · a real amount was read
 //   • the reference (transfer_id) isn't already used on another comprobante
 //
+// Payer receipts (#61, Nicolás 2026-10-08): payment reminders now go to the PAYER, so
+// a payer replies with the receipt from THEIR number — which matches no patient. The
+// sender is also matched against payers.telefono, and the owed sessions of ALL
+// patients with that payer_id are considered:
+//   • only one of them owes → the proof is that patient's (all rules below apply);
+//   • several owe → pooled oldest-first, credit ignored, and ONLY an exact 'mark'
+//     (all owed, or one session's price) is automatic; anything that would bank a
+//     lote (package/prepay/overpayment) is HELD — whose saldo it is needs a human.
+//
 // Resolution, given the patient's owed sessions and their saldo a favor (#19 credit):
 //   amount == $140 (exactly)          → ALWAYS a package → bank a $35/session lote,
 //                                        then settle whatever the pooled credit now
@@ -28,7 +37,7 @@
 //   anything less (underpayment/fit)  → HOLD (never partial credit — spec #4).
 
 import { ocrProofRow } from './proofOcr.mjs'
-import { sendDualhookComprobanteAlert } from './whatsapp.mjs'
+import { sendDualhookComprobanteAlert, normalizePhone } from './whatsapp.mjs'
 import { isPackagePayment, PACKAGE_PRICE, PACKAGE_RATE } from './saldo.mjs'
 
 const EPS = 0.5
@@ -47,6 +56,7 @@ const MOTIVO = {
   reused_reference: 'comprobante repetido (referencia ya usada)',
   not_payment_proof: 'la imagen no parece un comprobante',
   low_confidence: 'lectura poco confiable',
+  payer_ambiguous: 'pago de un pagador con varios pacientes pendientes',
   no_amount: 'no se pudo leer el monto',
 }
 function motivoFor(reason) {
@@ -58,7 +68,7 @@ function motivoFor(reason) {
 // Best display name for the alert's {{1}} = who sent it: matched patient, else the
 // OCR'd sender, else the raw WhatsApp phone, else "desconocido".
 function alertSender(proof, ex) {
-  return patientName(proof.patient) || ex?.sender_name ||
+  return patientName(proof.patient) || proof.payerName || ex?.sender_name ||
     proof.raw_payload?.message?.from || 'desconocido'
 }
 
@@ -257,7 +267,11 @@ async function applyPlan(supabase, proof, ctx, plan, now) {
   }
   const { error: rErr } = await supabase
     .from('whatsapp_messages')
-    .update({ reconciled_at: iso, reconciled_by: null, reconciled_session_ids: plan.sessionIds || [], auto_reconciled: true })
+    .update({
+      reconciled_at: iso, reconciled_by: null, reconciled_session_ids: plan.sessionIds || [], auto_reconciled: true,
+      // A payer's proof attributed to their one owing patient (#61) is filed under that patient.
+      ...(proof.attributedPatient ? { patient_id: proof.patient_id } : {}),
+    })
     .eq('id', proof.id)
   if (rErr) { console.error('[proof-auto] reconcile-stamp failed:', rErr.message); return false }
   const tag = plan.action === 'lote' ? `lote ${plan.loteKind} $${plan.lote.amount}` : 'mark'
@@ -295,6 +309,23 @@ async function referenceReused(supabase, proof, transferId) {
   return (data || []).some((r) => normalizeReference(r?.extracted?.transfer_id) === target)
 }
 
+const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
+const samePhone = (a, b) => {
+  const na = normalizePhone(a), nb = normalizePhone(b)
+  return (na && na === nb) || (last9(a).length === 9 && last9(a) === last9(b))
+}
+
+// #61 — the proof's patient group: the matched patient (if any) plus every patient
+// whose payer's telefono is the sender. `payers` = [{id,nombre,apellido,telefono}],
+// `payerPatients` = patients with payer_id set. Returns { ids, payer }.
+export function proofPatientGroup(proof, payers, payerPatients) {
+  const from = proof.raw_payload?.message?.from
+  const ids = new Set(proof.patient_id ? [proof.patient_id] : [])
+  const payer = from ? (payers || []).find((y) => y.telefono && samePhone(from, y.telefono)) || null : null
+  if (payer) for (const p of payerPatients || []) if (p.payer_id === payer.id) ids.add(p.id)
+  return { ids: [...ids], payer }
+}
+
 // Orchestrator. Options: { now, live, daysBack }.
 //   • live=false → dry: OCR + decide, but mark/reconcile NOTHING (preview).
 //   • live=true  → also apply the marks.
@@ -317,10 +348,23 @@ export async function runProofAutomation(supabase, { now = new Date(), live = fa
     .filter((r) => ['image', 'document'].includes(r.raw_payload?.message?.type))
     .filter((r) => sentAtMs(r) >= sinceMs)
 
+  // #61 — payer receipts: resolve each proof's patient group (see proofPatientGroup).
+  const [{ data: payers, error: yErr }, { data: payerPatients, error: ppErr }] = await Promise.all([
+    supabase.from('payers').select('id,nombre,apellido,telefono').not('telefono', 'is', null),
+    supabase.from('patients').select('id,nombre,apellido,metodo_pago,tarifa,payer_id').not('payer_id', 'is', null),
+  ])
+  if (yErr || ppErr) throw new Error('payers query: ' + (yErr || ppErr).message)
+  const patientById = Object.fromEntries((payerPatients || []).map((p) => [p.id, p]))
+  for (const proof of proofs) {
+    const g = proofPatientGroup(proof, payers, payerPatients)
+    proof.groupIds = g.ids
+    if (g.payer) proof.payerName = [g.payer.nombre, g.payer.apellido].filter(Boolean).join(' ') || null
+  }
+
   // Unpaid confirmed sessions for the matched patients, up to & including TODAY (a
   // patient commonly pays the same day their session is confirmed — a strict < today
   // would miss it and mis-bank the payment as prepay credit), oldest-first.
-  const patientIds = [...new Set(proofs.filter((p) => p.patient_id).map((p) => p.patient_id))]
+  const patientIds = [...new Set(proofs.flatMap((p) => p.groupIds))]
   const byPatient = {}
   if (patientIds.length) {
     const { data: sess, error: sErr } = await supabase
@@ -358,13 +402,35 @@ export async function runProofAutomation(supabase, { now = new Date(), live = fa
       proof.extraction_status = status; proof.extracted = ex
     }
 
-    const unpaid = byPatient[proof.patient_id] || []
+    // #61 — a payer's group: one owing patient → the proof becomes that patient's;
+    // several → pooled, exact 'mark' only. Group of one = the pre-#61 behaviour.
+    let pooled = false
+    if (proof.groupIds.length > 1 || (proof.groupIds.length === 1 && !proof.patient_id)) {
+      const owing = proof.groupIds.filter((id) => byPatient[id]?.length)
+      const pick = owing.length === 1 ? owing[0] : (owing.length === 0 && proof.groupIds.length === 1 ? proof.groupIds[0] : null)
+      if (pick && pick !== proof.patient_id) {
+        proof.attributedPatient = true // filed under the patient it actually pays
+        proof.patient_id = pick
+        proof.patient = patientById[pick] || proof.patient
+      } else if (!pick && (owing.length > 1 || !proof.patient_id)) {
+        // Several owe, or (unmatched sender) none of the payer's patients owes → a
+        // human decides whose saldo it is; pooled lets only an exact mark through.
+        pooled = true
+        if (!proof.patient_id) proof.patient = patientById[owing[0] || proof.groupIds[0]] || null
+      }
+    }
+    const unpaid = pooled
+      ? proof.groupIds.flatMap((id) => byPatient[id] || []).sort((a, b) => (a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0))
+      : byPatient[proof.patient_id] || []
     const ctx = {
-      credit: creditByPatient[proof.patient_id] || 0,
+      credit: pooled ? 0 : creditByPatient[proof.patient_id] || 0,
       tarifa: proof.patient?.tarifa,
       payerId: proof.patient?.payer_id || null,
     }
-    let plan = decideAutoReconcile(proof, ex, unpaid, ctx)
+    let plan = decideAutoReconcile(pooled ? { ...proof, patient_id: proof.patient_id || proof.patient?.id } : proof, ex, unpaid, ctx)
+    if (pooled && plan.action !== 'mark' && plan.action !== 'skip' && plan.action !== 'withhold') {
+      plan = { action: 'withhold', reason: 'payer_ambiguous' }
+    }
 
     // Reused-reference is ALWAYS a warning (spec #2: suspicion) — any auto action.
     if ((plan.action === 'mark' || plan.action === 'lote') && await referenceReused(supabase, proof, ex?.transfer_id)) {

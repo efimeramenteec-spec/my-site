@@ -13,12 +13,15 @@
 //   • Never insists: if a patient has ANY session already reminded and still unpaid
 //     (= "en mora"), skip them entirely — Nicolás handles those personally.
 //   • Amount = sum of the included sessions' monto. (Saldo-a-favor netting [#19] is TODO.)
-//   • Recipient = patients.telefono, ALWAYS (Option A, 2026-09-25): the number saved on
-//     the patient is who we message. No payer routing — payer_id is invoicing-only. For a
-//     minor (tipo_paciente='menor') that saved number is the tutor's, so we greet the
-//     tutor (person 1 = nombre) and NAME the minor (nombre_2) in {{3}} — "la sesión de
-//     Camila del …" — so a parent who pays for both themselves and their child can tell
-//     which session each message is about.
+//   • Recipient (Option B, Nicolás 2026-10-08 — replaces Option A of 09-25): if the
+//     patient has a payer_id whose telefono normalizes to a valid number, the reminder
+//     goes to the PAYER, greeted by the payer's first name, and {{3}} names the patient
+//     ("la sesión de Mila del …"; for a menor the child, nombre_2). Otherwise it goes to
+//     patients.telefono as before: for a minor (tipo_paciente='menor') that saved number
+//     is the tutor's, so we greet the tutor (person 1 = nombre) and NAME the minor
+//     (nombre_2) in {{3}}; a self-pay adult gets "tu sesión del …". Still ONE message per
+//     patient (a payer of two patients gets two). Appointment reminders are unaffected —
+//     they always go to the patient.
 
 import { sendDualhookPaymentReminder, normalizePhone } from './whatsapp.mjs'
 
@@ -97,7 +100,8 @@ export async function runPaymentReminders(supabase, { now = new Date(), live = f
 
   const { data: sessions, error } = await supabase
     .from('sessions')
-    .select('id, fecha, monto, patient_id, patient:patients(nombre, apellido, nombre_2, tipo_paciente, telefono)')
+    .select('id, fecha, monto, patient_id, patient:patients(nombre, apellido, nombre_2, tipo_paciente, telefono, payer_id,' +
+      ' payer:payers(id, nombre, apellido, telefono))')
     .eq('estado', 'confirmada')
     .neq('tipo', 'llamada')
     .eq('pagado', false)
@@ -137,16 +141,28 @@ export async function runPaymentReminders(supabase, { now = new Date(), live = f
   for (const [pid, rows] of byPatient) {
     const p = rows[0].patient || {}
     const isMenor = p.tipo_paciente === 'menor'
-    const name = firstName(p.nombre) // tutor for a menor, the patient otherwise
+    const payerPhone = p.payer_id ? normalizePhone(p.payer?.telefono) : null
+    const toPayer = !!payerPhone
+    // The payer IS this adult patient (same person on both records) → still "tu sesión".
+    const fold = (x) => firstName(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    const payerIsPatient = toPayer && !isMenor && payerPhone === normalizePhone(p.telefono) &&
+      fold(p.payer.nombre) === fold(p.nombre)
+    // Greeting: the payer when it goes to the payer; else the tutor for a menor, the patient otherwise.
+    const name = toPayer ? firstName(p.payer.nombre) : firstName(p.nombre)
     const gross = round2(rows.reduce((a, r) => a + Number(r.monto || 0), 0))
     const credit = creditByPatient.get(pid) || 0
     const net = round2(Math.max(0, gross - credit))
     const monto = fmtMonto(net)
     const fechas = rows.map((r) => r.fecha)
-    const sesionesText = isMenor ? buildMinorSesionesText(p.nombre_2, fechas) : buildSesionesText(fechas)
-    const toE164 = normalizePhone(p.telefono)
+    // {{3}} names the patient whenever the reader isn't the patient: the child for a
+    // menor, the patient's own first name when an adult's payer gets it.
+    const sesionesText = isMenor ? buildMinorSesionesText(p.nombre_2, fechas)
+      : toPayer && !payerIsPatient ? buildMinorSesionesText(p.nombre, fechas) : buildSesionesText(fechas)
+    const toE164 = toPayer ? payerPhone : normalizePhone(p.telefono)
     const entry = {
       patient_id: pid, name, apellido: p.apellido || null,
+      patientLabel: [isMenor ? p.nombre_2 : p.nombre, p.apellido].filter(Boolean).join(' ') || null,
+      recipient: toPayer ? 'payer' : 'patient', payer_id: p.payer_id || null,
       tipo: p.tipo_paciente || null, minor: isMenor ? firstName(p.nombre_2) : null,
       phone: toE164, rawPhone: p.telefono || null, gross, credit, monto, sesionesText,
       sessionIds: rows.map((r) => r.id),
