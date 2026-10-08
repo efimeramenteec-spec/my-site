@@ -76,6 +76,9 @@ and, for behavior, checking the running app. Always build before committing.
 - **Supabase access:** the Claude **Supabase connector** (MCP, enabled 2026-07-02) can run SQL directly —
   reads, row writes, and DDL via `apply_migration` — against project `vnityzpuhnkumsyfnskz`. Check for the
   `mcp__*Supabase*` tools at session start. Keep each migration mirrored as a `.sql` file in `supabase/`.
+- **New tables need explicit GRANTs** (#62): this project does NOT auto-grant new tables to `service_role`.
+  Every `CREATE TABLE` must add `grant select, insert, update, delete on table public.<t> to service_role,
+  authenticated;` — `lead_inbox` shipped without it and the lead bot was silent for a day ("permission denied").
 - **DDL approval (hard rule):** additive migrations (`CREATE TABLE`, `ADD COLUMN`, `CREATE INDEX`,
   new RLS policies) run **without asking** — just announce them. **DESTRUCTIVE DDL requires explicit
   approval from Nicolás in chat before running, every time, with no exception:** `DROP TABLE`,

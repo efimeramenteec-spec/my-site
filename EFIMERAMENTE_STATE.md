@@ -103,6 +103,35 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-08 — #62 Bot silencioso por #59 (executor, 4b87b4e + ed4b2ab)
+- **Cause (exact):** `lead_inbox` (#59, `supabase/lead-funnel-12-turnos.sql`) was created with NO table grants →
+  `service_role` had only TRUNCATE/REFERENCES/TRIGGER → every `enqueueInbound` upsert failed with Postgres
+  **"permission denied for table lead_inbox"** (postgres_logs) → the webhook's catch logged "lead handling failed" and
+  nothing reached runBot. 0 rows ever; no lead_ai_decisions from 7 Oct 12:57 GYE until the fix. #58 not involved.
+- **Fix:** migration `lead_inbox_grants_62` = `supabase/lead-inbox-grants-62.sql` (grant s/i/u/d to service_role +
+  authenticated; RLS is_owner unchanged). Verified as service_role: 2 inserts 2 s apart + a duplicate wamid (ignored)
+  → claimed together in ONE turn (rolled back).
+- **Fallback (permanent):** `leadTurns.mjs#logInboxError`; if `enqueueInbound` throws, the webhook logs console +
+  `lead_ai_decisions` motivo **`inbox_error`** (error in `reply`) and wakes `lead-reply-background` with
+  `{phone, msg, isNew, direct:true}` → plain `runBot({msg})` (pre-#59 path, no merge). Same for a legacy body whose
+  enqueue fails. The queue can never silence the bot again.
+- CLAUDE.md gotcha added: new tables need explicit GRANTs. The 10 unanswered leads were NOT messaged (Nicolás answered by hand).
+
+### 2026-10-08 — #61 Recordatorios de pago al pagador (executor, 375b5c4)
+- **`paymentReminders.mjs` Option B (Nicolás 8 Oct):** patient with `payer_id` and a payer `telefono` that normalizes →
+  reminder to the PAYER, `{{1}}` = payer first name, `{{3}}` names the patient (`buildMinorSesionesText`: the child
+  `nombre_2` for a menor, `nombre` for an adult; "tu sesión" when the payer is the same adult — same phone + first name,
+  e.g. Laura Vásquez). No valid payer phone (Dorian Solis) → patient as before. Report entries gain
+  `patientLabel`, `recipient` ('payer'|'patient'), `payer_id`. Appointment reminders untouched (always the patient).
+- **`proofReconcile.mjs`:** `proofPatientGroup(proof, payers, payerPatients)` = matched patient + all patients whose
+  payer's phone is the sender. One owing → proof attributed to that patient (stamp also writes `whatsapp_messages.patient_id`);
+  several owing → pooled oldest-first, credit ignored, only an exact `mark` is automatic; anything that would bank a lote
+  → withhold `payer_ambiguous` (alert "pago de un pagador con varios pacientes pendientes"). Group of one = unchanged.
+- Harness (scratch, fake DB, nothing sent): Sébastien +593985506258 $32 → marks Mila's 6 Oct; Laura $36 → Emilie;
+  Laura $72 with 2 owing → both; $140 with 2 owing → held. Prod proofs-run dry: Sébastien's real 7 Oct $32 proof
+  (f1c247f9, was "unmatched") now → mark Mila 6 Oct.
+- **Data:** Mila (770ba3dc) telefono "985506380" → "+593985506380" (Raquel's).
+
 ### 2026-10-07 — #60 Facturación en espera + concepto general + 9 facturas (executor, f184057)
 - **Migration** `supabase/patients-facturacion-espera-concepto.sql` (additive): `patients.facturacion_en_espera`,
   `patients.factura_concepto_general` (bool, default false); `factura_aprobaciones.origen` now allows `'chat'`.
@@ -240,44 +269,12 @@ next typed text (lead b64e16df: "Mi hijo/a\n24" → classified `agendar` → res
   `only=` batches — the full set exceeds the HTTP inactivity timeout). Sim = `netlify/lib/leadBotSim.mjs`
   (in-memory Supabase seeded read-only + recording transport). 12/12 scenarios, 0 silences, both modes.
 
-### 2026-10-06 — #48 Carolina Sep payroll corrected: 34 / $828 (executor, data-only)
-- Paula Hidalgo 30/09 10:30 (session 27ae5bff) is now Cancelada → Carolina 35/$852 → **34/$828** (32×$24 + 2×$30 pareja).
-- Regenerated with the same `sessionReport.js` path as #48 (node, `save:false`, filters estado=confirmada,
-  2026-09-01→30, logo from public/logos). Text-diff vs original: only Paula removed + Isabella 29/09 & Sara 30/09
-  now Pagado=Sí. **NOT sent to Carolina** — Nicolás sends it himself.
-- Storage bucket `payroll`: `2026-09/carolina-v2.pdf` (original `carolina.pdf` kept). Local copy:
-  `~/Documents/Efimeramente/payroll/2026-09/carolina-v2.pdf` (+ original). Service key for node runs = local `.env`
-  `SUPABASE_SERVICE_KEY` (Netlify copy is secret/masked).
-- `payroll_runs` d5b8d28d: sesiones=34, monto=828, `detalle.correccion` {fecha, motivo, antes{35,852}, pdf_path};
-  estado stays enviado_ok; other therapists untouched.
-
-### 2026-10-05 — #53 Mariana from 11:00 + reusable broadcasts + "Mariana retoma" broadcast (executor, 91c92e9, f09ff77, f43da55)
-- **R1 now 11:00–20:00** (start-only). `src/lib/therapistRules.js` startWindow `['11:00','20:00']`; migration
-  `therapist_rules_r1_11am` (mirror `supabase/therapist-rules-r1-11am.sql`): `enforce_therapist_rules` <11:00 →
-  "La primera sesión de Mariana empieza a las 11:00"; her availability mon–sat 11:00–21:15. Verified: live /reservar
-  slots start 11:00 (7, 8, 10 Oct), en línea forced (page filter + booking.mjs + trigger); rolled-back tx 10:30 fails, 11:00 ok.
-- **Broadcast mechanism** — see CLAUDE.md "Broadcasts". Tables `broadcasts` + `broadcast_recipients` (migration
-  `broadcasts`, `supabase/broadcasts.sql`, owner-only RLS). `netlify/lib/broadcast.mjs` (`buildRecipients`, `saludoFor`,
-  `etiquetaFor`, `runBroadcastSweep`), `functions/broadcast-sweep.mjs` (*/15, 08–21 GYE), `functions/broadcast-admin.mjs`
-  (token POST, messages ONLY the broadcast's therapist — the Dualhook key is a masked secret, so local sends are
-  impossible). `waSend.mjs#sendStaffText` (raw text, no sanitizer). Template `mariana_retoma` (MARKETING, `{{1}}` saludo,
-  `leadTemplates.mjs#BROADCAST_TEMPLATES`, Meta id 980991178363754) submitted 5 Oct ~20:53 UTC → PENDING.
-  Harness run against the real DB with stubbed sends (free/template/wait/claim/no-dupe/131049 reconcile/single notify)
-  caught + fixed "closes a broadcast with 0 recipients" (f43da55). Gotcha: a PostgREST bulk insert with mixed keys sends
-  NULL for the missing columns (defaults skipped).
-- **Broadcast `4e56df3a-8a69-456a-a93c-8c750e444391` "Mariana retoma sesiones"**: 49 active → 48 (Kathy Rivadeneira duplicate
-  `c1d2422c…` +593999981622, 1 session/0 inbound = typo row; kept `c1819b33…` +593999901622). List sent to Mariana 20:55 UTC;
-  she replied "10, 19, 20, 26, 35, 37, 39, 42," → excluded Diana Marcial Verdesoto, Grace Atiencia, Inti Maigua, Juan David
-  Álvarez, Mauro Baquero, Nathaly Ramos, Nicolás Marcano, Paola Ibarra. → `listo` 21:01 UTC, confirmation sent.
-  `mariana_retoma` APPROVED (MARKETING) before the 21:15 sweep → all 40 sent 21:15–21:16 UTC (1 free-form, 39 template),
-  0 duplicate wamids. 3 failed: Diana Romero 131049, Luna Guamán 131026, Emily Rivera 131026 (landline) → closes ~21:46
-  with one notifyOwner listing them.
-- Meta status seen: `sesion_pendiente` (#52) **APPROVED but as MARKETING** → the 08:30 job requires UTILITY, so it keeps
-  using free-form/push fallback until decided; `ping_nico` PENDING/MARKETING.
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **#62 proof with a real lead message** — Nicolás: "modo prueba" → write as a lead → bot answers; check a `lead_inbox` row gets `processed_at`.
+- [ ] **#61 bad phones (listed, not changed):** normalizePhone → null: Cristina Gomez, Maria Emilia Buitron, Andres Luzuriaga (hidden U+202A/202C marks), Daniel y Daniela ("8"), Michelle Tinajero ("9"). Malformed EC: Connie Ayala, Ana Belén Quisiguiña, Noeleen Rodriguez (+5930…), Sophia Chica, Stefanny Lopez, Fátima Tubon (+59398067281), Maria de Lourdes Altamirano, Amparito Vargas (8-digit mobiles).
+- [ ] **#61 Dorian Solis (payer of Cecília + Elena Saltos) has no phone** → their payment reminders still go to the patient.
 - [ ] **#60 Mauro Baquero en espera** (8 paid, all pre-floor): when his insurer's diagnosis arrives → set diagnóstico, untoggle "Facturación en espera" AND set `facturar_desde` to his first session to back-invoice.
 - [ ] **#60 Mila (Sébastien Paque):** 6 Oct (unpaid) + 6 future insured sessions go out via the normal Mon+Thu list in concepto-general format once paid.
 - [ ] **#55 decide (Nicolás):** lead-facing lines still naming a team/third person — see the #55 TO-DO entry (urgente fallback, "Escríbenos", "Att: Nico" templates).

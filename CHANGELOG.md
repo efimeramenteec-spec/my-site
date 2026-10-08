@@ -5,6 +5,42 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-08 (#61/#62) -->
+### 2026-10-06 — #48 Carolina Sep payroll corrected: 34 / $828 (executor, data-only)
+- Paula Hidalgo 30/09 10:30 (session 27ae5bff) is now Cancelada → Carolina 35/$852 → **34/$828** (32×$24 + 2×$30 pareja).
+- Regenerated with the same `sessionReport.js` path as #48 (node, `save:false`, filters estado=confirmada,
+  2026-09-01→30, logo from public/logos). Text-diff vs original: only Paula removed + Isabella 29/09 & Sara 30/09
+  now Pagado=Sí. **NOT sent to Carolina** — Nicolás sends it himself.
+- Storage bucket `payroll`: `2026-09/carolina-v2.pdf` (original `carolina.pdf` kept). Local copy:
+  `~/Documents/Efimeramente/payroll/2026-09/carolina-v2.pdf` (+ original). Service key for node runs = local `.env`
+  `SUPABASE_SERVICE_KEY` (Netlify copy is secret/masked).
+- `payroll_runs` d5b8d28d: sesiones=34, monto=828, `detalle.correccion` {fecha, motivo, antes{35,852}, pdf_path};
+  estado stays enviado_ok; other therapists untouched.
+
+### 2026-10-05 — #53 Mariana from 11:00 + reusable broadcasts + "Mariana retoma" broadcast (executor, 91c92e9, f09ff77, f43da55)
+- **R1 now 11:00–20:00** (start-only). `src/lib/therapistRules.js` startWindow `['11:00','20:00']`; migration
+  `therapist_rules_r1_11am` (mirror `supabase/therapist-rules-r1-11am.sql`): `enforce_therapist_rules` <11:00 →
+  "La primera sesión de Mariana empieza a las 11:00"; her availability mon–sat 11:00–21:15. Verified: live /reservar
+  slots start 11:00 (7, 8, 10 Oct), en línea forced (page filter + booking.mjs + trigger); rolled-back tx 10:30 fails, 11:00 ok.
+- **Broadcast mechanism** — see CLAUDE.md "Broadcasts". Tables `broadcasts` + `broadcast_recipients` (migration
+  `broadcasts`, `supabase/broadcasts.sql`, owner-only RLS). `netlify/lib/broadcast.mjs` (`buildRecipients`, `saludoFor`,
+  `etiquetaFor`, `runBroadcastSweep`), `functions/broadcast-sweep.mjs` (*/15, 08–21 GYE), `functions/broadcast-admin.mjs`
+  (token POST, messages ONLY the broadcast's therapist — the Dualhook key is a masked secret, so local sends are
+  impossible). `waSend.mjs#sendStaffText` (raw text, no sanitizer). Template `mariana_retoma` (MARKETING, `{{1}}` saludo,
+  `leadTemplates.mjs#BROADCAST_TEMPLATES`, Meta id 980991178363754) submitted 5 Oct ~20:53 UTC → PENDING.
+  Harness run against the real DB with stubbed sends (free/template/wait/claim/no-dupe/131049 reconcile/single notify)
+  caught + fixed "closes a broadcast with 0 recipients" (f43da55). Gotcha: a PostgREST bulk insert with mixed keys sends
+  NULL for the missing columns (defaults skipped).
+- **Broadcast `4e56df3a-8a69-456a-a93c-8c750e444391` "Mariana retoma sesiones"**: 49 active → 48 (Kathy Rivadeneira duplicate
+  `c1d2422c…` +593999981622, 1 session/0 inbound = typo row; kept `c1819b33…` +593999901622). List sent to Mariana 20:55 UTC;
+  she replied "10, 19, 20, 26, 35, 37, 39, 42," → excluded Diana Marcial Verdesoto, Grace Atiencia, Inti Maigua, Juan David
+  Álvarez, Mauro Baquero, Nathaly Ramos, Nicolás Marcano, Paola Ibarra. → `listo` 21:01 UTC, confirmation sent.
+  `mariana_retoma` APPROVED (MARKETING) before the 21:15 sweep → all 40 sent 21:15–21:16 UTC (1 free-form, 39 template),
+  0 duplicate wamids. 3 failed: Diana Romero 131049, Luna Guamán 131026, Emily Rivera 131026 (landline) → closes ~21:46
+  with one notifyOwner listing them.
+- Meta status seen: `sesion_pendiente` (#52) **APPROVED but as MARKETING** → the 08:30 job requires UTILITY, so it keeps
+  using free-form/push fallback until decided; `ping_nico` PENDING/MARKETING.
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-07 (#60) -->
 ### 2026-10-05 — #46 Mariana R1: last session STARTS at 20:00 (executor, fffbe07)
 - R1 is now start-only: `hora_inicio` 10:00–20:00 inclusive, end not checked (she's done by 21:00). R2–R4 unchanged.
