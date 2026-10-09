@@ -116,6 +116,12 @@ export async function recordLead(supabase, { msg, contact, esPrueba = false }) {
     if (waName && !existing.wa_name) patch.wa_name = waName
     // A later ad click backfills the click id if the first contact was organic (#22).
     if (ctwa_clid && !existing.ctwa_clid) patch.ctwa_clid = ctwa_clid
+    // #69 — any lead with an ad click IS an ad lead (DB trigger leads_source_from_clid backs this up).
+    if ((ctwa_clid || existing.ctwa_clid) && existing.source !== 'meta_ctwa') {
+      patch.source = 'meta_ctwa'
+      if (!existing.ad_source_id && ad_source_id) patch.ad_source_id = ad_source_id
+      if (!existing.ad_headline && ad_headline) patch.ad_headline = ad_headline
+    }
     // The owner phone is never a real lead (#45): in test mode its row is a test row.
     if (esPrueba && !existing.es_prueba) patch.es_prueba = true
     if (Object.keys(patch).length) {
@@ -220,7 +226,8 @@ function shortName(nombre) {
   if (nombre === 'Maria Gracia') return 'Ma. Gracia'
   return String(nombre || '').split(/\s+/)[0]
 }
-const freeCallLink = (therapistId) => `${APP_BASE}/agendar?terapeuta=${therapistId}`
+// #69 — &l=<lead id> so the booking links back to THIS lead even if the typed phone differs.
+const freeCallLink = (therapistId, leadId) => `${APP_BASE}/agendar?terapeuta=${therapistId}${leadId ? `&l=${leadId}` : ''}`
 
 // Ecuador is UTC-5, no DST. Nicolás's hours: 07:00–23:00. Outside that = night.
 // The dry run pins the hour (_setHourGYE) to check the day/night copy.
@@ -861,7 +868,7 @@ async function sendBookingLink(supabase, lead, therapistId) {
   return sendBookingLinkNow(supabase, lead, therapistId)
 }
 async function sendBookingLinkNow(supabase, lead, therapistId) {
-  const body = `${await withGreeting(supabase, lead, LINK_COPY)}\n${freeCallLink(therapistId)}`
+  const body = `${await withGreeting(supabase, lead, LINK_COPY)}\n${freeCallLink(therapistId, lead.id)}`
   await loggedSend(supabase, { lead, phone: lead.phone, kind: 'link', body }, () => tx.sendLinkText(lead.phone, body))
   lead.__sent = (lead.__sent || 0) + 1
   await patchLead(supabase, lead, { step_actual: 'link_enviado', last_bot_text: null, last_bot_at: new Date().toISOString(), parse_misses: 0 })
@@ -869,7 +876,7 @@ async function sendBookingLinkNow(supabase, lead, therapistId) {
 
 // A therapist was chosen (the interest signal → CAPI LeadSubmitted via
 // eligio_terapeuta_at). Send the booking link; a booking made from it links back
-// to this lead by the last-9 DB triggers (#34) → agendo_at.
+// to this lead via the link's &l= (#69), and by the last-9 DB triggers (#34) → agendo_at.
 async function chooseTherapist(supabase, lead, therapistId) {
   const { data: t } = await supabase.from('therapists')
     .select('id, nombre, apellido, genero, activo').eq('id', therapistId).maybeSingle()

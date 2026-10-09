@@ -141,9 +141,17 @@ export default async (req) => {
       supabase.from('booking_attempts').select('id', { count: 'exact', head: true })
         .eq('ip', ip).gte('created_at', new Date(Date.now() - 3600e3).toISOString()),
     ])
-    // Owner phone in bot test mode (#56) → a [PRUEBA] booking: no therapist push,
-    // no Calendar, and the per-phone daily cap doesn't apply (he re-tests).
-    const prueba = isOwnerPhone(phone) && await testModeActive(supabase).catch(() => false)
+    // #69 — the bot link carries the lead (&l=<lead id>). Unknown/invalid ids are ignored.
+    const leadId = /^[0-9a-f-]{36}$/i.test(String(body?.lead_id || '')) ? body.lead_id : null
+    let leadEsPrueba = false
+    if (leadId) {
+      const { data: lr } = await supabase.from('leads').select('es_prueba').eq('id', leadId).maybeSingle()
+      leadEsPrueba = !!lr?.es_prueba
+    }
+    // Owner phone (or the owner's TEST lead's link, typed with any phone) in bot test
+    // mode (#56) → a [PRUEBA] booking: no therapist push, no Calendar, and the
+    // per-phone daily cap doesn't apply (he re-tests).
+    const prueba = (isOwnerPhone(phone) || leadEsPrueba) && await testModeActive(supabase).catch(() => false)
     if ((!prueba && (phoneRes.count ?? 0) > MAX_PER_PHONE_PER_DAY) || (ipRes.count ?? 0) > MAX_PER_IP_PER_HOUR) {
       return json({ error: 'rate_limited' }, 429)
     }
@@ -162,7 +170,7 @@ export default async (req) => {
     const result = await createBooking(supabase, {
       therapist: t, date, startTime, kindKey, modalidad,
       patient: { nombre, apellido, telefono: phone, email: email || undefined, motivo: motivo || undefined },
-      prueba,
+      prueba, leadId,
     })
     if (!result.ok) {
       const status = ['slot_taken', 'rooms_full', 'therapist_rule'].includes(result.error) ? 409

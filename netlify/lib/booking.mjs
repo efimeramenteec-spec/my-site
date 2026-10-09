@@ -14,6 +14,7 @@
 import { normalizePhone } from './whatsapp.mjs'
 import { getCalendarClient, queryFreebusy } from './calendar.mjs'
 import { notifyTherapist } from './push.mjs'
+import { linkLeadById } from './leadLinker.mjs'
 // Per-therapist hard rules (#43/#46 — Mariana: starts 11:00–20:00, starts ≥2h apart, max 3/day,
 // en línea only). Single JS source shared with the app; DB trigger is the backstop.
 import { allowedStartWindow, forcedModalidad, violatesRules } from '../../src/lib/therapistRules.js'
@@ -142,9 +143,12 @@ export async function nextSlots(supabase, therapist, kindKey = 'llamada', count 
 // `prueba` (#56, owner phone in bot test mode): notas "[PRUEBA] …", NO therapist
 // push and NO Calendar event (owner push only), the patient row is reused (or
 // created as es_lead) and never promoted.
+// `leadId` (#69, the bot link's &l=): link THAT lead to the booking even when the
+// typed phone differs from its WhatsApp number. Only-null fields; a real booking
+// never links an es_prueba lead and a test booking only links one. Best-effort.
 export async function createBooking(supabase, {
   therapist: t, date, startTime, kindKey = 'llamada', modalidad = 'en_linea',
-  patient, esLead, fuente, notify = true, prueba = false,
+  patient, esLead, fuente, notify = true, prueba = false, leadId = null,
 }) {
   const kind = KINDS[kindKey] || KINDS.llamada
   // A therapist restricted to one modalidad (Mariana: en línea) can't be booked
@@ -210,6 +214,14 @@ export async function createBooking(supabase, {
     const m = /MARIANA_RULE:\s*(.+)/.exec(sErr.message || '')
     if (m) return { ok: false, error: 'therapist_rule', message: m[1].trim() }
     return { ok: false, error: 'booking_failed' }
+  }
+
+  if (leadId) {
+    try {
+      await linkLeadById(supabase, leadId, {
+        id: session.id, patient_id: patientId, tipo: kind.tipo, pagado: false, created_at: new Date().toISOString(),
+      }, { allowPrueba: prueba })
+    } catch (e) { console.warn('[booking] lead link failed (non-blocking):', e.message) }
   }
 
   if (kindKey === 'sesion' && !prueba) {

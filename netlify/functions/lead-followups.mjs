@@ -8,6 +8,9 @@
 //   C. Call result   — resultado_llamada to the therapist ~5 min after it ends.
 //   D. 48h nudge     — primera_sesion to the lead if the call happened but they
 //                      haven't converted (session.convirtio still false) after 48h.
+//   L. Lead linker   — #69: tie unlinked llamadas / first real sessions of the last
+//                      8 days to their lead (typo'd phone, name). Writes only null
+//                      lead fields, never `stage` → no lead receives anything new.
 //   E. CAPI sweep    — report Lead/Schedule/Purchase to Meta for ad leads (#22),
 //                      keyed on ctwa_clid, idempotent, gated on CAPI_LIVE/TEST_CODE.
 // The no-show rebook is INBOUND-triggered (therapist taps "No contestó" →
@@ -23,6 +26,7 @@
 import { getSupabaseAdmin, TZ_OFFSET, formatHora } from '../lib/whatsapp.mjs'
 import { nudgeLead, sendReminderForLead, sendResultForLead, sendFirstSessionForLead, botAllowedForPhone } from '../lib/leadBot.mjs'
 import { sweepCapiEvents } from '../lib/capi.mjs'
+import { runLeadLinker } from '../lib/leadLinker.mjs'
 import { primeTemplateStatuses } from '../lib/leadTemplates.mjs'
 import { flushBotSendLogs } from '../lib/botSendLog.mjs'
 
@@ -144,6 +148,11 @@ export default async () => {
   // #66: the lead sends above logged best-effort; let those inserts land.
   await flushBotSendLogs()
 
+  // ── L. Lead linker (#69) — before E so new links report in the same run ─────────
+  let linker = null
+  try { linker = (await runLeadLinker(supabase)).tally || {} }
+  catch (e) { console.error('[followups] lead linker failed (non-blocking):', e.message) }
+
   // ── E. Meta Conversions API (#22) ─────────────────────────────────────────────
   // Report Lead / Schedule / Purchase for ad-sourced leads (keyed on ctwa_clid) so
   // the campaign can optimize on Schedule. Idempotent (leads.capi_*_sent_at) and
@@ -154,5 +163,5 @@ export default async () => {
 
   const test = !!(process.env.LEAD_BOT_TEST_PHONES || '').trim()
   console.log(`[followups] live=${live} test=${test} ecHour=${ecHour} quiet=${quiet} ${JSON.stringify(counts)}`)
-  return json({ live, test, quiet, ...counts, capi })
+  return json({ live, test, quiet, ...counts, linker, capi })
 }

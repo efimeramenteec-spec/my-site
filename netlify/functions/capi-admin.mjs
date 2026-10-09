@@ -11,11 +11,14 @@
 //   ?action=sweep       — run sweepCapiEvents now (respects CAPI_LIVE / CAPI_TEST_CODE).
 //   ?action=test-event&event=Lead&clid=<ctwa_clid>[&value=39][&code=<test-code>]
 //                        — send ONE event by hand (defaults code to CAPI_TEST_CODE).
+//   ?action=test-ph&lead=<lead id>&code=<test-code>[&event=QualifiedLead]
+//                        — #69: ONE event identified ONLY by user_data.ph (no ctwa_clid),
+//                          to see whether the dataset accepts it. Test code REQUIRED.
 //
 // Everything here reads secrets from Netlify env only; nothing is echoed back.
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
-import { discoverDataset, sendCapiEvent, sweepCapiEvents, capiEnabled } from '../lib/capi.mjs'
+import { discoverDataset, sendCapiEvent, sweepCapiEvents, capiEnabled, hashPhone } from '../lib/capi.mjs'
 
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj, null, 2), { status, headers: { 'Content-Type': 'application/json' } })
@@ -79,5 +82,21 @@ export default async (req) => {
     return json({ datasetId: ds.id, testCode: !!code, sent: res.ok, status: res.status, body: res.body }, res.ok ? 200 : 502)
   }
 
-  return json({ error: 'unknown action', actions: ['status', 'discover', 'sweep', 'test-event'] }, 400)
+  if (action === 'test-ph') {
+    const code = url.searchParams.get('code') || process.env.CAPI_TEST_CODE
+    if (!code) return json({ error: 'code required — ph-only is only ever tested in Test Events' }, 400)
+    const supabase = getSupabaseAdmin()
+    const { data: lead } = await supabase.from('leads').select('id, phone, es_prueba').eq('id', url.searchParams.get('lead') || '').maybeSingle()
+    if (!lead) return json({ error: 'lead not found' }, 404)
+    const event = url.searchParams.get('event') || 'QualifiedLead'
+    const ds = await discoverDataset()
+    if (!ds.ok) return json({ error: 'dataset unavailable', detail: ds }, 502)
+    const res = await sendCapiEvent({
+      datasetId: ds.id, eventName: event, phone: lead.phone,
+      eventId: `test-ph:${lead.id}:${event}:${Date.now()}`, testCode: code,
+    })
+    return json({ datasetId: ds.id, event, ph: hashPhone(lead.phone).slice(0, 8) + '…', sent: res.ok, status: res.status, body: res.body }, res.ok ? 200 : 502)
+  }
+
+  return json({ error: 'unknown action', actions: ['status', 'discover', 'sweep', 'test-event', 'test-ph'] }, 400)
 }

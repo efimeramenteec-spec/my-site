@@ -32,6 +32,11 @@
 //   META_WABA_ID         — WhatsApp Business Account id (default below).
 //   META_CAPI_TOKEN      — optional Meta system-user token (plan B, direct Graph).
 //   WA_DUALHOOK_API_KEY  — the proxy key (already used by waSend.mjs).
+//   CAPI_PH_ONLY         — #69: 'true' also reports QualifiedLead/Purchase for leads with
+//                          NO ctwa_clid, identified by user_data.ph (sha256 of the E.164
+//                          digits). Only turn on if Meta's Test Events accepted it.
+
+import { createHash } from 'node:crypto'
 
 const GRAPH_VERSION = 'v25.0'
 const DEFAULT_WABA_ID = '1857507018469524'
@@ -103,14 +108,21 @@ export async function discoverDataset({ create = false } = {}) {
 // ── Event send ────────────────────────────────────────────────────────────────
 // One event to POST /{dataset}/events. Business-messaging attribution: action_source
 // 'business_messaging' + messaging_channel 'whatsapp', identity = ctwa_clid + WABA.
-export async function sendCapiEvent({ datasetId, eventName, ctwaClid, eventId, eventTime, value, currency = 'USD', testCode }) {
+// #69 — Meta's phone hash: sha256 of the digits only (country code included, no '+').
+export const hashPhone = (phone) => createHash('sha256').update(String(phone || '').replace(/\D/g, '')).digest('hex')
+
+// Identity: ctwa_clid when present; else (#69, ph-only) user_data.ph = [sha256(digits)].
+export async function sendCapiEvent({ datasetId, eventName, ctwaClid, phone, eventId, eventTime, value, currency = 'USD', testCode }) {
+  const user_data = ctwaClid
+    ? { ctwa_clid: ctwaClid, whatsapp_business_account_id: wabaId() }
+    : { ph: [hashPhone(phone)], whatsapp_business_account_id: wabaId() }
   const evt = {
     action_source: 'business_messaging',
     messaging_channel: 'whatsapp',
     event_name: eventName,
     event_time: eventTime || Math.floor(Date.now() / 1000),
     event_id: eventId,
-    user_data: { ctwa_clid: ctwaClid, whatsapp_business_account_id: wabaId() },
+    user_data,
   }
   if (value != null) evt.custom_data = { currency, value: Number(value) }
   const payload = { data: [evt] }
@@ -176,18 +188,30 @@ export async function sweepCapiEvents(supabase) {
   const datasetId = dataset.id
   const testCode = process.env.CAPI_TEST_CODE || null
 
-  const { data: leads, error } = await supabase.from('leads')
-    .select('id, phone, es_prueba, ctwa_clid, precio_visto_at, eligio_terapeuta_at, agendo_at, session_id, patient_id, capi_lead_sent_at, capi_schedule_sent_at, capi_purchase_sent_at')
+  const cols = 'id, phone, es_prueba, ctwa_clid, precio_visto_at, eligio_terapeuta_at, agendo_at, session_id, patient_id, capi_lead_sent_at, capi_schedule_sent_at, capi_purchase_sent_at'
+  const { data: leads, error } = await supabase.from('leads').select(cols)
     .not('ctwa_clid', 'is', null)
     .eq('es_prueba', false) // #56 — the owner's test lead never reports to Meta
     .or('capi_lead_sent_at.is.null,capi_schedule_sent_at.is.null,capi_purchase_sent_at.is.null')
   if (error) { console.error('[capi] leads query:', error.message); summary.error = error.message; return summary }
 
-  for (const lead of leads || []) {
+  // #69 — leads with NO click id, reported by phone hash (only once Test Events accepted it).
+  let phLeads = []
+  if (process.env.CAPI_PH_ONLY === 'true') {
+    const { data, error: phErr } = await supabase.from('leads').select(cols)
+      .is('ctwa_clid', null).eq('es_prueba', false)
+      .or('capi_schedule_sent_at.is.null,capi_purchase_sent_at.is.null')
+    if (phErr) console.error('[capi] ph-only query:', phErr.message)
+    phLeads = (data || []).filter((l) => l.agendo_at || l.session_id || l.patient_id)
+  }
+
+  for (const lead of [...(leads || []), ...phLeads]) {
     if (lead.es_prueba || !capiAllowedForPhone(lead.phone)) { summary.skipped++; continue }
+    const phOnly = !lead.ctwa_clid
 
     // LeadSubmitted — kept talking after seeing the price, or picked a therapist (#40).
-    if (!lead.capi_lead_sent_at && (lead.precio_visto_at || lead.eligio_terapeuta_at)) {
+    // Click-id leads only (ph-only reports bookings + purchases, not chat depth).
+    if (!phOnly && !lead.capi_lead_sent_at && (lead.precio_visto_at || lead.eligio_terapeuta_at)) {
       const inbound = lead.precio_visto_at ? await inboundAfter(supabase, lead.phone, lead.precio_visto_at) : []
       const d = leadSubmittedDecision({ precioVistoAt: lead.precio_visto_at, inboundAfterPrice: inbound, eligioAt: lead.eligio_terapeuta_at })
       if (d.fire) {
@@ -197,8 +221,11 @@ export async function sweepCapiEvents(supabase) {
     }
 
     // Schedule — an intro call was booked → a qualified lead (the optimization event).
+    // Event time = when it was booked (agendo_at); >7 days old → Meta rejects → skip (#69).
     if (!lead.capi_schedule_sent_at && (lead.agendo_at || lead.session_id)) {
-      if (await fire(supabase, { lead, datasetId, testCode, eventName: 'QualifiedLead', column: 'capi_schedule_sent_at' })) summary.schedule++
+      const t = lead.agendo_at ? new Date(lead.agendo_at).getTime() : Date.now()
+      if (Date.now() - t > SEVEN_DAYS_MS) { summary.stale++; console.log(`[capi] QualifiedLead stale lead=${lead.id} agendo_at=${lead.agendo_at}`) }
+      else if (await fire(supabase, { lead, datasetId, testCode, eventName: 'QualifiedLead', column: 'capi_schedule_sent_at', eventTime: Math.floor(t / 1000) })) summary.schedule++
       else summary.errors++
     }
 
@@ -211,7 +238,8 @@ export async function sweepCapiEvents(supabase) {
       const s = paid?.[0]
       if (s) {
         const eventTime = s.paid_at ? Math.floor(new Date(s.paid_at).getTime() / 1000) : undefined
-        if (await fire(supabase, { lead, datasetId, testCode, eventName: 'Purchase', column: 'capi_purchase_sent_at', value: s.monto, eventTime })) summary.purchase++
+        if (eventTime && Date.now() / 1000 - eventTime > SEVEN_DAYS_MS / 1000) { summary.stale++; console.log(`[capi] Purchase stale lead=${lead.id} paid_at=${s.paid_at}`) }
+        else if (await fire(supabase, { lead, datasetId, testCode, eventName: 'Purchase', column: 'capi_purchase_sent_at', value: s.monto, eventTime })) summary.purchase++
         else summary.errors++
       }
     }
@@ -225,7 +253,7 @@ async function fire(supabase, { lead, datasetId, testCode, eventName, column, va
   if (lead.es_prueba) { console.log(`[capi] ${eventName} skipped — es_prueba lead=${lead.id}`); return false } // #56
   try {
     const res = await sendCapiEvent({
-      datasetId, eventName, ctwaClid: lead.ctwa_clid,
+      datasetId, eventName, ctwaClid: lead.ctwa_clid, phone: lead.phone,
       eventId: `${lead.id}:${eventName}`, testCode, value, eventTime,
     })
     if (!res.ok) { console.error(`[capi] ${eventName} lead=${lead.id} status=${res.status} body=${JSON.stringify(res.body)}`); return false }

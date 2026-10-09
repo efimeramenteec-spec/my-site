@@ -80,6 +80,8 @@ export default function PublicBooking({ kind = 'llamada' }) {
   const copy = COPY[kind]
   const [searchParams] = useSearchParams()
   const preselectedId = searchParams.get('terapeuta')
+  // #69 — the bot's link carries the lead id (&l=) so the booking links back to it.
+  const leadId = searchParams.get('l') || undefined
 
   // 'therapist' → 'slot' → 'form' → 'done'
   const [step, setStep] = useState('therapist')
@@ -167,6 +169,7 @@ export default function PublicBooking({ kind = 'llamada' }) {
           date,
           start_time: slot,
           website: form.website, // honeypot — humans leave it empty
+          lead_id: leadId,
           patient: {
             nombre: form.nombre.trim(),
             apellido: form.apellido.trim(),

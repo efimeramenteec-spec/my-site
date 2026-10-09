@@ -82,8 +82,11 @@ export async function resetTestLead(supabase, deps = defaultDeps) {
   const out = { leads: 0, llamadas: 0 }
   if (o9.length < 9) return out
 
-  const { data: leads } = await supabase.from('leads').select('id, phone').eq('es_prueba', true)
+  const { data: leads } = await supabase.from('leads').select('id, phone, session_id').eq('es_prueba', true)
   const mine = (leads || []).filter((l) => last9(l.phone) === o9)
+  // #69 — a test booking made from the link (&l=) with a DIFFERENT typed phone is tied
+  // to the test lead by session_id, not by the owner's patient row.
+  const linkedSessionIds = mine.map((l) => l.session_id).filter(Boolean)
   for (const l of mine) {
     await supabase.from('lead_ai_decisions').update({ es_prueba: true, lead_id: null }).eq('lead_id', l.id)
     const { error } = await supabase.from('leads').delete().eq('id', l.id).eq('es_prueba', true)
@@ -98,11 +101,14 @@ export async function resetTestLead(supabase, deps = defaultDeps) {
   // Test llamadas: the owner phone's patient(s), tipo llamada, notas [PRUEBA], not yet cancelled.
   const { data: pats } = await supabase.from('patients').select('id, telefono')
   const pIds = (pats || []).filter((p) => last9(p.telefono) === o9).map((p) => p.id)
-  if (pIds.length) {
-    const { data: ses } = await supabase.from('sessions')
-      .select('id, notas, estado, google_event_id, terapeuta_id')
-      .in('patient_id', pIds).eq('tipo', 'llamada').neq('estado', 'cancelada')
-    for (const s of (ses || []).filter((x) => String(x.notas || '').startsWith('[PRUEBA]'))) {
+  if (pIds.length || linkedSessionIds.length) {
+    const sel = 'id, notas, estado, google_event_id, terapeuta_id'
+    const [{ data: byPatient }, { data: byLead }] = await Promise.all([
+      pIds.length ? supabase.from('sessions').select(sel).in('patient_id', pIds).eq('tipo', 'llamada').neq('estado', 'cancelada') : { data: [] },
+      linkedSessionIds.length ? supabase.from('sessions').select(sel).in('id', linkedSessionIds).eq('tipo', 'llamada').neq('estado', 'cancelada') : { data: [] },
+    ])
+    const ses = [...new Map([...(byPatient || []), ...(byLead || [])].map((s) => [s.id, s])).values()]
+    for (const s of ses.filter((x) => String(x.notas || '').startsWith('[PRUEBA]'))) {
       await supabase.from('sessions').update({ estado: 'cancelada', pagado: false, paid_at: null }).eq('id', s.id)
       out.llamadas++
       if (s.google_event_id && s.terapeuta_id) {
