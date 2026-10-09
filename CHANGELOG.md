@@ -5,6 +5,56 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-08 (#69) -->
+### 2026-10-06 — #55 Bot solo habla como Nico (executor, f88159c)
+The lead bot speaks ONLY as Nico, first person; never mentions Nicolás in the third person or admits to being a bot.
+- **`handoff()`** (leadBot.mjs): day 07–23 GYE → "Dame un momento y te respondo."; night → "Te respondo mañana a
+  primera hora." Then `escalate()` (pause + push) as before. Urgente path unchanged (sent with `greet:false`).
+- **Bot question → silent handoff, any hour:** `isBotQuestion(text)` (deterministic regex: bot/chatbot/robot,
+  "eres/es una IA/automático", "eres real/una persona", "hablo/estoy hablando con una persona", "respuestas
+  automáticas") runs before the model; the classifier's `motivo:"bot"` also routes here. ZERO text; push title
+  "Preguntó si es un bot", body = `name: "<lead text>"` (`escalate` got `title`/`body` overrides). Log
+  `derivar:bot (regla)`. Nicolás answers with an audio. "Soy un sistema de respuestas inteligente…" deleted.
+- **One greeting:** `txt(supabase, lead, body, {greet})` (signature changed — every call passes supabase) →
+  `withGreeting()`: first bot message (saludo_enviado=false AND last_bot_at null) gets "Hola, hablas con Nico. "
+  replacing the bubble's own "Hola!/Hola,"; atomic `claimOnce('saludo_enviado')`; every later bubble has its
+  leading "Hola" stripped (e.g. a 2nd price answer starts "La sesión cuesta…"). Also applied to the booking link.
+  `showQuien` no longer greets by itself. A lead already written to (last_bot_at set) is never introduced late.
+  Note: a handoff that is the very FIRST message reads "Hola, hablas con Nico. Dame un momento y te respondo."
+- **Sim:** `_setHourGYE(h)` export (leadBot) + scenario `hourGYE`; scenarios 13–21 added to `leadBotSim.mjs`.
+  Real-Claude dry run 13–21 + regressions 3/6/7/8: all as specified, 0 silences.
+
+### 2026-10-06 — #54 Lead bot sin botones + link directo (executor, 41682e6)
+**Diagnosis first (step 0):** the 5 Oct "Sí" lead (14cb7a92, step `quien`) did NOT hit a silent path — the
+"Sí" was a TAP on `inv_si` (raw_payload interactive.button_reply), the bot answered with the quien buttons
+(wamid delivered 12:46:02, never read), and taps were never logged to `lead_ai_decisions` by design. The real
+bug found instead: **burst coalescing** in `lead-reply-background` folded tap titles ("Mi hijo/a") into the
+next typed text (lead b64e16df: "Mi hijo/a\n24" → classified `agendar` → reset to quien). Gone with coalescing.
+- **leadBot.mjs Phase B rewritten:** no `sendButtons`/`sendList`/`sendImageCard`; every step plain text (same
+  copy: QUIEN_Q, EDAD_Q, REASON_Q, INVITATION). Cards = `sendImage` (photo + `*Nombre Apellido*` + caption sans
+  Enfoque + gendered line). `leads.cards_ofrecidas uuid[]` stores the shown ids (classifier context).
+- **leadBrain.decideFreeText** → `{accion, intents:[{intent,valor}] (≤3, ordered), motivo, categoria, texto}`.
+  New intents afirmativo/negativo/quien_yo/pareja/hijo/edad/elige_terapeuta/motivo/gracias; **no `libre`**
+  (responder with no intents outside a prompt step → derive `sin_intent`). Context = step + `pendingQuestion()`
+  + offered names. Fact sheet no longer sent to the model (it only classifies).
+- **runIntents:** CANNED bubbles in order → at most ONE flow step (FLOW_ORDER) → tail once (`finishAnswers`:
+  handoff > Carolina cards > invitation if not in flow, else the pending question). Invitation + "Hola, hablas
+  con Nico" use `claimOnce()` (atomic false→true UPDATE) so concurrent turns never double them.
+- **Zero silence:** `runBot` counts sends (`lead.__sent`) / derivations (`__derived`); a turn ending with neither
+  (or crashing) → log `sin_respuesta` (model 'guardia') + handoff. `handoff()` now ALWAYS sends a line (day:
+  "…te escribirá personalmente en un momento"; night: "a primera hora").
+- **Link instead of slots:** `chooseTherapist` → `sendBookingLink` (`LINK_COPY` + `/agendar?terapeuta=`), via
+  `waSend.sendLinkText` (the ONLY lead text exempt from cleanBotText). step `link_enviado`. `nextSlots` no
+  longer used by the bot. Booking from the link links back via `trg_lead_link_from_session` (last-9) → agendo_at.
+- Typed template replies (`typedTemplateReply`, gated on the template having been sent); Cambiar hora / Sí
+  reagendar → link. Legacy taps (inv_si, quien:, pick:, horarios:, slot:) still handled for old chats.
+- `lead-reply-background`: REPLY_DELAY_MS 0, no coalescing. Camila out of `terapia_pareja`
+  (funnel_categorias + mapaCasos ✗). funnel_knowledge `agenda` reworded. Migration `lead-funnel-10-sin-botones.sql`.
+- **Verify:** `node scripts/harness-lead-bot.mjs` (local, keyword fallback) and
+  `GET /.netlify/functions/lead-bot-dryrun?token=<LEAD_TOOLS_TOKEN>&only=1,2` (prod, REAL Claude; run in small
+  `only=` batches — the full set exceeds the HTTP inactivity timeout). Sim = `netlify/lib/leadBotSim.mjs`
+  (in-memory Supabase seeded read-only + recording transport). 12/12 scenarios, 0 silences, both modes.
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-08 (#61/#62) -->
 ### 2026-10-06 — #48 Carolina Sep payroll corrected: 34 / $828 (executor, data-only)
 - Paula Hidalgo 30/09 10:30 (session 27ae5bff) is now Cancelada → Carolina 35/$852 → **34/$828** (32×$24 + 2×$30 pareja).

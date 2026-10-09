@@ -103,6 +103,33 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-08 — #69 Fuga de atribución: cada llamada/paciente ligado a su lead + Meta (executor, e417b7a)
+- **Link carries the lead:** `leadBot.mjs#freeCallLink(therapistId, lead.id)` → `/agendar?terapeuta=…&l=<lead id>` (copy unchanged).
+  `PublicBooking.jsx` sends `lead_id`; `public-booking.mjs` validates it (uuid, exists); `booking.mjs#createBooking({leadId})` →
+  `leadLinker.mjs#linkLeadById` even when the typed phone differs. Real booking never links an es_prueba lead; a lead
+  link to the owner's TEST lead while modo prueba is active makes the booking `prueba` (any typed phone). `reiniciar`
+  now also cancels [PRUEBA] llamadas tied by the test lead's `session_id`.
+- **Linker** `netlify/lib/leadLinker.mjs#runLeadLinker` (step L in `lead-followups`, last 8 days, before CAPI; backfill
+  `node scripts/link-leads-69.mjs [--apply] [since]`): llamadas + each patient's first real session with no lead; match
+  (1) last-9, (2) lead active (first_at or inbound msg) ≤72 h before booking with phone OSA distance ≤2 (national digits),
+  (3) same window + WA profile name = first name + one more token. Unique only; ambiguous/none logged. Fills ONLY null
+  `patient_id/session_id/agendo_at` (agendo_at = session.created_at); **never `stage`** — lead-followups B/C/D message
+  by stage, so linking can't change what a lead receives. Lead tied to another patient → skipped. Harness `scripts/harness-linker-69.mjs`.
+- **Backfill (since 1 Oct):** Wolfgang Armas → lead +593963158790 (phone typo), Gissela Morales → lead +593984287059
+  (2 digits swapped) — both QualifiedLead **200** on 9 Oct 02:15 UTC (event_time = booking time). Nikole Estrella: existing
+  patient since June, no lead row (not an ad lead). Génesis Taco (llamada + 1st session): no WhatsApp from her number or
+  name in the 72 h before → no match. Valeria Salazar / Marthina: linked, organic (no ctwa_clid) → nothing to Meta.
+  Ronnal Pasquel: already sent 8 Oct.
+- **Source:** trigger `trg_leads_source_from_clid` (BEFORE insert/update) + `recordLead` patch → ctwa_clid ⇒ source
+  `meta_ctwa`; backfilled (0 mismatches left). Migration `lead_attribution_69` = `supabase/lead-attribution-69.sql`.
+- **Views:** `funnel_v` now ALL non-test leads + `source` + `meta_tag` (appended columns); new `campaign_results_v`
+  (per GYE day: llamadas_agendadas, primeras_sesiones by booking day, primeras_pagadas by paid_at; [PRUEBA] excluded;
+  security_invoker; granted authenticated + service_role). Marketing module already counted all sources — no change.
+- **CAPI** (`capi.mjs`): QualifiedLead event_time = agendo_at; QualifiedLead/Purchase >7 days → `stale`, skipped, not
+  stamped. ph-only path (`user_data.ph` = sha256 E.164 digits) behind `CAPI_PH_ONLY=true` — **OFF**: one Test Events try
+  (`capi-admin?action=test-ph`, code TEST52701) → 400 subcode 2804069 "Missing Page ID" (business_messaging/whatsapp
+  without ctwa_clid needs `page_id` in user_data).
+
 ### 2026-10-08 — #66 Texto de cada envío del bot + vista funnel_v (executor, e29b64f)
 - Table `lead_bot_sends` (migration `lead_bot_sends_66` = `supabase/lead-bot-sends-66.sql`, owner-only RLS, #62 grants).
   Logged from `leadBot.mjs` (text/question/cards/link, +22h nudge as text, recordatorio_llamada/primera_sesion/
@@ -231,58 +258,16 @@ Nicolás (owner phone 593968029896, the only phone he has) can test the lead flo
   gained gt/neq/or/delete/upsert-onConflict): all checks pass, incl. CAPI 0 events for es_prueba with CAPI_LIVE + test phone allowed.
   Prod real-Claude dryrun scenario 1 unchanged ("Hola, hablas con Nico. La sesión cuesta $39…").
 
-### 2026-10-06 — #55 Bot solo habla como Nico (executor, f88159c)
-The lead bot speaks ONLY as Nico, first person; never mentions Nicolás in the third person or admits to being a bot.
-- **`handoff()`** (leadBot.mjs): day 07–23 GYE → "Dame un momento y te respondo."; night → "Te respondo mañana a
-  primera hora." Then `escalate()` (pause + push) as before. Urgente path unchanged (sent with `greet:false`).
-- **Bot question → silent handoff, any hour:** `isBotQuestion(text)` (deterministic regex: bot/chatbot/robot,
-  "eres/es una IA/automático", "eres real/una persona", "hablo/estoy hablando con una persona", "respuestas
-  automáticas") runs before the model; the classifier's `motivo:"bot"` also routes here. ZERO text; push title
-  "Preguntó si es un bot", body = `name: "<lead text>"` (`escalate` got `title`/`body` overrides). Log
-  `derivar:bot (regla)`. Nicolás answers with an audio. "Soy un sistema de respuestas inteligente…" deleted.
-- **One greeting:** `txt(supabase, lead, body, {greet})` (signature changed — every call passes supabase) →
-  `withGreeting()`: first bot message (saludo_enviado=false AND last_bot_at null) gets "Hola, hablas con Nico. "
-  replacing the bubble's own "Hola!/Hola,"; atomic `claimOnce('saludo_enviado')`; every later bubble has its
-  leading "Hola" stripped (e.g. a 2nd price answer starts "La sesión cuesta…"). Also applied to the booking link.
-  `showQuien` no longer greets by itself. A lead already written to (last_bot_at set) is never introduced late.
-  Note: a handoff that is the very FIRST message reads "Hola, hablas con Nico. Dame un momento y te respondo."
-- **Sim:** `_setHourGYE(h)` export (leadBot) + scenario `hourGYE`; scenarios 13–21 added to `leadBotSim.mjs`.
-  Real-Claude dry run 13–21 + regressions 3/6/7/8: all as specified, 0 silences.
-
-### 2026-10-06 — #54 Lead bot sin botones + link directo (executor, 41682e6)
-**Diagnosis first (step 0):** the 5 Oct "Sí" lead (14cb7a92, step `quien`) did NOT hit a silent path — the
-"Sí" was a TAP on `inv_si` (raw_payload interactive.button_reply), the bot answered with the quien buttons
-(wamid delivered 12:46:02, never read), and taps were never logged to `lead_ai_decisions` by design. The real
-bug found instead: **burst coalescing** in `lead-reply-background` folded tap titles ("Mi hijo/a") into the
-next typed text (lead b64e16df: "Mi hijo/a\n24" → classified `agendar` → reset to quien). Gone with coalescing.
-- **leadBot.mjs Phase B rewritten:** no `sendButtons`/`sendList`/`sendImageCard`; every step plain text (same
-  copy: QUIEN_Q, EDAD_Q, REASON_Q, INVITATION). Cards = `sendImage` (photo + `*Nombre Apellido*` + caption sans
-  Enfoque + gendered line). `leads.cards_ofrecidas uuid[]` stores the shown ids (classifier context).
-- **leadBrain.decideFreeText** → `{accion, intents:[{intent,valor}] (≤3, ordered), motivo, categoria, texto}`.
-  New intents afirmativo/negativo/quien_yo/pareja/hijo/edad/elige_terapeuta/motivo/gracias; **no `libre`**
-  (responder with no intents outside a prompt step → derive `sin_intent`). Context = step + `pendingQuestion()`
-  + offered names. Fact sheet no longer sent to the model (it only classifies).
-- **runIntents:** CANNED bubbles in order → at most ONE flow step (FLOW_ORDER) → tail once (`finishAnswers`:
-  handoff > Carolina cards > invitation if not in flow, else the pending question). Invitation + "Hola, hablas
-  con Nico" use `claimOnce()` (atomic false→true UPDATE) so concurrent turns never double them.
-- **Zero silence:** `runBot` counts sends (`lead.__sent`) / derivations (`__derived`); a turn ending with neither
-  (or crashing) → log `sin_respuesta` (model 'guardia') + handoff. `handoff()` now ALWAYS sends a line (day:
-  "…te escribirá personalmente en un momento"; night: "a primera hora").
-- **Link instead of slots:** `chooseTherapist` → `sendBookingLink` (`LINK_COPY` + `/agendar?terapeuta=`), via
-  `waSend.sendLinkText` (the ONLY lead text exempt from cleanBotText). step `link_enviado`. `nextSlots` no
-  longer used by the bot. Booking from the link links back via `trg_lead_link_from_session` (last-9) → agendo_at.
-- Typed template replies (`typedTemplateReply`, gated on the template having been sent); Cambiar hora / Sí
-  reagendar → link. Legacy taps (inv_si, quien:, pick:, horarios:, slot:) still handled for old chats.
-- `lead-reply-background`: REPLY_DELAY_MS 0, no coalescing. Camila out of `terapia_pareja`
-  (funnel_categorias + mapaCasos ✗). funnel_knowledge `agenda` reworded. Migration `lead-funnel-10-sin-botones.sql`.
-- **Verify:** `node scripts/harness-lead-bot.mjs` (local, keyword fallback) and
-  `GET /.netlify/functions/lead-bot-dryrun?token=<LEAD_TOOLS_TOKEN>&only=1,2` (prod, REAL Claude; run in small
-  `only=` batches — the full set exceeds the HTTP inactivity timeout). Sim = `netlify/lib/leadBotSim.mjs`
-  (in-memory Supabase seeded read-only + recording transport). 12/12 scenarios, 0 silences, both modes.
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **#69 live proof (Nicolás's phone):** "modo prueba" → write as lead → pick therapist → bot link must contain `&l=`
+      → book with a DIFFERENT phone → check the test lead gets session_id/agendo_at, booking notas "[PRUEBA]", no CAPI
+      → "reiniciar" (cancels that llamada) → "fin prueba".
+- [ ] **#69 patient phones to fix by hand (not changed):** Wolfgang Danilo Armas Tipan +59363158790 → WhatsApp +593963158790;
+      Gissela Morales +593987284059 → WhatsApp +593984287059.
+- [ ] **#69 ph-only CAPI:** Meta wants `page_id` for whatsapp events without ctwa_clid. Decide whether to test ph + page_id
+      (the FB page linked to the WABA) once in Test Events; if accepted, add it and set `CAPI_PH_ONLY=true`.
 - [ ] **#66 live proof** — (a) Nicolás: "modo prueba" → "cuánto cuesta" → "reiniciar" → "fin prueba"; then check
       `lead_bot_sends` rows es_prueba=true with a wamid that appears in `whatsapp_delivery_status`. (b) First real ad lead
       after e29b64f: its sends have a wamid, `select * from funnel_v` shows it; report 3 sample rows (phone last 4 only).
