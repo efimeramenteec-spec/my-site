@@ -103,6 +103,25 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-13 — #72 Facturación automática Mon+Thu + 4 facturas aprobadas en chat (executor, ec57bb8)
+- **Emitted (approved by Nicolás in chat 13 Oct)** via emit-one: 001-001-000000315 Mila 6 Oct $32 (Sébastien
+  Paque, concepto general) · 316 Cecilia Saltos 8 Oct $39 (Dorian Solís) · 317 Raguel Conforme 9 Oct $36 (Laura
+  Vásquez) · 318 Cinthya Pérez 9 Oct $36. Snapshot 635734b1 (cron, 12 Oct) → aprobada, `resultado.nota`
+  "aprobado en chat 13 Oct" + emitidas. Its queued owner_outbox list (9c58b2fb) → fallido so the stale
+  Aprobar list never reaches him. RIDEs via factura-rides-sweep.
+- **Auto mode** (`netlify/lib/facturarAprobacion.mjs#runAuto`): facturar-report → `runReport` → runAuto('auto'):
+  same dryRun eligibility, overlap guard (an `en_curso` run < 15 min → skip), log row inserted first
+  (estado aprobada, `resultado.en_curso`), per-session re-check (still pagado/confirmada/not facturada) right
+  before emitOne, try/catch per item → `fallidas`; then ONE `notifyOwner` kind `facturas_emitidas` (text only,
+  split at ~3800 chars). Nothing ready/blocked/en espera → nothing sent.
+- **"facturas"** → webhook fires `facturar-aprobar-background` with `{comando:true}` → `handleFacturasCommand`
+  = runAuto('comando') + direct reply (emission is long, kept off the webhook). Legacy fac_ok/fac_no taps still
+  resolve old lists (`runAprobacion`/`handleDescartar`); `prepareFacturas` (list + buttons) removed.
+- `/facturar?mode=auto-preview` = runAuto preview (zero Contífico calls, no log, no send) → the exact message.
+- **Migration** `supabase/factura-aprobaciones-auto.sql`: origen check += `'auto'`.
+- Preview 13 Oct for Thu 15 Oct: Emilie Conforme 3 Oct $36 + Valentina Loor 9 Oct $39 (+ whatever gets paid
+  by then); Mauro Baquero en espera (8).
+
 ### 2026-10-08 — #69 Fuga de atribución: cada llamada/paciente ligado a su lead + Meta (executor, e417b7a)
 - **Link carries the lead:** `leadBot.mjs#freeCallLink(therapistId, lead.id)` → `/agendar?terapeuta=…&l=<lead id>` (copy unchanged).
   `PublicBooking.jsx` sends `lead_id`; `public-booking.mjs` validates it (uuid, exists); `booking.mjs#createBooking({leadId})` →
@@ -236,28 +255,6 @@ two PARALLEL turns: question + cards in turn 1; turn 2 repeated adolescentes and
   flag is still rejected ("máximo 3 sesiones por día", rolled back).
 - Note: an excepted session still COUNTS for her other sessions' checks (moving the 19:00 that day would be blocked).
 
-### 2026-10-06 — #56 Modo prueba del bot desde el teléfono del dueño (executor, fda357c)
-Nicolás (owner phone 593968029896, the only phone he has) can test the lead flow as a first-time lead.
-- **Commands** (owner → 9933, exact message, case/accent-insensitive; replies via `sendStaffText`, no sanitizer/greeting):
-  "modo prueba" → `bot_test_mode` activo, expira_at now+2h · "reiniciar" → `resetTestLead` (mode stays as it was) ·
-  "fin prueba" → off. Logic in **`netlify/lib/botTestMode.mjs`** (`testCommand`, `routeOwnerMessage` → 'command'|'lead'|'owner',
-  `testModeActive`, `resetTestLead`). Webhook calls it AFTER the outbox flush/"Ver"/facturas/Aprobar handling, so those keep working.
-- **Active** → every other owner message (text/taps/audio; images/PDFs still go to comprobantes) goes to `recordLead({esPrueba:true})`
-  (skips the known-contact rules; an existing owner row gets flagged es_prueba) + runBot; each message renews expira_at.
-  `botAllowedForPhone(phone, lead)` lets an es_prueba lead talk even with LEAD_BOT_LIVE off. Expired → owner path, silent.
-- **reiniciar:** DELETE leads WHERE es_prueba AND last-9=owner (its `lead_ai_decisions` kept, flagged es_prueba, lead_id → null — FK);
-  owner-phone llamadas with notas "[PRUEBA]…" → cancelada + calendar cancel (best-effort).
-- **Isolation (es_prueba):** CAPI sweep filters `.eq('es_prueba', false)` + guard in `fire()`; lead-followups A–D filter it;
-  `getFunnelData` excludes test leads + decisions; capi-admin counts too. `/agendar` with the owner phone while active →
-  `createBooking({prueba:true})`: notas "[PRUEBA] Agendada en modo prueba del bot", owner-only push, NO therapist push, NO Calendar,
-  patient reused (owner already has an es_lead row) / created es_lead, never promoted; the per-phone daily cap is skipped.
-- **Migration** `lead_funnel_11_modo_prueba` (mirror `supabase/lead-funnel-11-modo-prueba.sql`): table `bot_test_mode`
-  (owner-only RLS) + `leads.es_prueba` + `lead_ai_decisions.es_prueba`. Data: the stale owner lead 794b3525 (2 Oct, paused,
-  empty) was removed exactly like "reiniciar" would (1 decision kept as es_prueba).
-- **Harness** `node scripts/harness-modo-prueba.mjs` (mirrors the webhook's owner routing on leadBotSim's in-memory DB, which
-  gained gt/neq/or/delete/upsert-onConflict): all checks pass, incl. CAPI 0 events for es_prueba with CAPI_LIVE + test phone allowed.
-  Prod real-Claude dryrun scenario 1 unchanged ("Hola, hablas con Nico. La sesión cuesta $39…").
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
@@ -275,7 +272,8 @@ Nicolás (owner phone 593968029896, the only phone he has) can test the lead flo
 - [ ] **#61 bad phones (listed, not changed):** normalizePhone → null: Cristina Gomez, Maria Emilia Buitron, Andres Luzuriaga (hidden U+202A/202C marks), Daniel y Daniela ("8"), Michelle Tinajero ("9"). Malformed EC: Connie Ayala, Ana Belén Quisiguiña, Noeleen Rodriguez (+5930…), Sophia Chica, Stefanny Lopez, Fátima Tubon (+59398067281), Maria de Lourdes Altamirano, Amparito Vargas (8-digit mobiles).
 - [ ] **#61 Dorian Solis (payer of Cecília + Elena Saltos) has no phone** → their payment reminders still go to the patient.
 - [ ] **#60 Mauro Baquero en espera** (8 paid, all pre-floor): when his insurer's diagnosis arrives → set diagnóstico, untoggle "Facturación en espera" AND set `facturar_desde` to his first session to back-invoice.
-- [ ] **#60 Mila (Sébastien Paque):** 6 Oct (unpaid) + 6 future insured sessions go out via the normal Mon+Thu list in concepto-general format once paid.
+- [ ] **#60 Mila (Sébastien Paque):** 6 Oct invoiced 13 Oct (315, #72); future insured sessions go out automatically Mon+Thu in concepto-general format once paid.
+- [ ] **#72 Cecilia/Valentina patient records** — separate item pending Nicolás; records NOT touched. ⚠️ Valentina Loor 9 Oct ($39, payer Dorian Solís) is in Thursday 15 Oct's auto run (auto-preview) — if her record must change first, set "Facturación en espera" before 09:00 Thu.
 - [ ] **#55 decide (Nicolás):** lead-facing lines still naming a team/third person — see the #55 TO-DO entry (urgente fallback, "Escríbenos", "Att: Nico" templates).
 - [ ] **#56 live test (Nicolás, his own phone):** "modo prueba" → write as a lead → "reiniciar" to start over → "fin prueba".
 - [ ] **#54 real test (now doable from his own phone via #56 modo prueba):** price prefill → si → para mí → ansiedad → name → link → book → check `leads.agendo_at`.

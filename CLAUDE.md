@@ -336,8 +336,12 @@ in `owner_outbox` (owner-only RLS, `supabase/owner-outbox.sql`):
 - `ping_nico` not APPROVED as UTILITY, or the send fails → Web Push fallback, row stays `pendiente`.
 - `whatsapp-cloud-webhook` calls `flushOwnerOutbox()` on ANY owner inbound (oldest first) before his
   command; the "Ver" tap does nothing else. Owner-phone messages never enter the lead bot (except in bot test mode, #56).
-First consumer: `facturar-report` (Mon+Thu 09:00 GYE) → snapshot (origen `cron`) + the same list +
-[Aprobar] [Ahora no] the "facturas" command sends. Invoices are emitted ONLY by his Aprobar tap.
+First consumer: `facturar-report` (Mon+Thu 09:00 GYE). **Since #72 (Nicolás, 13 Oct) invoicing runs
+AUTOMATICALLY — no approval:** `runReport` → `runAuto('auto')` emits every eligible session (same core
+rules), logs `factura_aprobaciones` (origen `auto`, estado `aprobada`), then ONE informational `notifyOwner`
+(kind `facturas_emitidas`, no buttons): "{n} facturas emitidas ($total): …" + failures + bloqueadas + en espera.
+A failed emission never blocks the others. "facturas" = the same run on demand (origen `comando`, in
+`facturar-aprobar-background`). Dry run: `/facturar?mode=auto-preview`. Mistakes get annulled in Contífico.
 
 ### Bot test mode — `netlify/lib/botTestMode.mjs` (#56, 2026-10-06)
 Nicolás tests the lead flow from the OWNER phone. Commands to the 9933 (exact message, case/accent-insensitive;
@@ -347,7 +351,7 @@ replies go to him via `sendStaffText`, no sanitizer, no "Hola, hablas con Nico")
   its `lead_ai_decisions` are kept (flagged `es_prueba`, `lead_id` → null); his "[PRUEBA]" llamadas → cancelada + calendar cancel.
 - **"fin prueba"** → off. Expired → the normal owner path, no warning.
 While active, every other owner message goes to recordLead(`esPrueba`) + runBot, renewing expira_at; "facturas",
-Aprobar/Ahora no, the "Ver" tap and `flushOwnerOutbox` keep working as owner (handled first in the webhook).
+legacy Aprobar/Ahora no, the "Ver" tap and `flushOwnerOutbox` keep working as owner (handled first in the webhook).
 **`es_prueba` isolation — keep it in any new lead query/sender:** no CAPI event (sweep filter + guard in `capi.mjs#fire`),
 no lead-followups (A–D filter), excluded from `getFunnelData` (leads + decisions) and capi-admin counts. `/agendar` booked
 with the owner phone while active → `createBooking({prueba:true})`: notas "[PRUEBA] …", owner-only push, no therapist push,

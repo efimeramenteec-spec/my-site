@@ -6,6 +6,28 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 Newest first.
 
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-08 (#69) -->
+### 2026-10-06 — #56 Modo prueba del bot desde el teléfono del dueño (executor, fda357c)
+Nicolás (owner phone 593968029896, the only phone he has) can test the lead flow as a first-time lead.
+- **Commands** (owner → 9933, exact message, case/accent-insensitive; replies via `sendStaffText`, no sanitizer/greeting):
+  "modo prueba" → `bot_test_mode` activo, expira_at now+2h · "reiniciar" → `resetTestLead` (mode stays as it was) ·
+  "fin prueba" → off. Logic in **`netlify/lib/botTestMode.mjs`** (`testCommand`, `routeOwnerMessage` → 'command'|'lead'|'owner',
+  `testModeActive`, `resetTestLead`). Webhook calls it AFTER the outbox flush/"Ver"/facturas/Aprobar handling, so those keep working.
+- **Active** → every other owner message (text/taps/audio; images/PDFs still go to comprobantes) goes to `recordLead({esPrueba:true})`
+  (skips the known-contact rules; an existing owner row gets flagged es_prueba) + runBot; each message renews expira_at.
+  `botAllowedForPhone(phone, lead)` lets an es_prueba lead talk even with LEAD_BOT_LIVE off. Expired → owner path, silent.
+- **reiniciar:** DELETE leads WHERE es_prueba AND last-9=owner (its `lead_ai_decisions` kept, flagged es_prueba, lead_id → null — FK);
+  owner-phone llamadas with notas "[PRUEBA]…" → cancelada + calendar cancel (best-effort).
+- **Isolation (es_prueba):** CAPI sweep filters `.eq('es_prueba', false)` + guard in `fire()`; lead-followups A–D filter it;
+  `getFunnelData` excludes test leads + decisions; capi-admin counts too. `/agendar` with the owner phone while active →
+  `createBooking({prueba:true})`: notas "[PRUEBA] Agendada en modo prueba del bot", owner-only push, NO therapist push, NO Calendar,
+  patient reused (owner already has an es_lead row) / created es_lead, never promoted; the per-phone daily cap is skipped.
+- **Migration** `lead_funnel_11_modo_prueba` (mirror `supabase/lead-funnel-11-modo-prueba.sql`): table `bot_test_mode`
+  (owner-only RLS) + `leads.es_prueba` + `lead_ai_decisions.es_prueba`. Data: the stale owner lead 794b3525 (2 Oct, paused,
+  empty) was removed exactly like "reiniciar" would (1 decision kept as es_prueba).
+- **Harness** `node scripts/harness-modo-prueba.mjs` (mirrors the webhook's owner routing on leadBotSim's in-memory DB, which
+  gained gt/neq/or/delete/upsert-onConflict): all checks pass, incl. CAPI 0 events for es_prueba with CAPI_LIVE + test phone allowed.
+  Prod real-Claude dryrun scenario 1 unchanged ("Hola, hablas con Nico. La sesión cuesta $39…").
+
 ### 2026-10-06 — #55 Bot solo habla como Nico (executor, f88159c)
 The lead bot speaks ONLY as Nico, first person; never mentions Nicolás in the third person or admits to being a bot.
 - **`handoff()`** (leadBot.mjs): day 07–23 GYE → "Dame un momento y te respondo."; night → "Te respondo mañana a

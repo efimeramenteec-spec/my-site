@@ -4,19 +4,16 @@ description: Emit Contífico facturas for eligible sessions via the REST API (Ne
 
 # /facturar — Contífico invoicing protocol (REST API)
 
-> **Normal path since 2026-10-04 (#16): no Claude session needed.** Every **Monday and Thursday
-> 09:00 GYE** `facturar-report` (cron `0 14 * * 1,4`) pushes Nicolás "Facturación pendiente" when
-> anything is ready or blocked. He writes **`facturas`** to the 9933 from his phone (owner number =
-> `ownerWhatsApp()`: env `OWNER_WHATSAPP`, default `+593968029896`) → the webhook runs this same
-> dry-run, freezes a `pendiente` snapshot in **`factura_aprobaciones`** (session_ids + total + the list
-> he saw) and replies with the list + **[Aprobar] [Ahora no]**. Aprobar → `facturar-aprobar-background`
-> claims the snapshot atomically (pendiente→aprobada, <48h — double taps are no-ops), re-checks each
-> snapshot session with the same eligibility rule, emits ONLY those still eligible (never one outside
-> the snapshot), WhatsApps their RIDEs, stores everything in `resultado` and replies
-> "Listo. Emitidas k de N…". A CRITICAL (emitted, not marked) replies `CRÍTICO: …` + push — fix it by
-> hand (step 4) before anything else. Code: `netlify/lib/facturarAprobacion.mjs` on top of
-> `netlify/lib/facturarCore.mjs` (the core this HTTP function also uses). Audit:
-> `select created_at, estado, total, resultado from factura_aprobaciones order by created_at desc;`
+> **Normal path since 2026-10-13 (#72): fully automatic, no approval.** Every **Monday and Thursday
+> 09:00 GYE** `facturar-report` (cron `0 14 * * 1,4`) EMITS every eligible session by itself
+> (`runAuto` in `netlify/lib/facturarAprobacion.mjs`, on top of `facturarCore.mjs`), logs the run in
+> **`factura_aprobaciones`** (origen `auto`, estado `aprobada`, `resultado` = emitidas/fallidas) and sends
+> Nicolás ONE informational WhatsApp via the owner outbox (kind `facturas_emitidas`, no buttons). A failed
+> emission never blocks the others. **`facturas`** to the 9933 = the same run on demand (origen
+> `comando`). Preview without emitting: `?mode=auto-preview`. Mistakes are annulled in Contífico.
+> RIDEs go out via the 15-min `factura-rides-sweep`. A CRITICAL (emitted, not marked) → `CRÍTICO: …` +
+> push — fix it by hand (step 4) before anything else. Audit:
+> `select created_at, origen, estado, total, resultado from factura_aprobaciones order by created_at desc;`
 > The manual HTTP protocol below stays for backfills, one-offs and debugging.
 
 Emit electronic facturas in Contífico for every eligible session, then mark each
