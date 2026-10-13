@@ -1,19 +1,16 @@
 // netlify/lib/facturarAprobacion.mjs
 //
-// /facturar by WhatsApp approval (#16, decided 28 Sep: invoices only on Nicolás's
-// approval, and only the exact list he saw). Flow:
-//   1. Mon+Thu 09:00 GYE facturar-report (#45): dry-run → 'pendiente' snapshot
-//      (origen 'cron') → the list + [Aprobar] [Ahora no] via notifyOwner (owner
-//      outbox: sent now if his 24h window is open, else ping_nico and his tap
-//      flushes it). He never has to remember to ask.
-//   2. Or Nicolás writes "facturas" to the 9933 → handleFacturasCommand: the same
-//      snapshot (origen 'comando') + list + buttons, sent straight back.
-//   3. Aprobar (fac_ok:<id>) → the webhook fires facturar-aprobar-background, which
-//      runs runAprobacion: atomic pendiente→aprobada claim (double-tap guard), then
-//      emitOne for each snapshot id STILL eligible (sessions outside the snapshot
-//      are never added), then an immediate reply. RIDEs are NOT sent here: the
-//      15-min sweep (rideSweep.mjs, #47) sends each one once the SRI authorizes it.
-//      Ahora no (fac_no:<id>) → 'descartada'.
+// /facturar on WhatsApp. Since #72 (Nicolás, 13 Oct) invoicing runs AUTOMATICALLY —
+// no approval step; he's notified afterwards and mistakes get annulled:
+//   1. Mon+Thu 09:00 GYE facturar-report → runReport → runAuto('auto'): emits every
+//      eligible session (same core rules), logs factura_aprobaciones (origen 'auto',
+//      estado 'aprobada'), then ONE notifyOwner (kind 'facturas_emitidas', no buttons).
+//   2. "facturas" to the 9933 = the same run on demand (origen 'comando'), executed in
+//      facturar-aprobar-background (long Contífico loop off the webhook), reply direct.
+//   RIDEs are NOT sent here: the 15-min sweep (rideSweep.mjs, #47) sends each one
+//   once the SRI authorizes it.
+//   Legacy: [Aprobar]/[Ahora no] (fac_ok/fac_no) are no longer sent; a tap on an old
+//   list still resolves through runAprobacion / handleDescartar.
 // Everything is owner-phone only (ownerWhatsApp(), OWNER_WHATSAPP env or the
 // +593968029896 default) and consumed by the webhook BEFORE the lead bot.
 //
@@ -80,72 +77,128 @@ export function facturaTap(msg) {
 
 const EXPIRED = 'Esa lista ya no está vigente. Escribe facturas para una nueva.'
 
-// ── Snapshot + the exact list/buttons messages ──────────────────────────────
-// Shared by the "facturas" command (sends them directly — his message opened the
-// window) and the Mon+Thu cron (hands them to notifyOwner). Expires any older
-// 'pendiente' snapshot: only the newest list is ever approvable.
-// messages: [{ type:'text', body } | { type:'buttons', body, buttons }]
-export async function prepareFacturas(supabase, origen, deps = defaultDeps) {
+// ── Auto run: emit everything eligible, then ONE informational message (#72) ─
+// Nicolás, 13 Oct: invoicing runs automatically — no approval step; he's told
+// afterwards and mistakes get annulled. Same eligibility as always (dryRun: pagado,
+// not facturada, non-llamada, confirmada, floor, en espera excluded, concepto
+// general respected), one invoice per session, fecha_emision = today (core rule).
+// Each run is logged in factura_aprobaciones (origen 'auto' from the cron,
+// 'comando' from "facturas", estado 'aprobada'). A failed emission never blocks
+// the others — failures are listed. `preview: true` = the dry run: nothing is
+// emitted, logged or sent; returns the message it WOULD send (+ the items).
+// Returns { emitted, failed, blocked, enEspera, total, resumen, messages, snapshot }.
+const EN_CURSO_MS = 15 * 60 * 1000
+
+function lineaItem(i, documento) {
+  return `${i.patient} · factura a ${pagador(i)} · ${fmtMoney(i.monto)} · ${fechaCorta(i.fecha)}${documento ? ` · ${documento}` : ''}`
+}
+
+export async function runAuto(supabase, origen, deps = defaultDeps, { preview = false } = {}) {
   const { ready, blocked, enEspera = [] } = await deps.dryRun(supabase)
+  const empty = { emitted: 0, failed: 0, blocked: blocked.length, enEspera: enEspera.length, total: 0, messages: [] }
+  if (!ready.length && !blocked.length && !enEspera.length) return { ...empty, resumen: null }
 
-  await supabase.from(TABLE).update({ estado: 'vencida' }).eq('estado', 'pendiente')
-
-  const blockedLines = blocked.length
-    ? [`Bloqueadas (${blocked.length}):`, ...blocked.map((b) => `- ${b.patient} — ${motivoEs(b)}`)]
-    : []
-  // #60: on hold — listed so Nicolás sees them, never in the snapshot (never emitted).
-  for (const e of enEspera) {
-    blockedLines.push(`En espera: ${e.nombre} (${e.sesiones} ${e.sesiones === 1 ? 'sesión' : 'sesiones'})`)
+  let snap = null
+  if (!preview && ready.length) {
+    // Overlap guard: a run (cron or "facturas") still in progress → don't start a second.
+    const since = new Date(deps.now().getTime() - EN_CURSO_MS).toISOString()
+    const { data: running } = await supabase.from(TABLE).select('id')
+      .in('origen', ['auto', 'comando']).eq('estado', 'aprobada').gte('created_at', since)
+      .eq('resultado->>en_curso', 'true').limit(1)
+    if (running?.length) return { ...empty, resumen: null, skipped: 'run en curso ' + running[0].id }
+    const { data, error } = await supabase.from(TABLE).insert({
+      origen, estado: 'aprobada', aprobada_at: deps.now().toISOString(),
+      session_ids: ready.map((i) => i.session_id), total: money(ready.reduce((s, i) => s + Number(i.monto || 0), 0)),
+      resultado: { en_curso: true },
+    }).select().single()
+    if (error || !data) throw new Error('log insert failed: ' + (error?.message || 'no row'))
+    snap = data
   }
 
-  if (!ready.length) {
-    const body = ['No hay sesiones listas para facturar.', ...(blockedLines.length ? ['', ...blockedLines] : [])].join('\n')
-    return { snapshot: null, ready: 0, blocked: blocked.length, messages: [{ type: 'text', body }] }
+  const emitidas = []
+  const fallidas = []
+  for (const item of ready) {
+    if (preview) { emitidas.push({ item, documento: null }); continue }
+    try {
+      // Last-moment re-check: another path may have invoiced it since the dry run.
+      // eslint-disable-next-line no-await-in-loop
+      const { data: cur } = await supabase.from('sessions').select('facturada, pagado, estado').eq('id', item.session_id).maybeSingle()
+      if (!cur || cur.facturada || !cur.pagado || cur.estado !== 'confirmada') {
+        fallidas.push({ item, motivo: 'ya no está pendiente de facturar' })
+        continue
+      }
+      // eslint-disable-next-line no-await-in-loop
+      const r = await deps.emitOne(supabase, item)
+      if (r.emitted) emitidas.push({ item, r, documento: item.payload?.documento || r.contifico_id })
+      else fallidas.push({ item, r, motivo: r.step || r.error || 'error' })
+    } catch (e) {
+      fallidas.push({ item, motivo: String(e.message || e) })
+    }
   }
+  const criticos = emitidas.filter((e) => e.r && !e.r.marked_facturada)
+  const total = money(emitidas.reduce((s, e) => s + Number(e.item.monto || 0), 0))
 
-  const total = money(ready.reduce((s, i) => s + Number(i.monto || 0), 0))
-  const lista = ready.map((i) => ({
-    session_id: i.session_id, paciente: i.patient, pagador: pagador(i), monto: i.monto, fecha: i.fecha,
-  }))
-  const { data: snap, error } = await supabase.from(TABLE)
-    .insert({ origen, session_ids: ready.map((i) => i.session_id), total, estado: 'pendiente',
-      resultado: { lista } })
-    .select().single()
-  if (error || !snap) throw new Error('snapshot insert failed: ' + (error?.message || 'no row'))
+  const lines = emitidas.length
+    ? [`${emitidas.length} ${emitidas.length === 1 ? 'factura emitida' : 'facturas emitidas'} (${fmtMoney(total)}):`,
+      ...emitidas.map((e, n) => `${n + 1}. ${lineaItem(e.item, e.documento)}`)]
+    : ['No se emitieron facturas.']
+  if (fallidas.length) lines.push('', `No se emitieron (${fallidas.length}):`, ...fallidas.map((f) => `- ${lineaItem(f.item)} — ${f.motivo}`))
+  if (blocked.length) lines.push('', `Bloqueadas (${blocked.length}):`, ...blocked.map((b) => `- ${b.patient} — ${motivoEs(b)}`))
+  for (const e of enEspera) lines.push(`En espera: ${e.nombre} (${e.sesiones} ${e.sesiones === 1 ? 'sesión' : 'sesiones'})`)
+  for (const c of criticos) lines.push(`CRÍTICO: ${c.documento} emitida sin marcar, revisar antes de volver a facturar`)
+  if (emitidas.length && !preview) lines.push('', 'Cada factura se envía sola por WhatsApp apenas el SRI la autorice.')
 
-  const itemLines = lista.map((l, n) =>
-    `${n + 1}. ${l.paciente} · factura a ${l.pagador} · ${fmtMoney(l.monto)} · ${fechaCorta(l.fecha)}`)
-  const chunks = []
-  for (let k = 0; k < itemLines.length; k += ITEMS_PER_MESSAGE) chunks.push(itemLines.slice(k, k + ITEMS_PER_MESSAGE))
-  chunks[0] = [`Listas para facturar (${ready.length}, total ${fmtMoney(total)}):`, ...chunks[0]]
-
-  const closing = 'Toca Aprobar para emitirlas y enviar cada factura por WhatsApp.'
-  const lastBody = [...chunks[chunks.length - 1], ...(blockedLines.length ? ['', ...blockedLines] : []), '', closing].join('\n')
-  const buttons = [{ id: `fac_ok:${snap.id}`, title: 'Aprobar' }, { id: `fac_no:${snap.id}`, title: 'Ahora no' }]
-
-  const messages = chunks.slice(0, -1).map((c) => ({ type: 'text', body: c.join('\n') }))
-  if (lastBody.length <= 1024) {
-    messages.push({ type: 'buttons', body: lastBody, buttons })
-  } else {
-    // Interactive bodies cap at 1024 chars — never truncate the list silently.
-    messages.push({ type: 'text', body: [...chunks[chunks.length - 1], ...(blockedLines.length ? ['', ...blockedLines] : [])].join('\n') })
-    messages.push({ type: 'buttons', body: closing, buttons })
+  // WhatsApp text bodies cap at 4096 — split on line boundaries, never truncate.
+  const messages = []
+  let cur = ''
+  for (const l of lines) {
+    if (cur && (cur + '\n' + l).length > 3800) { messages.push({ type: 'text', body: cur }); cur = l } else cur = cur ? cur + '\n' + l : l
   }
-  return { snapshot: snap.id, ready: ready.length, blocked: blocked.length, messages }
+  if (cur) messages.push({ type: 'text', body: cur })
+
+  const resumen = emitidas.length
+    ? `${emitidas.length} ${emitidas.length === 1 ? 'factura emitida' : 'facturas emitidas'} (${fmtMoney(total)})${fallidas.length ? `, ${fallidas.length} con error` : ''}`
+    : fallidas.length ? `${fallidas.length} facturas no se pudieron emitir`
+      : blocked.length ? `${blocked.length} facturas bloqueadas por datos faltantes`
+        : `${enEspera.length} ${enEspera.length === 1 ? 'paciente' : 'pacientes'} con facturación en espera`
+
+  if (snap) {
+    const resultado = {
+      emitidas: emitidas.map((e) => ({ session_id: e.item.session_id, paciente: e.item.patient, monto: e.item.monto,
+        documento: e.documento, contifico_id: e.r?.contifico_id, marked_facturada: e.r?.marked_facturada })),
+      fallidas: fallidas.map((f) => ({ session_id: f.item.session_id, paciente: f.item.patient, motivo: f.motivo })),
+      rides_pendientes: emitidas.filter((e) => e.r?.marked_facturada).map((e) => e.item.session_id),
+    }
+    await supabase.from(TABLE).update({ resultado, total }).eq('id', snap.id)
+  }
+  if (criticos.length) {
+    await deps.notifyTherapist(supabase, null, {
+      title: 'CRÍTICO facturación',
+      body: criticos.map((c) => `${c.documento} emitida sin marcar, revisar antes de volver a facturar`).join(' · '),
+      url: '/',
+    })
+  }
+  return { emitted: emitidas.length, failed: fallidas.length, blocked: blocked.length, enEspera: enEspera.length,
+    total, resumen, messages, snapshot: snap?.id || null,
+    items: preview ? ready.map((i) => ({ session_id: i.session_id, fecha: i.fecha, patient: i.patient,
+      billing_to: i.billing_to, monto: i.monto, descripcion: i.descripcion })) : undefined }
 }
 
-// ── "facturas" → fresh snapshot + list + buttons ────────────────────────────
+// ── "facturas" → manual run of the same auto path, reply straight back ─────
 export async function handleFacturasCommand(supabase, to, deps = defaultDeps) {
-  const r = await prepareFacturas(supabase, 'comando', deps)
-  for (const m of r.messages) {
+  const r = await runAuto(supabase, 'comando', deps)
+  const messages = r.messages.length ? r.messages
+    : [{ type: 'text', body: r.skipped ? 'Ya hay una facturación en curso, espera unos minutos.' : 'No hay sesiones listas para facturar.' }]
+  for (const m of messages) {
     // eslint-disable-next-line no-await-in-loop
-    if (m.type === 'buttons') await deps.sendButtons(to, m.body, m.buttons)
-    // eslint-disable-next-line no-await-in-loop
-    else await deps.sendText(to, m.body)
+    await deps.sendText(to, m.body)
   }
-  return { snapshot: r.snapshot, ready: r.ready, blocked: r.blocked }
+  return { snapshot: r.snapshot, emitted: r.emitted, failed: r.failed, blocked: r.blocked }
 }
 
+// ── Legacy [Aprobar]/[Ahora no] taps (pre-#72 lists) ────────────────────────
+// No list with buttons is sent anymore; these only answer a tap on an old one
+// (any still-'pendiente' snapshot is re-checked and emitted as before).
 // ── Ahora no ────────────────────────────────────────────────────────────────
 export async function handleDescartar(supabase, to, snapshotId, deps = defaultDeps) {
   const { data } = await supabase.from(TABLE).update({ estado: 'descartada' })
@@ -226,22 +279,14 @@ export async function runAprobacion(supabase, to, snapshotId, deps = defaultDeps
   return { status: 'done', emitted: k, omitidas: omitidas.length, criticos: criticos.length }
 }
 
-// ── Mon+Thu cron (facturar-report) → owner outbox (#45) ─────────────────────
-// Nothing ready or blocked → nothing. Otherwise the same snapshot + list + buttons
-// the "facturas" command builds, delivered by notifyOwner (now if his window is
-// open, else ping_nico → his tap flushes it). Nothing is emitted here: emission
-// only ever follows his [Aprobar] tap (fac_ok → runAprobacion).
+// ── Mon+Thu cron (facturar-report) → emit + ONE notifyOwner (#72) ──────────
+// Emits everything eligible by itself (runAuto, origen 'auto'), then tells
+// Nicolás once (kind 'facturas_emitidas', informational, no buttons) via the
+// owner outbox. Nothing ready, blocked or en espera → nothing sent.
 export async function runReport(supabase, deps = defaultDeps) {
-  const { ready, blocked, enEspera = [] } = await deps.dryRun(supabase)
-  if (!ready.length && !blocked.length && !enEspera.length) return { notified: false, ready: 0, blocked: 0 }
-  const once = { ...deps, dryRun: async () => ({ ready, blocked, enEspera }) }
-  const r = await prepareFacturas(supabase, 'cron', once)
-  const resumen = ready.length
-    ? `${ready.length} facturas listas para aprobar`
-    : blocked.length
-      ? `${blocked.length} facturas bloqueadas por datos faltantes`
-      : `${enEspera.length} ${enEspera.length === 1 ? 'paciente' : 'pacientes'} con facturación en espera`
+  const r = await runAuto(supabase, 'auto', deps)
+  if (!r.messages.length) return { notified: false, ...r }
   await deps.supersedeOwnerOutbox(supabase, 'facturas')
-  const n = await deps.notifyOwner(supabase, { kind: 'facturas', resumen, messages: r.messages })
-  return { notified: true, ready: ready.length, blocked: blocked.length, snapshot: r.snapshot, via: n?.via, resumen }
+  const n = await deps.notifyOwner(supabase, { kind: 'facturas_emitidas', resumen: r.resumen, messages: r.messages })
+  return { notified: true, via: n?.via, ...r, messages: undefined }
 }

@@ -29,7 +29,7 @@ import { getSupabaseAdmin, normalizePhone, resolveReplyEstado, applyInboundReply
 import { notifyTherapist } from '../lib/push.mjs'
 import { isTherapistOrPayer, recordLead, handleEchoes, runBot, handleTherapistResult, isTap, botAllowedForPhone } from '../lib/leadBot.mjs'
 import { sendReadReceipt } from '../lib/waSend.mjs'
-import { isOwnerPhone, isFacturasCommand, facturaTap, handleFacturasCommand, handleDescartar } from '../lib/facturarAprobacion.mjs'
+import { isOwnerPhone, isFacturasCommand, facturaTap, handleDescartar } from '../lib/facturarAprobacion.mjs'
 import { flushOwnerOutbox, supersedeOwnerOutbox } from '../lib/ownerOutbox.mjs'
 import { handleEstadoTap } from '../lib/sesionesPendientes.mjs'
 import { routeOwnerMessage } from '../lib/botTestMode.mjs'
@@ -52,17 +52,18 @@ async function invokeLeadReplyBackground(payload) {
 // Fire the factura-approval background function (#16) for an owner's [Aprobar]
 // tap. The emit loop can outlast a webhook request, so it runs there and replies
 // to the owner when done. Same shared-secret gate as lead-reply-background.
-async function invokeFacturarAprobar(snapshotId) {
+// #72: the "facturas" command now EMITS too, so it runs there as well (body {comando:true}).
+async function invokeFacturarAprobar(body) {
   const base = process.env.URL || 'https://efimeramente-panel.netlify.app'
   await fetch(`${base}/.netlify/functions/facturar-aprobar-background`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-lead-verify': process.env.WA_CLOUD_VERIFY_TOKEN || '' },
-    body: JSON.stringify({ snapshot_id: snapshotId }),
+    body: JSON.stringify(body),
   })
 }
 
-// Owner invoicing commands (#16), consumed BEFORE estado/lead handling: "facturas"
-// → list + buttons; fac_ok → background emit; fac_no → descartada. A fac_* tap
+// Owner invoicing commands (#16, #72), consumed BEFORE estado/lead handling: "facturas"
+// → background auto run (emits + replies); legacy fac_ok → background emit; fac_no → descartada. A fac_* tap
 // from any other number is swallowed (never reaches the bot). Returns true when
 // the message was consumed.
 async function handleOwnerFacturar(supabase, msg) {
@@ -71,8 +72,8 @@ async function handleOwnerFacturar(supabase, msg) {
   if (tap && !owner) { console.warn(`[wa-cloud] fac_* tap from non-owner ${msg.from} — ignored`); return true }
   if (!owner) return false
   try {
-    if (isFacturasCommand(msg)) { await handleFacturasCommand(supabase, msg.from); return true }
-    if (tap?.action === 'ok') { await invokeFacturarAprobar(tap.snapshotId); return true }
+    if (isFacturasCommand(msg)) { await invokeFacturarAprobar({ comando: true }); return true }
+    if (tap?.action === 'ok') { await invokeFacturarAprobar({ snapshot_id: tap.snapshotId }); return true }
     if (tap?.action === 'no') { await handleDescartar(supabase, msg.from, tap.snapshotId); return true }
   } catch (e) {
     console.error('[wa-cloud] owner facturar command failed:', e.message)

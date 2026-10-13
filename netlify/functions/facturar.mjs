@@ -30,6 +30,8 @@
 //              Zero Contífico calls. Flags every data gap; emits nothing.
 //   emit-one — ?session_id=<uuid>&confirm=EMIT-ONE — emit exactly one invoice.
 //   batch    — ?confirm=EMIT-BATCH — emit every ready-and-eligible session.
+//   auto-preview — #72: what the Mon+Thu auto run would emit right now + the exact
+//              WhatsApp message Nicolás would get. Zero Contífico calls, no log, no send.
 //   ride-template        — ?variant=document|link&confirm=SUBMIT-TEMPLATE — submit the
 //                          WhatsApp factura template for Meta review (lib/facturaWhatsapp.mjs).
 //   ride-template-status — Meta review status of the factura templates.
@@ -43,6 +45,7 @@
 // This file keeps only the HTTP shell: guard token, modes, JSON responses.
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
+import { runAuto } from '../lib/facturarAprobacion.mjs'
 import { submitFacturaTemplate, facturaTemplateStatus } from '../lib/facturaWhatsapp.mjs'
 import {
   API_KEY, POS_TOKEN, SESION_PRODUCT, FACTURAR_SINCE, fechaTexto, cfGet, fetchEligible,
@@ -161,6 +164,13 @@ export default async (req) => {
         // Redact the POS token in the echoed payloads — dry-run output is for review.
         full: items.map((i) => ({ ...i, payload: { ...i.payload, pos: '***REDACTED***' } })),
       })
+    }
+
+    // ── auto-preview: the #72 auto run as a dry run (nothing emitted/logged/sent) ─
+    if (mode === 'auto-preview') {
+      const r = await runAuto(supabase, 'auto', undefined, { preview: true })
+      return json({ mode, contifico_calls: 0, would_emit: r.emitted, total: r.total, blocked: r.blocked,
+        en_espera: r.enEspera, resumen: r.resumen, items: r.items, messages: r.messages })
     }
 
     // ── emit-dummy: one $1 test invoice to a fixed identity ──────────────────

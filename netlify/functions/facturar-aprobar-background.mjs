@@ -1,6 +1,8 @@
 // netlify/functions/facturar-aprobar-background.mjs
 //
-// BACKGROUND function (#16): the owner tapped [Aprobar] on a "facturas" list.
+// BACKGROUND function (#16, #72): the owner wrote "facturas" ({comando:true} →
+// handleFacturasCommand: the auto run on demand, emits + replies) or tapped a legacy
+// [Aprobar] on a pre-#72 list ({snapshot_id}).
 // The webhook fires this (202 at once, runs up to 15 min) so a long emit loop
 // never holds Meta's webhook 200. runAprobacion claims the snapshot atomically,
 // emits ONLY its still-eligible sessions, WhatsApps their RIDEs and replies.
@@ -13,7 +15,7 @@
 //      CONTIFICO_API_KEY, CONTIFICO_POS_TOKEN, VAPID_PRIVATE_KEY.
 
 import { getSupabaseAdmin, ownerWhatsApp } from '../lib/whatsapp.mjs'
-import { runAprobacion } from '../lib/facturarAprobacion.mjs'
+import { runAprobacion, handleFacturasCommand } from '../lib/facturarAprobacion.mjs'
 import { notifyTherapist } from '../lib/push.mjs'
 
 export default async (req) => {
@@ -26,16 +28,19 @@ export default async (req) => {
   let body
   try { body = await req.json() } catch { return new Response('bad body', { status: 400 }) }
   const snapshotId = body?.snapshot_id
-  if (!snapshotId) return new Response('missing snapshot_id', { status: 400 })
+  const comando = body?.comando === true
+  if (!snapshotId && !comando) return new Response('missing snapshot_id', { status: 400 })
 
   const supabase = getSupabaseAdmin()
   if (!supabase) { console.error('[facturar-aprobar] no SUPABASE_SERVICE_KEY'); return new Response('ok') }
   try {
-    const r = await runAprobacion(supabase, ownerWhatsApp(), snapshotId)
-    console.log(`[facturar-aprobar] ${snapshotId}:`, JSON.stringify(r))
+    const r = comando
+      ? await handleFacturasCommand(supabase, ownerWhatsApp())
+      : await runAprobacion(supabase, ownerWhatsApp(), snapshotId)
+    console.log(`[facturar-aprobar] ${comando ? 'comando' : snapshotId}:`, JSON.stringify(r))
   } catch (e) {
     console.error('[facturar-aprobar] failed:', e.message)
-    await notifyTherapist(supabase, null, { title: 'Facturación: error', body: `La aprobación falló: ${e.message}. Revisar antes de volver a facturar.`, url: '/' })
+    await notifyTherapist(supabase, null, { title: 'Facturación: error', body: `La facturación falló: ${e.message}. Revisar antes de volver a facturar.`, url: '/' })
   }
   return new Response('ok')
 }
