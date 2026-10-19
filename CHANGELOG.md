@@ -6,6 +6,41 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 Newest first.
 
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-08 (#69) -->
+### 2026-10-07 — #59 Turnos coherentes + terapia familiar (executor, 5d5c3e3)
+Evidence: lead +59398590… sent "atienden terapia para 16 años manejo de ira ?" + "O terapias familiares ?" 2 s apart →
+two PARALLEL turns: question + cards in turn 1; turn 2 repeated adolescentes and answered FAMILY with the COUPLES canned.
+- **MERGE + LOCK** (`netlify/lib/leadTurns.mjs`): the webhook queues every free-text/media inbound in **`lead_inbox`**
+  (`enqueueInbound`, unique wamid) and wakes `lead-reply-background` with `{phone, leadId}`; `processInbox` waits until
+  `QUIET_MS`=4 s pass with no new inbound from that lead, takes the **`leads.turn_lock_at`** lock (stale after 2 min),
+  claims ALL unanswered rows and calls `runBot({msgs})` → `mergeMessages` joins texts with `\n` (audio/unsupported win).
+  Losers exit; the holder loops back for messages that arrived during its turn. Taps stay inline. Replaces #54's "no delay".
+- **ONE REPLY PER TURN** (`leadBot.mjs` `beginTurn`/`endTurn`): every send in a turn is buffered; `endTurn` sends texts
+  in order then AT MOST ONE tail: link > one card block > one question (`question()` keeps the first only; `ask`,
+  `showQuien`, `askPending` go through it). Card requests merge: card-ending CANNED first (their bubble introduces the
+  block), then the rest in order, no dups, max 4. Greeting eligibility is snapshotted at turn start (`lead.__mayGreet`).
+- CANNED `adolescentes`: the sentence "Deseas ver sus perfiles?" is now a `question` field — dropped when the turn shows
+  cards, otherwise re-joined into the original single bubble. Its categoria is now `hijo_adolescente`, so "si" → cards
+  (was the age question). In a card turn its profiles (hijo_adolescente) join the block.
+- **NO REPEATS:** `leads.canned_enviados text[]`; sent to Claude as "YA RESPONDIDO" (re-tag only if asked again in the
+  current message); `sendCanned` (chooseQuien pareja) skips an answer already sent. Duplicate intents in a turn are deduped.
+- **FAMILY:** CANNED `familia` (end cards, `noIntro`, categoria `terapia_familiar`); `funnel_categorias` row
+  `terapia_familiar` = [Carolina, Francisco]; leadBrain intent `familia`, `pareja` only for couples; max intents 3→4;
+  keyword fallback catches "familia/familiar". `mapaCasos.json` familias → Carolina ★, Francisco ★.
+- Migration `supabase/lead-funnel-12-turnos.sql` (applied via execute_sql — `apply_migration` errored "Invalid or
+  expired requestState"). Dry-run scenarios 22–26 added to `leadBotSim.mjs` (parallel groups use the real inbox path
+  with a 4 s quiet; sequential steps quiet 0). Real-Claude dry run: all VERIFY cases pass, 1–21 unchanged, 0 silences.
+
+### 2026-10-07 — #58 "Mensaje no disponible" → handoff silencioso a Nicolás (executor, e441d2f)
+- ~1.4% of inbounds arrive `message.type='unsupported'` + `errors[0].code=131060` (text never reaches the API,
+  though Nicolás sees it in the app). Before: runBot fell into `askPending` (lead e4f6ecd6 got "para quién"
+  after asking the price).
+- `leadBot.mjs#runBot`: `msg.type==='unsupported'` (ANY error code) → before tap/text → `logDecision`
+  (accion derivar, motivo `mensaje_no_disponible`, model `regla`, texto_in `[unsupported 131060]`) +
+  `escalate()` = `bot_paused` + push "Mensaje no disponible" / "{wa_name|phone} te escribió y no se pudo leer
+  el mensaje. Respóndele tú." ZERO text to the lead at any hour (no greeting either). Stickers/reactions/images
+  unchanged. es_prueba same path (decision flagged).
+- Harness `node scripts/harness-mensaje-no-disponible.mjs` (real e4f6ecd6 payload; 6 scenarios). Other 3 harnesses pass.
+
 ### 2026-10-07 — #57 Excepción a reglas por sesión (executor, 12878a3)
 - `sessions.excepcion_reglas bool not null default false` (`supabase/sessions-excepcion-reglas.sql`, migration
   `sessions_excepcion_reglas`). `enforce_therapist_rules` returns early when true → skips ALL MARIANA_RULE checks.

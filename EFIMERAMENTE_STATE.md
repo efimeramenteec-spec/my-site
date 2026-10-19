@@ -103,6 +103,22 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-19 (pm) — #80 payment rule v2 + #78 /cierre (executor, 6fcca4d, cc4f847)
+- **#80:** `proofReconcile.mjs#decideAutoReconcile` now also auto-applies **exactly 4 × tarifa** for ONE group patient →
+  marks the unpaid sessions it covers (oldest first, ≤4, each must cost the tarifa) + the rest as a `package` lote @tarifa
+  stamped `aprobado_at` (no `aprobado_por`, note "Paquete 4 × tarifa (regla #80)") — the only automatic lote. Two group
+  patients matching 4×tarifa → held `payer_ambiguous`. Exact tarifa path unchanged. Harness 42/42.
+- **Not done on purpose:** `consume_saldo_on_confirm` NOT switched to approved-only (#80 step 3) — Nicolás reviews every
+  existing credit by hand first (his call, 19 Oct); switching now would freeze in-progress packages (all lotes aprobado_at null).
+- **#79 cancelled by Nicolás** (he reviews the credits himself). Nothing changed; backup table `saldo_lotes_backup_20261019`
+  (35 rows, $1,195) left in place. Observations for him: package lotes are @35 but sessions are $39 → the trigger draws $39
+  per session (a 4-pack lasts ~3.6 sessions); Andrea Torres' lote lost $39 to a cancelled session (shows $23, 2 sessions left).
+- **#78:** cause = session launched from `~` instead of `~/my-site` (project commands only load from the launch folder);
+  files fine. cierre.md step 5 now requires reflecting decisions/live-state in the Drive TO-DO.
+- **Brief gap (07:51 routine trig_014bnWaSpPv3quC8YPHZWqGS):** its credit list filters `proof_id is not null` → misses the 4
+  open hand-made/backfill lotes (Daniel Granja $35, Fátima Tubon $60, Ramesvary $31, Samantha Aldaz $48) and caps at ~15 lines.
+  Not edited from here (112 KB job_config, partial update could drop its tools) → director to fix.
+
 ### 2026-10-19 — #77 Comprobantes: auto only at exact tarifa · #76 Shariam 2 facturas (executor, a1214ef)
 - **#76 data:** patient b2135479 "Sharian Narvaez" → Shariam Alexandra Narváez Celi, cédula 1722319439, +593995879307,
   email null, payer 4d0597f1 (herself), obligatoria + concepto_general, facturar_desde 2026-10-01. Session cdb9ad8f
@@ -225,45 +241,13 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   (Sébastien, $39/$32/$32). Logged `factura_aprobaciones` 272d6249… origen chat, $325. RIDEs via factura-rides-sweep.
 - Not emitted (outside #60, ready for Thursday's list): Valentina Loor 2 Oct, Cinthya Perez 3 Oct.
 
-### 2026-10-07 — #59 Turnos coherentes + terapia familiar (executor, 5d5c3e3)
-Evidence: lead +59398590… sent "atienden terapia para 16 años manejo de ira ?" + "O terapias familiares ?" 2 s apart →
-two PARALLEL turns: question + cards in turn 1; turn 2 repeated adolescentes and answered FAMILY with the COUPLES canned.
-- **MERGE + LOCK** (`netlify/lib/leadTurns.mjs`): the webhook queues every free-text/media inbound in **`lead_inbox`**
-  (`enqueueInbound`, unique wamid) and wakes `lead-reply-background` with `{phone, leadId}`; `processInbox` waits until
-  `QUIET_MS`=4 s pass with no new inbound from that lead, takes the **`leads.turn_lock_at`** lock (stale after 2 min),
-  claims ALL unanswered rows and calls `runBot({msgs})` → `mergeMessages` joins texts with `\n` (audio/unsupported win).
-  Losers exit; the holder loops back for messages that arrived during its turn. Taps stay inline. Replaces #54's "no delay".
-- **ONE REPLY PER TURN** (`leadBot.mjs` `beginTurn`/`endTurn`): every send in a turn is buffered; `endTurn` sends texts
-  in order then AT MOST ONE tail: link > one card block > one question (`question()` keeps the first only; `ask`,
-  `showQuien`, `askPending` go through it). Card requests merge: card-ending CANNED first (their bubble introduces the
-  block), then the rest in order, no dups, max 4. Greeting eligibility is snapshotted at turn start (`lead.__mayGreet`).
-- CANNED `adolescentes`: the sentence "Deseas ver sus perfiles?" is now a `question` field — dropped when the turn shows
-  cards, otherwise re-joined into the original single bubble. Its categoria is now `hijo_adolescente`, so "si" → cards
-  (was the age question). In a card turn its profiles (hijo_adolescente) join the block.
-- **NO REPEATS:** `leads.canned_enviados text[]`; sent to Claude as "YA RESPONDIDO" (re-tag only if asked again in the
-  current message); `sendCanned` (chooseQuien pareja) skips an answer already sent. Duplicate intents in a turn are deduped.
-- **FAMILY:** CANNED `familia` (end cards, `noIntro`, categoria `terapia_familiar`); `funnel_categorias` row
-  `terapia_familiar` = [Carolina, Francisco]; leadBrain intent `familia`, `pareja` only for couples; max intents 3→4;
-  keyword fallback catches "familia/familiar". `mapaCasos.json` familias → Carolina ★, Francisco ★.
-- Migration `supabase/lead-funnel-12-turnos.sql` (applied via execute_sql — `apply_migration` errored "Invalid or
-  expired requestState"). Dry-run scenarios 22–26 added to `leadBotSim.mjs` (parallel groups use the real inbox path
-  with a 4 s quiet; sequential steps quiet 0). Real-Claude dry run: all VERIFY cases pass, 1–21 unchanged, 0 silences.
-
-### 2026-10-07 — #58 "Mensaje no disponible" → handoff silencioso a Nicolás (executor, e441d2f)
-- ~1.4% of inbounds arrive `message.type='unsupported'` + `errors[0].code=131060` (text never reaches the API,
-  though Nicolás sees it in the app). Before: runBot fell into `askPending` (lead e4f6ecd6 got "para quién"
-  after asking the price).
-- `leadBot.mjs#runBot`: `msg.type==='unsupported'` (ANY error code) → before tap/text → `logDecision`
-  (accion derivar, motivo `mensaje_no_disponible`, model `regla`, texto_in `[unsupported 131060]`) +
-  `escalate()` = `bot_paused` + push "Mensaje no disponible" / "{wa_name|phone} te escribió y no se pudo leer
-  el mensaje. Respóndele tú." ZERO text to the lead at any hour (no greeting either). Stickers/reactions/images
-  unchanged. es_prueba same path (decision flagged).
-- Harness `node scripts/harness-mensaje-no-disponible.mjs` (real e4f6ecd6 payload; 6 scenarios). Other 3 harnesses pass.
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
-- [ ] **#77 audit — Nicolás decides each automatic lote** (27 rows with proof_id; list in the 19 Oct report). Biggest:
+- [ ] **Brief fix (director):** routine trig_014bnWaSpPv3quC8YPHZWqGS item 2 → `remaining > 0 and aprobado_at is null`
+      (drop `proof_id is not null`), list every credit one per line, no ~15-line cap for that list.
+- [ ] **After Nicolás finishes reviewing credits:** switch `consume_saldo_on_confirm` to approved lotes only (#80 step 3).
+- [ ] **#77 audit — Nicolás decides each automatic lote by hand** (27 rows with proof_id; list in the 19 Oct report). Biggest:
       4 prepay lotes on **Mariana Villegas Kraemer** ($35+30+36+35 = $136 open — receipts from her phone, likely patients'
       forwarded receipts mis-banked), Diana Marcial $90, Gabriela Acosta $70, Raguel $72+$36, Shariam(Marthin) $1, Luna $1.
       ⚠️ **Shariam $76 prepay lote 48db0abf (20:00 UTC 19 Oct, last run of the OLD code):** her $76 receipt (ref 70167537)
