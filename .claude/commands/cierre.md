@@ -14,7 +14,9 @@ Close this session cleanly:
 5. **Update `PERMANENT TO-DO.md` in Google Drive** (folder "Efimeramente · Claude",
    id `16av_FWmaWjsw_WdyFwSuOqwd-Yf893bI`; find the file by title — its id changes on each replace).
    Download it, then: mark what's done in ONE line each (with the commit hash), add what came up,
-   don't touch anything else, keep it under 15 KB. Replace it: `create_file` the full new content
+   AND make it reflect every decision or live-state change from this session — update ACTIVE
+   BACKLOG, LIVE / UNDER OBSERVATION and DECISIONS IN FORCE accordingly (add, reword or remove
+   what changed). Keep it under 15 KB. Replace it: `create_file` the full new content
    (same title, same folder, `text/markdown`, `disableConversionToGoogleType: true`), verify it
    reads back, then trash the old file id. No Drive connector → say so; don't skip silently.
 6. Give me a 5-line summary of what shipped and what the next session should pick up.
