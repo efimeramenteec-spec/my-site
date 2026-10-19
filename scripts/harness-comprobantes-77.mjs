@@ -1,6 +1,6 @@
 // scripts/harness-comprobantes-77.mjs
 //
-// #77 harness — fake in-memory DB, NOTHING is sent (notifyOwner is stubbed).
+// #77 + #80 harness — fake in-memory DB, NOTHING is sent (notifyOwner is stubbed).
 // Rule: a receipt auto-applies ONLY when amount == patients.tarifa AND the patient has
 // an unpaid session; everything else is held with a proposal, no lote created.
 //   node scripts/harness-comprobantes-77.mjs
@@ -132,7 +132,7 @@ for (const [label, sc] of [['$40', base(40)], ['$38', base(38)], ['$78', base(78
 {
   const sc = base(140)
   const r = await run(sc)
-  check('$140 → held, no lote', r.item.action === 'withhold' && r.tables.saldo_lotes.length === 1)
+  check('$140 for a $39 patient → held, no lote', r.item.action === 'withhold' && r.tables.saldo_lotes.length === 1)
   check('$140 → proposal is the package', sc.db.tables.whatsapp_messages[0].propuesta?.lote?.origin === 'package', sc.db.tables.whatsapp_messages[0].propuesta?.texto)
 }
 // 8. Payer group: Shariam (payer, own patient $39) + Marthin ($45 rate). $45 from payer phone → Marthin's oldest.
@@ -169,6 +169,29 @@ for (const [label, sc] of [['$40', base(40)], ['$38', base(38)], ['$78', base(78
   check('approve held $80 → lote created + stamped aprobado', a2.ok && newLote?.aprobado_por === 'owner-uid' && !!newLote?.aprobado_at,
     `${a2.plan?.texto}; lote=${newLote?.amount}`)
   check('approve $80 → surplus is $2 (unapproved $1 not used)', newLote?.amount === 2)
+}
+// 11. #80 — exactly 4 × tarifa = package: covers the unpaid sessions, rest = approved package lote.
+{
+  const r = await run(base(156))
+  const paid = r.tables.sessions.filter((s) => s.pagado).map((s) => s.id).join()
+  const lote = r.tables.saldo_lotes.find((l) => l.origin === 'package')
+  check('$156 (4×39) → auto package: both unpaid sessions marked', r.item.action === 'lote' && paid === 's1,s2', `paid=${paid}`)
+  check('$156 → package lote $78 @39, approved by the rule', lote?.amount === 78 && lote?.remaining === 78 && lote?.price_per_session === 39 && !!lote?.aprobado_at && !lote?.aprobado_por)
+  check('$156 → no owner message, old $1 untouched', r.notified.length === 0 && r.tables.saldo_lotes.find((l) => l.id === 'l0').remaining === 1)
+}
+{
+  const sc = scenario('$156 no debt', { patients: [ANA], sessions: [], proof: proofRow({ patient_id: 'ana', from: '593990000001', amount: 156 }) })
+  const r = await run(sc)
+  const lote = r.tables.saldo_lotes[0]
+  check('$156 with no unpaid session → prepaid package lote $156', r.item.action === 'lote' && lote?.amount === 156 && !!lote?.aprobado_at)
+}
+{
+  const sc = scenario('$156 five unpaid', { patients: [ANA],
+    sessions: ['01', '02', '03', '04', '05'].map((d, i) => sess(`p${i}`, 'ana', `2026-10-${d}`)),
+    proof: proofRow({ patient_id: 'ana', from: '593990000001', amount: 156 }) })
+  const r = await run(sc)
+  const paid = r.tables.sessions.filter((s) => s.pagado).length
+  check('$156 with 5 unpaid → oldest 4 marked, no lote', r.item.action === 'mark' && paid === 4 && !r.tables.sessions.find((s) => s.id === 'p4').pagado && r.tables.saldo_lotes.length === 0)
 }
 // 10. Reminder credit filter.
 check('reminders: auto lote not counted', loteAprobado({ proof_id: 'x', aprobado_at: null }) === false)

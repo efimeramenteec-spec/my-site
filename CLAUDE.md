@@ -343,14 +343,18 @@ rules), logs `factura_aprobaciones` (origen `auto`, estado `aprobada`), then ONE
 A failed emission never blocks the others. "facturas" = the same run on demand (origen `comando`, in
 `facturar-aprobar-background`). Dry run: `/facturar?mode=auto-preview`. Mistakes get annulled in Contífico.
 
-### Comprobantes — `netlify/lib/proofReconcile.mjs` (#2/#19/#61; RULE #77, Nicolás 19 Oct 2026)
+### Comprobantes — `netlify/lib/proofReconcile.mjs` (#2/#19/#61; RULE #77 + #80, Nicolás 19 Oct 2026)
 `process-proofs` (*/10, kill-switch `COMPROBANTES_AUTO_LIVE`) OCRs inbound payment screenshots and decides.
 **A receipt auto-applies ONLY when its amount EXACTLY equals `patients.tarifa` of the matched patient (the
 fixed per-session rate — NOT the amount owed, NOT net of credit) AND that patient has an unpaid session →
 the oldest unpaid session is marked paid** (it must also cost that amount, else held). Payer groups (#61) and
 shared-phone families: exact match against any one group patient's tarifa → that patient's oldest unpaid
-session. **Everything else waits for Nicolás** — more, less, multiples, $140 packages, several sessions,
-unreadable, no debt, reused reference: nothing is marked and **NO credit (lote) is created**.
+session. **#80: exactly 4 × tarifa = a prepaid package of 4** → the unpaid sessions it covers are marked
+(oldest first, ≤4, each must cost the tarifa) and the rest becomes a `package` lote at the tarifa, stamped
+`aprobado_at` by the rule (no `aprobado_por`) — **the only automatic lote**. **Everything else waits for
+Nicolás** — any other amount (e.g. $140 for a $39 patient), several sessions, unreadable, tarifa with no debt,
+reused reference: nothing is marked and **NO credit (lote) is created**. The daily 07:51 cloud brief reads
+`propuesta`, `reconciled_at`, `auto_reconciled`, `saldo_lotes.aprobado_at` — keep those columns as they are.
 - Held → `whatsapp_messages.propuesta` (= what the pre-#77 rules would do: `proposeAllocation`, incl. packages
   / overpayment lotes) + ONE `notifyOwner` kind `comprobante_pendiente` (patient, amount, tarifa, proposal;
   `alerted_at` throttles). The panel (Comprobantes) shows it pre-filled; **"Aprobar propuesta"** → owner-gated
@@ -359,7 +363,8 @@ unreadable, no debt, reused reference: nothing is marked and **NO credit (lote) 
 - **Credit counts only if approved** (`saldo.mjs#loteAprobado`: `aprobado_at` set, or `proof_id` null = made by
   hand/backfill): payment reminders ask `sum(monto) − approved credit`; proposals/approvals draw only approved
   credit. Lotes banked automatically before #77 count as NOT approved. The DB trigger
-  `consume_saldo_on_confirm` still spends every lote (in-progress packages depend on it).
+  `consume_saldo_on_confirm` still spends every lote (in-progress packages depend on it; Nicolás is reviewing
+  every existing credit by hand, 19 Oct — switch it to approved-only only after he's done).
 - Never add an automatic path that banks credit or accepts another amount — that's Nicolás's call.
   Harness: `node scripts/harness-comprobantes-77.mjs`. Migration `supabase/comprobantes-tarifa-exacta-77.sql`.
   Dry run on prod data: `/.netlify/functions/proofs-run?t=<token>&mode=dry`.

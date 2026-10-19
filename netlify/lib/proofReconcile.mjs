@@ -1,5 +1,9 @@
 // netlify/lib/proofReconcile.mjs
 //
+// ── #80 RULE v2 (Nicolás, 19 Oct 2026): as #77 below, PLUS exactly 4 × tarifa = a prepaid
+// package of 4 → mark the unpaid sessions it covers (oldest first, ≤4) and keep the rest as
+// a package lote stamped aprobado_at by the rule — the ONLY automatic lote. Any other amount
+// (e.g. $140 for a $39 patient) is held like everything else.
 // ── #77 RULE (Nicolás, 19 Oct 2026) — overrides everything below ──────────────
 // A receipt is auto-applied ONLY when its amount EXACTLY equals patients.tarifa of the
 // matched patient (the fixed per-session rate — not the amount owed, not net of credit)
@@ -221,20 +225,44 @@ function allocate(proof, ex, unpaidSessions, ctx) {
 //   { action:'skip', reason }                                                — silent
 // Never banks a lote and never draws credit.
 const EXACT = 0.005
+const PACK = 4
+const same = (a, b) => Math.abs(round2(a) - round2(b)) <= EXACT
+const byFecha = (a, b) => (a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0)
 export function decideAutoReconcile(proof, ex, group, opts = {}) {
   const pre = precheck({ ...proof, patient_id: proof.patient_id || (group?.length ? group[0].id : null) }, ex)
   if (pre) return pre
   const amount = round2(Number(ex.amount))
-  const rateHits = (group || []).filter((g) => Number(g.tarifa) > 0 && Math.abs(round2(g.tarifa) - amount) <= EXACT)
-  if (!rateHits.length) return { action: 'withhold', reason: 'monto_distinto_tarifa' }
-  const candidates = rateHits.flatMap((g) => (g.unpaid || []).map((s) => ({ ...s, patient_id: s.patient_id || g.id })))
-  if (!candidates.length) return { action: 'withhold', reason: 'no_unpaid_sessions' }
-  candidates.sort((a, b) => (a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0))
-  const oldest = candidates[0]
-  // The session must cost what was paid — a $39 receipt never closes a $50 session.
-  if (Math.abs(round2(oldest.monto) - amount) > EXACT) return { action: 'withhold', reason: 'monto_sesion_distinto' }
   const metodo = metodoFromDestination(ex.destination) || opts.metodoPago || 'transferencia'
-  return { action: 'mark', sessionIds: [oldest.id], patientId: oldest.patient_id, creditConsume: 0, metodo }
+  const withRate = (group || []).filter((g) => Number(g.tarifa) > 0)
+
+  // (a) exactly one tarifa → the oldest unpaid session of a matching patient.
+  const rateHits = withRate.filter((g) => same(g.tarifa, amount))
+  if (rateHits.length) {
+    const candidates = rateHits.flatMap((g) => (g.unpaid || []).map((s) => ({ ...s, patient_id: s.patient_id || g.id })))
+    if (!candidates.length) return { action: 'withhold', reason: 'no_unpaid_sessions' }
+    candidates.sort(byFecha)
+    const oldest = candidates[0]
+    // The session must cost what was paid — a $39 receipt never closes a $50 session.
+    if (!same(oldest.monto, amount)) return { action: 'withhold', reason: 'monto_sesion_distinto' }
+    return { action: 'mark', sessionIds: [oldest.id], patientId: oldest.patient_id, creditConsume: 0, metodo }
+  }
+
+  // (b) #80: exactly 4 × tarifa → a prepaid package of 4 for ONE patient: mark the unpaid
+  // sessions it covers (oldest first, up to 4, each must cost the tarifa) and keep the
+  // rest as a package lote at the tarifa, approved by the rule itself (the only automatic lote).
+  const packHits = withRate.filter((g) => same(PACK * g.tarifa, amount))
+  if (packHits.length > 1) return { action: 'withhold', reason: 'payer_ambiguous' }
+  if (packHits.length === 1) {
+    const g = packHits[0]
+    const rate = round2(g.tarifa)
+    const covered = [...(g.unpaid || [])].sort(byFecha).slice(0, PACK)
+    if (covered.some((s) => !same(s.monto, rate))) return { action: 'withhold', reason: 'monto_sesion_distinto' }
+    const left = round2((PACK - covered.length) * rate)
+    const plan = { sessionIds: covered.map((s) => s.id), patientId: g.id, creditConsume: 0, metodo, autoPackage: true }
+    if (left <= EXACT) return { action: 'mark', ...plan }
+    return { action: 'lote', loteKind: 'package', lote: { amount: left, price_per_session: rate, origin: 'package' }, ...plan }
+  }
+  return { action: 'withhold', reason: 'monto_distinto_tarifa' }
 }
 
 // Draw `amount` dollars of credit FIFO (oldest lote first) from a patient's open lotes.
@@ -278,7 +306,8 @@ async function insertLote(supabase, proof, ctx, lote) {
     origin: lote.origin, proof_id: proof.id,
     // #77: lotes are only ever created by an approval in Comprobantes now.
     aprobado_por: ctx.aprobadoPor ?? null, aprobado_at: ctx.aprobadoAt ?? null,
-    note: ctx.aprobadoAt ? `Aprobado por Nicolás — comprobante ${proof.id}` : `Auto — comprobante ${proof.id}`,
+    note: ctx.autoPackage ? `Paquete 4 × tarifa (regla #80) — comprobante ${proof.id}`
+      : ctx.aprobadoAt ? `Aprobado por Nicolás — comprobante ${proof.id}` : `Auto — comprobante ${proof.id}`,
   })
   if (!error) return 'inserted'
   if (error.code === '23505' || /duplicate key|saldo_lotes_proof_id_unique/i.test(error.message || '')) {
@@ -323,7 +352,7 @@ async function applyPlan(supabase, proof, ctx, plan, now) {
     .from('whatsapp_messages')
     .update({
       reconciled_at: iso, reconciled_by: ctx.aprobadoPor ?? null, reconciled_session_ids: plan.sessionIds || [],
-      auto_reconciled: !ctx.aprobadoAt,
+      auto_reconciled: !ctx.aprobadoAt || !!ctx.autoPackage,
       // A payer's proof attributed to their one owing patient (#61) is filed under that patient.
       ...(proof.attributedPatient ? { patient_id: proof.patient_id } : {}),
     })
@@ -548,10 +577,10 @@ export async function runProofAutomation(supabase, { now = new Date(), live = fa
     const { proof, ex, status } = e
     let plan = e.gate
     // Reused-reference is ALWAYS a hold (spec #2: suspicion).
-    if (plan.action === 'mark' && await referenceReused(supabase, proof, ex?.transfer_id)) {
+    if ((plan.action === 'mark' || plan.action === 'lote') && await referenceReused(supabase, proof, ex?.transfer_id)) {
       plan = { action: 'withhold', reason: 'reused_reference' }
     }
-    const markPid = plan.action === 'mark' ? plan.patientId : null
+    const markPid = plan.action === 'mark' || plan.action === 'lote' ? plan.patientId : null
     const markPatient = markPid ? e.patientById[markPid] : proof.patient
     const item = {
       proofId: proof.id, patient: patientName(markPatient) || patientName(proof.patient), patientId: markPid || proof.patient_id || null,
@@ -561,10 +590,13 @@ export async function runProofAutomation(supabase, { now = new Date(), live = fa
       sessionIds: plan.sessionIds || null, metodo: plan.metodo || null,
       loteKind: null, loteAmount: null, creditConsume: 0,
     }
-    if (plan.action === 'mark') {
+    if (plan.action === 'mark' || plan.action === 'lote') {
       const target = { ...proof, patient_id: markPid, attributedPatient: markPid !== proof.patient_id }
-      const ok = live ? await applyPlan(supabase, target, { payerId: null }, plan, now) : true
-      if (!ok) { item.action = 'failed'; report.failed++ } else report.marked++
+      // #80: the 4 × tarifa package lote is approved by the rule (aprobado_at, no aprobado_por).
+      const ctx = { payerId: e.patientById[markPid]?.payer_id || null, ...(plan.autoPackage ? { aprobadoAt: now.toISOString(), autoPackage: true } : {}) }
+      item.loteAmount = plan.lote?.amount ?? null
+      const ok = live ? await applyPlan(supabase, target, ctx, plan, now) : true
+      if (!ok) { item.action = 'failed'; report.failed++ } else { if (plan.action === 'lote') report.lotes++; if (plan.sessionIds?.length) report.marked++ }
     } else if (plan.action === 'withhold') {
       report.withheld++
       item.motivo = motivoFor(plan.reason)
