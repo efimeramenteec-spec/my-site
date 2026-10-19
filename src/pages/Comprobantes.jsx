@@ -5,7 +5,7 @@ import { Button } from '../components/Button/Button.jsx'
 import { Badge } from '../components/Badge/Badge.jsx'
 import { supabase } from '../lib/supabase.js'
 import {
-  getPaymentProofsData, confirmProofPayment, dismissProof, extractProof,
+  getPaymentProofsData, confirmProofPayment, dismissProof, extractProof, approveProofProposal,
 } from '../lib/queries.js'
 import { METODO_PAGO, METODO_PAGO_ORDER } from '../lib/constants.js'
 import { patientLabel, formatCurrency, formatDateShort } from '../lib/format.js'
@@ -17,8 +17,10 @@ import { patientLabel, formatCurrency, formatDateShort } from '../lib/format.js'
 // transfer id…) so the page shows DATA, not a heavy image — the original is
 // still one tap away ("ver original") for disputes. The owner sees the parsed
 // payment next to the patient's unpaid sessions and confirms with one tap.
-// Trust-based, NOT bank-verified — nothing is ever auto-marked; each comprobante
-// is stamped reconciled on confirm so the same payment can't register twice.
+// #77 (19 Oct): a receipt is auto-applied ONLY when its amount equals the patient's
+// fixed tarifa; everything else lands here with the system's proposed allocation
+// ("Aprobar propuesta" → proof-approve, same path as the automatic match). Each
+// comprobante is stamped reconciled so the same payment can't register twice.
 
 const MEDIA_FN = '/.netlify/functions/wa-proof-media'
 
@@ -102,6 +104,27 @@ function Flag({ children }) {
   )
 }
 
+// #77 — what the system proposes for a held receipt + one-tap approval.
+function ProposalBox({ proof, onApprove, busy }) {
+  const p = proof.propuesta
+  if (!p) return null
+  const canApprove = p.accion === 'mark' || p.accion === 'lote'
+  return (
+    <div className="rounded-card border border-brand-lavender/40 bg-brand-lavender/10 p-3 space-y-2">
+      <p className="font-caption text-xs text-content-secondary">
+        <span className="font-bold">En espera:</span> {p.motivo}
+        {p.monto != null && p.tarifa != null && ` (pagó ${formatCurrency(p.monto)}, tarifa ${formatCurrency(p.tarifa)})`}
+      </p>
+      <p className="font-caption text-xs text-content-primary">
+        <span className="font-bold">Propuesta{p.paciente ? ` para ${p.paciente}` : ''}:</span> {p.texto}
+      </p>
+      {canApprove && (
+        <Button variant="primary" disabled={busy} onClick={() => onApprove(proof)}>Aprobar propuesta</Button>
+      )}
+    </div>
+  )
+}
+
 // The parsed transfer summary + the flags. `ex` is the extracted record.
 function ExtractionPanel({ ex, selectedTotal, recipientOk }) {
   const dateStr = ex.transfer_date
@@ -167,12 +190,15 @@ function useExtraction(proof) {
   return { ...state, boxRef, retry: () => run(true) }
 }
 
-function MatchedCard({ proof, onConfirm, onDismiss, busy }) {
+function MatchedCard({ proof, onConfirm, onDismiss, onApprove, busy }) {
   const sessions = proof.unpaidSessions
   const ex = useExtraction(proof)
-  const [selected, setSelected] = useState(() =>
-    sessions.length === 1 ? { [sessions[0].id]: true } : {},
-  )
+  // Pre-fill with the system's proposal (#77) when there is one, else the lone session.
+  const [selected, setSelected] = useState(() => {
+    const ids = (proof.propuesta?.session_ids || []).filter((id) => sessions.some((s) => s.id === id))
+    if (ids.length) return Object.fromEntries(ids.map((id) => [id, true]))
+    return sessions.length === 1 ? { [sessions[0].id]: true } : {}
+  })
   const [metodo, setMetodo] = useState(null)
   const [showDetails, setShowDetails] = useState(false)
   const [showOriginal, setShowOriginal] = useState(false)
@@ -204,6 +230,7 @@ function MatchedCard({ proof, onConfirm, onDismiss, busy }) {
       {ex.status === 'ok' && data && (
         <ExtractionPanel ex={data} selectedTotal={selectedTotal} recipientOk={recipientOk} />
       )}
+      <ProposalBox proof={proof} onApprove={onApprove} busy={busy} />
       {(ex.status === 'idle' || ex.status === 'reading') && (
         <div className="h-20 w-full animate-pulse rounded-card bg-surface-warm" />
       )}
@@ -300,7 +327,7 @@ function MatchedCard({ proof, onConfirm, onDismiss, busy }) {
 }
 
 // Unmatched proof (patient_id null): manual-attention path, never a silent drop.
-function UnmatchedCard({ proof, onDismiss, busy }) {
+function UnmatchedCard({ proof, onDismiss, onApprove, busy }) {
   const ex = useExtraction(proof)
   const [showOriginal, setShowOriginal] = useState(false)
   const data = ex.extracted
@@ -318,15 +345,16 @@ function UnmatchedCard({ proof, onDismiss, busy }) {
       {ex.status === 'ok' && data && (
         <ExtractionPanel ex={data} selectedTotal={0} recipientOk={!data.recipient_name || /mariana/i.test(data.recipient_name)} />
       )}
+      <ProposalBox proof={proof} onApprove={onApprove} busy={busy} />
       {(ex.status === 'idle' || ex.status === 'reading') && (
         <div className="h-16 w-full animate-pulse rounded-card bg-surface-warm" />
       )}
 
-      <div className="rounded-card bg-brand-orange/10 p-3">
+      {!proof.propuesta?.patient_id && <div className="rounded-card bg-brand-orange/10 p-3">
         <p className="font-caption text-xs text-content-secondary">
           Este número no coincide con ningún paciente. Identifícalo y, si corresponde, guarda su teléfono en la ficha (Pacientes) para que sus próximos comprobantes se asocien solos. Luego descártalo.
         </p>
-      </div>
+      </div>}
 
       <div className="flex gap-4">
         <Button variant="ghost" disabled={busy} onClick={() => onDismiss(proof)}>Descartar</Button>
@@ -382,6 +410,13 @@ export default function Comprobantes() {
     if (res.ok) await load()
     else setError(res.error || 'No se pudo confirmar el pago.')
   }
+  const handleApprove = async (proof) => {
+    setBusyId(proof.id); setError(null)
+    const res = await approveProofProposal(proof.id)
+    setBusyId(null)
+    if (res.ok) await load()
+    else setError(res.error || 'No se pudo aprobar la propuesta.')
+  }
   const handleDismiss = async (proof) => {
     setBusyId(proof.id); setError(null)
     const res = await dismissProof(proof.id)
@@ -406,7 +441,7 @@ export default function Comprobantes() {
         <div>
           <h1 className="font-heading text-xl font-bold text-content-primary">Comprobantes</h1>
           <p className="font-caption text-xs text-content-muted">
-            Pagos recibidos por WhatsApp en los últimos 7 días. Los comprobantes claros se validan y marcan pagados solos; aquí quedan solo los que necesitan tu revisión (monto que no cuadra, remitente o imagen no reconocidos, referencia repetida, sobrepago…).
+            Pagos recibidos por WhatsApp en los últimos 7 días. Solo se marcan pagados solos los comprobantes por exactamente la tarifa del paciente; todo lo demás queda aquí con una propuesta para que la apruebes o la corrijas (otro monto, varias sesiones, paquete, sobrepago, imagen ilegible…). Nunca se crea saldo a favor sin tu aprobación.
           </p>
         </div>
         <Badge variant={totalPending ? 'lavender' : 'neutral'}>
@@ -441,7 +476,7 @@ export default function Comprobantes() {
       {pendingMatched.length > 0 && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {pendingMatched.map((p) => (
-            <MatchedCard key={p.id} proof={p} busy={busyId === p.id} onConfirm={handleConfirm} onDismiss={handleDismiss} />
+            <MatchedCard key={p.id} proof={p} busy={busyId === p.id} onConfirm={handleConfirm} onDismiss={handleDismiss} onApprove={handleApprove} />
           ))}
         </div>
       )}
@@ -453,7 +488,7 @@ export default function Comprobantes() {
           </p>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {pendingUnmatched.map((p) => (
-              <UnmatchedCard key={p.id} proof={p} busy={busyId === p.id} onDismiss={handleDismiss} />
+              <UnmatchedCard key={p.id} proof={p} busy={busyId === p.id} onDismiss={handleDismiss} onApprove={handleApprove} />
             ))}
           </div>
         </div>

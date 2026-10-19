@@ -21,6 +21,15 @@ const EPS = 0.005
 
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100
 
+// #77 (Nicolás, 19 Oct): a lote counts as usable credit only when Nicolás approved it
+// (aprobado_at) or it was created by hand (no source receipt — e.g. the approved package
+// backfill). Lotes banked automatically from a receipt never reduce what a patient is
+// asked, nor feed a proposal. (The DB confirm-trigger still spends every lote — packages
+// in progress depend on it; the #77 audit lists the automatic ones for Nicolás.)
+export function loteAprobado(l) {
+  return !!l?.aprobado_at || !l?.proof_id
+}
+
 // Total available credit for an owner = sum of open lotes' remaining.
 export function totalCredit(lotes = []) {
   return round2((lotes || []).reduce((a, l) => a + Number(l.remaining || 0), 0))

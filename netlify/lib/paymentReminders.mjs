@@ -12,7 +12,10 @@
 //     included session is stamped recordatorio_pago_at so it's reminded exactly once.
 //   • Never insists: if a patient has ANY session already reminded and still unpaid
 //     (= "en mora"), skip them entirely — Nicolás handles those personally.
-//   • Amount = sum of the included sessions' monto. (Saldo-a-favor netting [#19] is TODO.)
+//   • Amount = sum of the included sessions' monto, minus saldo a favor ONLY from lotes
+//     Nicolás approved (#77, 19 Oct): aprobado_at set, or proof_id null (created by hand /
+//     the approved package backfill). Lotes banked automatically from a receipt are NOT
+//     subtracted — a $1 auto credit made Shariam get asked $38 instead of $39.
 //   • Recipient (Option B, Nicolás 2026-10-08 — replaces Option A of 09-25): if the
 //     patient has a payer_id whose telefono normalizes to a valid number, the reminder
 //     goes to the PAYER, greeted by the payer's first name, and {{3}} names the patient
@@ -24,6 +27,7 @@
 //     they always go to the patient.
 
 import { sendDualhookPaymentReminder, normalizePhone } from './whatsapp.mjs'
+import { loteAprobado } from './saldo.mjs'
 
 const GYE_OFFSET_H = -5 // Ecuador, no DST
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100
@@ -124,15 +128,15 @@ export async function runPaymentReminders(supabase, { now = new Date(), live = f
     byPatient.get(s.patient_id).push(s)
   }
 
-  // Saldo a favor (#19): the amount asked is owed NET of the patient's open credit
-  // (spec #6 / #8). If credit covers everything, don't remind at all.
+  // Saldo a favor (#19): the amount asked is owed NET of the patient's APPROVED open
+  // credit (#77). If approved credit covers everything, don't remind at all.
   const creditByPatient = new Map()
   const pids = [...byPatient.keys()]
   if (pids.length) {
     const { data: lotes, error: lErr } = await supabase
-      .from('saldo_lotes').select('patient_id, remaining').in('patient_id', pids).gt('remaining', 0)
+      .from('saldo_lotes').select('patient_id, remaining, proof_id, aprobado_at').in('patient_id', pids).gt('remaining', 0)
     if (lErr) throw new Error('lotes query: ' + lErr.message)
-    for (const l of lotes || []) {
+    for (const l of (lotes || []).filter(loteAprobado)) {
       creditByPatient.set(l.patient_id, round2((creditByPatient.get(l.patient_id) || 0) + Number(l.remaining || 0)))
     }
   }

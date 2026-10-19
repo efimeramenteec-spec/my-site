@@ -325,6 +325,8 @@ function normalizeProof(row) {
     reconciledAt: row.reconciled_at || null,
     reconciledSessionIds: row.reconciled_session_ids || [],
     autoReconciled: row.auto_reconciled || false,
+    // #77: the allocation the system proposes for a held receipt (approve in one tap).
+    propuesta: row.propuesta || null,
     // OCR: the structured transfer record + its status (null/'pending' = not
     // read yet, 'ok', 'needs_review', 'failed'). Filled by the extract-proof fn.
     extracted: row.extracted || null,
@@ -353,7 +355,7 @@ export async function getPaymentProofsData({ daysBack = PROOF_WINDOW_DAYS } = {}
         .from('whatsapp_messages')
         .select(
           'id, patient_id, cuerpo, received_at, reconciled_at, reconciled_session_ids, auto_reconciled, raw_payload,' +
-            ' extracted, extraction_status,' +
+            ' extracted, extraction_status, propuesta,' +
             ' patient:patients(id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,metodo_pago)',
         )
         .eq('direccion', 'inbound')
@@ -435,6 +437,26 @@ export async function confirmProofPayment(messageId, sessionIds, metodo) {
   const rec = await reconcileProof(messageId, sessionIds)
   if (!rec.ok) return rec
   return { ok: true }
+}
+
+// #77 — approve a held proof's proposed allocation. Server-side (proof-approve fn):
+// re-derives the proposal and applies it through the same path as the automatic
+// match, so packages / overpayments / saldo a favor work and the lote is stamped approved.
+export async function approveProofProposal(messageId) {
+  try {
+    const { data } = await supabase.auth.getSession()
+    const token = data?.session?.access_token
+    if (!token) return { ok: false, error: 'Sesión expirada. Vuelve a entrar.' }
+    const res = await fetch('/.netlify/functions/proof-approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ id: messageId }),
+    })
+    const json = await res.json().catch(() => ({}))
+    return json.ok ? { ok: true } : { ok: false, error: json.error || 'No se pudo aprobar.' }
+  } catch (err) {
+    return { ok: false, error: err?.message || 'No se pudo aprobar.' }
+  }
 }
 
 // Clear a proof without touching sessions — e.g. it isn't a payment, or was

@@ -1,5 +1,19 @@
 // netlify/lib/proofReconcile.mjs
 //
+// ── #77 RULE (Nicolás, 19 Oct 2026) — overrides everything below ──────────────
+// A receipt is auto-applied ONLY when its amount EXACTLY equals patients.tarifa of the
+// matched patient (the fixed per-session rate — not the amount owed, not net of credit)
+// AND that patient has an unpaid session → the oldest unpaid session is marked paid.
+// Payer groups (#61): exact match against the tarifa of any one patient in the group →
+// the oldest unpaid session among the matching patients. EVERYTHING ELSE is HELD for
+// Nicolás (more, less, multiples, packages, several sessions, unreadable, no debt):
+// nothing is marked, NO credit is created. The held receipt keeps the allocation the
+// old rules below would have made (`proposeAllocation`) in whatsapp_messages.propuesta;
+// approving it in Comprobantes (`approveProof`) applies it through the same applyPlan,
+// and any lote it banks is stamped aprobado_por/aprobado_at. One notifyOwner per held
+// receipt (kind 'comprobante_pendiente'). Why: auto-banked credits ($1 from a $40
+// payment) made reminders ask patients wrong amounts ($38 instead of $39).
+//
 // Comprobante AUTO-MARK (spec #2). Deterministic code decides; the vision model
 // only extracts. For each recent inbound payment proof: OCR it (if not read yet),
 // evaluate the warning criteria, and — when clean — mark the covered session(s)
@@ -37,8 +51,9 @@
 //   anything less (underpayment/fit)  → HOLD (never partial credit — spec #4).
 
 import { ocrProofRow } from './proofOcr.mjs'
-import { sendDualhookComprobanteAlert, normalizePhone } from './whatsapp.mjs'
-import { isPackagePayment, PACKAGE_PRICE, PACKAGE_RATE } from './saldo.mjs'
+import { normalizePhone } from './whatsapp.mjs'
+import { notifyOwner } from './ownerOutbox.mjs'
+import { isPackagePayment, loteAprobado, PACKAGE_PRICE, PACKAGE_RATE } from './saldo.mjs'
 
 const EPS = 0.5
 const GYE_OFFSET_H = -5
@@ -58,6 +73,8 @@ const MOTIVO = {
   low_confidence: 'lectura poco confiable',
   payer_ambiguous: 'pago de un pagador con varios pacientes pendientes',
   no_amount: 'no se pudo leer el monto',
+  monto_distinto_tarifa: 'el monto no es la tarifa fija del paciente',
+  monto_sesion_distinto: 'la sesión pendiente más antigua tiene otro valor',
 }
 function motivoFor(reason) {
   if (!reason) return 'requiere revisión'
@@ -117,7 +134,15 @@ const montoOf = (unpaid, id) => Number((unpaid.find((s) => s.id === id) || {}).m
 //                    sessionIds, metodo, creditConsume }          // bank credit (+ settle sessions)
 // `unpaidSessions` MUST be ordered oldest-first. `ctx` = { credit, tarifa, payerId } where
 // credit = the patient's total open saldo a favor. Does NOT check reused-reference (DB, runner).
-export function decideAutoReconcile(proof, ex, unpaidSessions, ctx = {}) {
+export function proposeAllocation(proof, ex, unpaidSessions, ctx = {}) {
+  const pre = precheck(proof, ex)
+  if (pre) return pre
+  return allocate(proof, ex, unpaidSessions, ctx)
+}
+
+// Checks shared by the #77 gate and the proposal: is this a readable receipt for a
+// known patient, paid to Mariana, with an amount? Returns a skip/withhold plan or null.
+function precheck(proof, ex) {
   if (proof.reconciled_at) return { action: 'skip', reason: 'already_reconciled' }
   // Not a receipt at all (a random photo/screenshot) → skip SILENTLY, no alert.
   // This is checked BEFORE the unmatched/extraction branches so a non-receipt image
@@ -129,9 +154,12 @@ export function decideAutoReconcile(proof, ex, unpaidSessions, ctx = {}) {
   if (!ex) return { action: 'withhold', reason: 'not_payment_proof' }
   if (ex.confidence === 'low') return { action: 'withhold', reason: 'low_confidence' }
   if (ex.recipient_name && !/mariana/i.test(ex.recipient_name)) return { action: 'withhold', reason: 'recipient_mismatch' }
-  const amount = ex.amount
-  if (amount == null) return { action: 'withhold', reason: 'no_amount' }
+  if (ex.amount == null) return { action: 'withhold', reason: 'no_amount' }
+  return null
+}
 
+function allocate(proof, ex, unpaidSessions, ctx) {
+  const amount = ex.amount
   const unpaid = unpaidSessions || []
   const credit = round2(Number(ctx.credit || 0))
   const tarifa = round2(Number(ctx.tarifa || 0)) || PACKAGE_RATE
@@ -185,6 +213,30 @@ export function decideAutoReconcile(proof, ex, unpaidSessions, ctx = {}) {
   return { action: 'withhold', reason: 'amount_no_match' }
 }
 
+// #77 gate — the ONLY automatic path. `group` = [{ id, tarifa, unpaid }] for every
+// patient the receipt can belong to (one entry for a plain patient; the payer's
+// patients for a payer receipt), each `unpaid` oldest-first. Returns
+//   { action:'mark', sessionIds:[id], patientId, creditConsume:0, metodo }  — auto
+//   { action:'withhold', reason }                                            — Nicolás
+//   { action:'skip', reason }                                                — silent
+// Never banks a lote and never draws credit.
+const EXACT = 0.005
+export function decideAutoReconcile(proof, ex, group, opts = {}) {
+  const pre = precheck({ ...proof, patient_id: proof.patient_id || (group?.length ? group[0].id : null) }, ex)
+  if (pre) return pre
+  const amount = round2(Number(ex.amount))
+  const rateHits = (group || []).filter((g) => Number(g.tarifa) > 0 && Math.abs(round2(g.tarifa) - amount) <= EXACT)
+  if (!rateHits.length) return { action: 'withhold', reason: 'monto_distinto_tarifa' }
+  const candidates = rateHits.flatMap((g) => (g.unpaid || []).map((s) => ({ ...s, patient_id: s.patient_id || g.id })))
+  if (!candidates.length) return { action: 'withhold', reason: 'no_unpaid_sessions' }
+  candidates.sort((a, b) => (a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0))
+  const oldest = candidates[0]
+  // The session must cost what was paid — a $39 receipt never closes a $50 session.
+  if (Math.abs(round2(oldest.monto) - amount) > EXACT) return { action: 'withhold', reason: 'monto_sesion_distinto' }
+  const metodo = metodoFromDestination(ex.destination) || opts.metodoPago || 'transferencia'
+  return { action: 'mark', sessionIds: [oldest.id], patientId: oldest.patient_id, creditConsume: 0, metodo }
+}
+
 // Draw `amount` dollars of credit FIFO (oldest lote first) from a patient's open lotes.
 // Returns dollars actually consumed. A freshly-inserted lote is newest, so it's only
 // touched once the older lotes are exhausted (keeps a surplus lote intact on overpayment).
@@ -192,12 +244,12 @@ async function fifoConsumeLotes(supabase, patientId, amount) {
   let need = round2(amount)
   if (need <= EPS) return 0
   const { data: lotes, error } = await supabase
-    .from('saldo_lotes').select('id, remaining')
+    .from('saldo_lotes').select('id, remaining, proof_id, aprobado_at')
     .eq('patient_id', patientId).gt('remaining', 0)
     .order('created_at', { ascending: true }).order('id', { ascending: true })
   if (error) { console.error('[proof-auto] lotes load failed:', error.message); return 0 }
   let used = 0
-  for (const l of lotes || []) {
+  for (const l of (lotes || []).filter(loteAprobado)) { // #77: approved credit only
     if (need <= EPS) break
     const avail = Number(l.remaining || 0)
     const take = Math.min(avail, need)
@@ -224,7 +276,9 @@ async function insertLote(supabase, proof, ctx, lote) {
     payer_id: ctx.payerId ?? null,
     amount: lote.amount, price_per_session: lote.price_per_session, remaining: lote.amount,
     origin: lote.origin, proof_id: proof.id,
-    note: `Auto — comprobante ${proof.id}`,
+    // #77: lotes are only ever created by an approval in Comprobantes now.
+    aprobado_por: ctx.aprobadoPor ?? null, aprobado_at: ctx.aprobadoAt ?? null,
+    note: ctx.aprobadoAt ? `Aprobado por Nicolás — comprobante ${proof.id}` : `Auto — comprobante ${proof.id}`,
   })
   if (!error) return 'inserted'
   if (error.code === '23505' || /duplicate key|saldo_lotes_proof_id_unique/i.test(error.message || '')) {
@@ -268,7 +322,8 @@ async function applyPlan(supabase, proof, ctx, plan, now) {
   const { error: rErr } = await supabase
     .from('whatsapp_messages')
     .update({
-      reconciled_at: iso, reconciled_by: null, reconciled_session_ids: plan.sessionIds || [], auto_reconciled: true,
+      reconciled_at: iso, reconciled_by: ctx.aprobadoPor ?? null, reconciled_session_ids: plan.sessionIds || [],
+      auto_reconciled: !ctx.aprobadoAt,
       // A payer's proof attributed to their one owing patient (#61) is filed under that patient.
       ...(proof.attributedPatient ? { patient_id: proof.patient_id } : {}),
     })
@@ -318,54 +373,78 @@ const samePhone = (a, b) => {
 // #61 — the proof's patient group: the matched patient (if any) plus every patient
 // whose payer's telefono is the sender. `payers` = [{id,nombre,apellido,telefono}],
 // `payerPatients` = patients with payer_id set. Returns { ids, payer }.
-export function proofPatientGroup(proof, payers, payerPatients) {
+// #77: also every patient whose own telefono is the sender (shared-phone families).
+export function proofPatientGroup(proof, payers, payerPatients, phonePatients = []) {
   const from = proof.raw_payload?.message?.from
   const ids = new Set(proof.patient_id ? [proof.patient_id] : [])
   const payer = from ? (payers || []).find((y) => y.telefono && samePhone(from, y.telefono)) || null : null
   if (payer) for (const p of payerPatients || []) if (p.payer_id === payer.id) ids.add(p.id)
+  if (from) for (const p of phonePatients || []) if (p.telefono && samePhone(from, p.telefono)) ids.add(p.id)
   return { ids: [...ids], payer }
 }
 
-// Orchestrator. Options: { now, live, daysBack }.
-//   • live=false → dry: OCR + decide, but mark/reconcile NOTHING (preview).
-//   • live=true  → also apply the marks.
-export async function runProofAutomation(supabase, { now = new Date(), live = false, daysBack = 7 } = {}) {
+const PATIENT_COLS = 'id,nombre,apellido,nombre_2,tipo_paciente,metodo_pago,tarifa,payer_id,telefono'
+const fmt$ = (n) => { const v = Number(n); return '$' + (Number.isInteger(v) ? v : v.toFixed(2)) }
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+const fechaCorta = (f) => { const [, m, d] = String(f).split('-').map(Number); return `${d} ${MESES[m - 1] || ''}` }
+
+// Human description of a proposal (owner message + panel). `sessions` = the sessions
+// the plan touches ({id,fecha,monto}).
+export function describeProposal(plan, sessions = []) {
+  if (!plan || plan.action === 'withhold' || plan.action === 'skip') return 'revisar a mano (no hay una asignación clara)'
+  const byId = Object.fromEntries(sessions.map((s) => [s.id, s]))
+  const marks = (plan.sessionIds || []).map((id) => byId[id]).filter(Boolean)
+  const parts = []
+  if (plan.action === 'lote') {
+    const k = plan.loteKind === 'package' ? 'paquete' : plan.loteKind === 'prepay' ? 'pago adelantado' : 'sobrante'
+    parts.push(`guardar ${fmt$(plan.lote.amount)} como saldo a favor (${k}, ${fmt$(plan.lote.price_per_session)}/sesión)`)
+  }
+  if (marks.length) {
+    parts.push(`marcar pagada${marks.length > 1 ? 's' : ''} ${marks.map((s) => `${fechaCorta(s.fecha)} (${fmt$(s.monto)})`).join(', ')}` +
+      (plan.creditConsume > EPS ? ` usando ${fmt$(plan.creditConsume)} de saldo a favor` : ''))
+  }
+  return parts.join(' + ') || 'revisar a mano'
+}
+
+// Load + evaluate recent unreconciled proofs. One shared evaluation for the cron, the
+// dry run and approveProof, so an approval applies exactly what was proposed (re-derived
+// from fresh data). Returns [{ proof, ex, status, gate, proposal, proposalCtx, sessions, group }].
+async function evaluateProofs(supabase, { now, daysBack, onlyId = null, ocr = true }) {
   const today = gyeToday(now)
   const sinceMs = now.getTime() - daysBack * 864e5
-  const sinceISO = new Date(sinceMs).toISOString()
-
-  const { data: rows, error } = await supabase
+  let q = supabase
     .from('whatsapp_messages')
-    .select('id, patient_id, received_at, reconciled_at, alerted_at, raw_payload, extracted, extraction_status,' +
-      ' patient:patients(id,nombre,apellido,metodo_pago,tarifa,payer_id)')
+    .select('id, patient_id, received_at, reconciled_at, alerted_at, raw_payload, extracted, extraction_status, propuesta,' +
+      ` patient:patients(${PATIENT_COLS})`)
     .eq('direccion', 'inbound')
     .is('reconciled_at', null)
-    .gte('received_at', sinceISO)
-    .order('received_at', { ascending: false })
+  q = onlyId ? q.eq('id', onlyId) : q.gte('received_at', new Date(sinceMs).toISOString())
+  const { data: rows, error } = await q.order('received_at', { ascending: false })
   if (error) throw new Error('proofs query: ' + error.message)
 
   const proofs = (rows || [])
     .filter((r) => ['image', 'document'].includes(r.raw_payload?.message?.type))
-    .filter((r) => sentAtMs(r) >= sinceMs)
+    .filter((r) => onlyId || sentAtMs(r) >= sinceMs)
 
-  // #61 — payer receipts: resolve each proof's patient group (see proofPatientGroup).
-  const [{ data: payers, error: yErr }, { data: payerPatients, error: ppErr }] = await Promise.all([
+  // #61 payer receipts + #77 shared-phone families: each proof's patient group.
+  const [{ data: payers, error: yErr }, { data: groupPatients, error: ppErr }] = await Promise.all([
     supabase.from('payers').select('id,nombre,apellido,telefono').not('telefono', 'is', null),
-    supabase.from('patients').select('id,nombre,apellido,metodo_pago,tarifa,payer_id').not('payer_id', 'is', null),
+    supabase.from('patients').select(PATIENT_COLS).or('payer_id.not.is.null,telefono.not.is.null').eq('es_lead', false),
   ])
   if (yErr || ppErr) throw new Error('payers query: ' + (yErr || ppErr).message)
-  const patientById = Object.fromEntries((payerPatients || []).map((p) => [p.id, p]))
+  const payerPatients = (groupPatients || []).filter((p) => p.payer_id)
+  const patientById = Object.fromEntries((groupPatients || []).map((p) => [p.id, p]))
   for (const proof of proofs) {
-    const g = proofPatientGroup(proof, payers, payerPatients)
+    if (proof.patient) patientById[proof.patient.id] = proof.patient
+    const g = proofPatientGroup(proof, payers, payerPatients, groupPatients)
     proof.groupIds = g.ids
     if (g.payer) proof.payerName = [g.payer.nombre, g.payer.apellido].filter(Boolean).join(' ') || null
   }
 
-  // Unpaid confirmed sessions for the matched patients, up to & including TODAY (a
-  // patient commonly pays the same day their session is confirmed — a strict < today
-  // would miss it and mis-bank the payment as prepay credit), oldest-first.
+  // Unpaid confirmed sessions up to & including TODAY, oldest-first.
   const patientIds = [...new Set(proofs.flatMap((p) => p.groupIds))]
   const byPatient = {}
+  const creditByPatient = {}
   if (patientIds.length) {
     const { data: sess, error: sErr } = await supabase
       .from('sessions')
@@ -376,102 +455,144 @@ export async function runProofAutomation(supabase, { now = new Date(), live = fa
       .order('fecha', { ascending: true })
     if (sErr) throw new Error('sessions query: ' + sErr.message)
     for (const s of sess || []) (byPatient[s.patient_id] ||= []).push(s)
-  }
-
-  // Open saldo a favor per patient (#19) — the credit pool for net-of-credit matching
-  // and for deciding what a package/overpayment lote settles.
-  const creditByPatient = {}
-  if (patientIds.length) {
+    // Open saldo a favor — used ONLY by the proposal (never by the automatic gate).
     const { data: lotes, error: lErr } = await supabase
-      .from('saldo_lotes').select('patient_id, remaining')
+      .from('saldo_lotes').select('patient_id, remaining, proof_id, aprobado_at')
       .in('patient_id', patientIds).gt('remaining', 0)
     if (lErr) throw new Error('lotes query: ' + lErr.message)
-    for (const l of lotes || []) {
+    for (const l of (lotes || []).filter(loteAprobado)) { // #77: approved credit only
       creditByPatient[l.patient_id] = round2((creditByPatient[l.patient_id] || 0) + Number(l.remaining || 0))
     }
   }
 
-  const report = { today, live: !!live, marked: 0, lotes: 0, withheld: 0, alerted: 0, failed: 0, items: [] }
+  const out = []
   for (const proof of proofs) {
     // Ensure extraction — OCR only if never attempted (don't re-burn failed/needs_review).
     let status = proof.extraction_status
     let ex = proof.extracted
-    if (status == null || status === 'pending') {
+    if (ocr && (status == null || status === 'pending')) {
       const r = await ocrProofRow(supabase, proof, { force: false })
       status = r.status; ex = r.extracted
       proof.extraction_status = status; proof.extracted = ex
     }
 
-    // #61 — a payer's group: one owing patient → the proof becomes that patient's;
-    // several → pooled, exact 'mark' only. Group of one = the pre-#61 behaviour.
+    // ── #77 gate: the only automatic path ──
+    const group = proof.groupIds.map((id) => ({ id, tarifa: patientById[id]?.tarifa, unpaid: byPatient[id] || [] }))
+    const gate = decideAutoReconcile(proof, ex, group, { metodoPago: proof.patient?.metodo_pago })
+
+    // ── Proposal for a held receipt (pre-#77 rules, incl. #61 pooling) ──
+    const pp = { ...proof }
     let pooled = false
-    if (proof.groupIds.length > 1 || (proof.groupIds.length === 1 && !proof.patient_id)) {
-      const owing = proof.groupIds.filter((id) => byPatient[id]?.length)
-      const pick = owing.length === 1 ? owing[0] : (owing.length === 0 && proof.groupIds.length === 1 ? proof.groupIds[0] : null)
-      if (pick && pick !== proof.patient_id) {
-        proof.attributedPatient = true // filed under the patient it actually pays
-        proof.patient_id = pick
-        proof.patient = patientById[pick] || proof.patient
-      } else if (!pick && (owing.length > 1 || !proof.patient_id)) {
-        // Several owe, or (unmatched sender) none of the payer's patients owes → a
-        // human decides whose saldo it is; pooled lets only an exact mark through.
+    if (pp.groupIds.length > 1 || (pp.groupIds.length === 1 && !pp.patient_id)) {
+      const owing = pp.groupIds.filter((id) => byPatient[id]?.length)
+      const pick = owing.length === 1 ? owing[0] : (owing.length === 0 && pp.groupIds.length === 1 ? pp.groupIds[0] : null)
+      if (pick && pick !== pp.patient_id) {
+        pp.patient_id = pick
+        pp.patient = patientById[pick] || pp.patient
+      } else if (!pick && (owing.length > 1 || !pp.patient_id)) {
         pooled = true
-        if (!proof.patient_id) proof.patient = patientById[owing[0] || proof.groupIds[0]] || null
+        if (!pp.patient_id) pp.patient = patientById[owing[0] || pp.groupIds[0]] || null
       }
     }
     const unpaid = pooled
-      ? proof.groupIds.flatMap((id) => byPatient[id] || []).sort((a, b) => (a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0))
-      : byPatient[proof.patient_id] || []
-    const ctx = {
-      credit: pooled ? 0 : creditByPatient[proof.patient_id] || 0,
-      tarifa: proof.patient?.tarifa,
-      payerId: proof.patient?.payer_id || null,
+      ? pp.groupIds.flatMap((id) => byPatient[id] || []).sort((a, b) => (a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0))
+      : byPatient[pp.patient_id] || []
+    const proposalCtx = {
+      credit: pooled ? 0 : creditByPatient[pp.patient_id] || 0,
+      tarifa: pp.patient?.tarifa,
+      payerId: pp.patient?.payer_id || null,
     }
-    let plan = decideAutoReconcile(pooled ? { ...proof, patient_id: proof.patient_id || proof.patient?.id } : proof, ex, unpaid, ctx)
-    if (pooled && plan.action !== 'mark' && plan.action !== 'skip' && plan.action !== 'withhold') {
-      plan = { action: 'withhold', reason: 'payer_ambiguous' }
+    let proposal = gate.action === 'skip' ? gate
+      : proposeAllocation(pooled ? { ...pp, patient_id: pp.patient_id || pp.patient?.id } : pp, ex, unpaid, proposalCtx)
+    if (pooled && proposal.action !== 'mark' && proposal.action !== 'skip' && proposal.action !== 'withhold') {
+      proposal = { action: 'withhold', reason: 'payer_ambiguous' }
     }
+    if (!pooled && pp.patient_id) proposal.patientId = pp.patient_id
+    if (proposal.action === 'mark' && pooled && proposal.sessionIds?.length) {
+      proposal.patientId = unpaid.find((s) => s.id === proposal.sessionIds[0])?.patient_id || pp.patient_id
+    }
+    const sessions = proof.groupIds.flatMap((id) => byPatient[id] || [])
+    out.push({ proof, ex, status, gate, proposal, proposalCtx, sessions, patientById })
+  }
+  return out
+}
 
-    // Reused-reference is ALWAYS a warning (spec #2: suspicion) — any auto action.
-    if ((plan.action === 'mark' || plan.action === 'lote') && await referenceReused(supabase, proof, ex?.transfer_id)) {
+// What the panel stores for a held receipt (whatsapp_messages.propuesta).
+function proposalRecord(e, motivo) {
+  const p = e.proposal
+  const pid = p.patientId || e.proof.patient_id || e.proof.groupIds?.[0] || null
+  const pat = pid ? e.patientById[pid] : null
+  const touched = new Set(p.sessionIds || [])
+  return {
+    motivo,
+    accion: p.action, // 'mark' | 'lote' | 'withhold' (nothing to approve automatically)
+    patient_id: pid, paciente: patientName(pat), tarifa: pat?.tarifa ?? null,
+    monto: e.ex?.amount ?? null,
+    session_ids: p.sessionIds || [],
+    sesiones: e.sessions.filter((s) => touched.has(s.id)).map((s) => ({ id: s.id, fecha: s.fecha, monto: Number(s.monto) })),
+    credito_usado: p.creditConsume || 0,
+    lote: p.lote || null,
+    metodo: p.metodo || null,
+    texto: describeProposal(p, e.sessions),
+  }
+}
+
+// Orchestrator. Options: { now, live, daysBack }.
+//   • live=false → dry: OCR + decide, but mark/reconcile/notify NOTHING (preview).
+//   • live=true  → apply the #77 automatic marks; hold the rest + tell Nicolás once.
+export async function runProofAutomation(supabase, { now = new Date(), live = false, daysBack = 7, deps = {} } = {}) {
+  const notify = deps.notifyOwner || notifyOwner
+  const evals = await evaluateProofs(supabase, { now, daysBack })
+  const report = { today: gyeToday(now), live: !!live, marked: 0, lotes: 0, withheld: 0, alerted: 0, failed: 0, items: [] }
+  for (const e of evals) {
+    const { proof, ex, status } = e
+    let plan = e.gate
+    // Reused-reference is ALWAYS a hold (spec #2: suspicion).
+    if (plan.action === 'mark' && await referenceReused(supabase, proof, ex?.transfer_id)) {
       plan = { action: 'withhold', reason: 'reused_reference' }
     }
-
+    const markPid = plan.action === 'mark' ? plan.patientId : null
+    const markPatient = markPid ? e.patientById[markPid] : proof.patient
     const item = {
-      proofId: proof.id, patient: patientName(proof.patient), patientId: proof.patient_id || null,
-      amount: ex?.amount ?? null, transferId: ex?.transfer_id || null, extraction: status,
+      proofId: proof.id, patient: patientName(markPatient) || patientName(proof.patient), patientId: markPid || proof.patient_id || null,
+      amount: ex?.amount ?? null, tarifa: markPatient?.tarifa ?? proof.patient?.tarifa ?? null,
+      transferId: ex?.transfer_id || null, extraction: status,
       action: plan.action, reason: plan.reason || null,
       sessionIds: plan.sessionIds || null, metodo: plan.metodo || null,
-      loteKind: plan.loteKind || null, loteAmount: plan.lote?.amount ?? null,
-      creditBefore: ctx.credit || 0, creditConsume: plan.creditConsume || 0,
+      loteKind: null, loteAmount: null, creditConsume: 0,
     }
-    if (plan.action === 'mark' || plan.action === 'lote') {
-      const ok = live ? await applyPlan(supabase, proof, ctx, plan, now) : true
-      if (!ok) { item.action = 'failed'; report.failed++ }
-      else {
-        if (plan.action === 'lote') report.lotes++
-        if (plan.sessionIds?.length) report.marked++
-      }
+    if (plan.action === 'mark') {
+      const target = { ...proof, patient_id: markPid, attributedPatient: markPid !== proof.patient_id }
+      const ok = live ? await applyPlan(supabase, target, { payerId: null }, plan, now) : true
+      if (!ok) { item.action = 'failed'; report.failed++ } else report.marked++
     } else if (plan.action === 'withhold') {
-      const reason = plan.reason
       report.withheld++
-      // Alert Nicolás ONCE per held proof (spec #2 additions). alerted_at throttles
-      // the every-10-min re-evaluation; dry runs preview without sending. Best-effort
-      // — a failed alert never crashes the batch and leaves alerted_at unset to retry.
-      item.motivo = motivoFor(reason)
+      item.motivo = motivoFor(plan.reason)
+      const rec = proposalRecord(e, item.motivo)
+      item.propuesta = rec
+      if (live) {
+        const { error: pErr } = await supabase.from('whatsapp_messages')
+          .update({ propuesta: rec, propuesta_at: now.toISOString() }).eq('id', proof.id)
+        if (pErr) console.error('[proof-auto] propuesta stamp failed:', pErr.message)
+      }
+      // Tell Nicolás ONCE per held receipt (alerted_at throttles the */10 re-runs).
       if (!proof.alerted_at) {
         item.alert = live ? 'sending' : 'would-alert'
         if (live) {
+          const who = rec.paciente || alertSender(proof, ex)
+          const body = `Comprobante en espera: ${who}` +
+            `${proof.payerName && proof.payerName !== who ? ` (enviado por ${proof.payerName})` : ''}` +
+            ` pagó ${ex?.amount != null ? fmt$(ex.amount) : '¿monto?'}` +
+            `${rec.tarifa != null ? `, tarifa ${fmt$(rec.tarifa)}` : ''}.\nMotivo: ${item.motivo}.\n` +
+            `Propuesta: ${rec.texto}.\nApruébalo o corrígelo en el panel → Comprobantes.`
           try {
-            await sendDualhookComprobanteAlert({
-              sender: alertSender(proof, ex), amount: ex?.amount ?? '?', motivo: item.motivo,
-            })
+            await notify(supabase, { kind: 'comprobante_pendiente', resumen: `Comprobante en espera: ${who}`.slice(0, 90), messages: [{ type: 'text', body }] })
             const { error: aErr } = await supabase
               .from('whatsapp_messages').update({ alerted_at: now.toISOString() }).eq('id', proof.id)
             if (aErr) { console.error('[proof-auto] alert-stamp failed:', aErr.message); item.alert = 'sent_stamp_failed' }
             else { item.alert = 'sent'; report.alerted++ }
-          } catch (e) {
-            console.error(`[proof-auto] alert failed for proof ${proof.id}:`, e.message)
+          } catch (err) {
+            console.error(`[proof-auto] notifyOwner failed for proof ${proof.id}:`, err.message)
             item.alert = 'failed'
           }
         }
@@ -482,4 +603,27 @@ export async function runProofAutomation(supabase, { now = new Date(), live = fa
     report.items.push(item)
   }
   return report
+}
+
+// Nicolás approves a held receipt's proposal in Comprobantes. Re-derives the proposal
+// from fresh data (sessions may have changed since it was held) and applies it through
+// the same applyPlan as the automatic match; a lote it banks is stamped approved.
+// Returns { ok, error?, plan }.
+export async function approveProof(supabase, proofId, { userId, now = new Date() } = {}) {
+  const evals = await evaluateProofs(supabase, { now, daysBack: 60, onlyId: proofId, ocr: false })
+  const e = evals[0]
+  if (!e) return { ok: false, error: 'El comprobante ya no está pendiente.' }
+  const plan = e.proposal
+  if (plan.action !== 'mark' && plan.action !== 'lote') {
+    return { ok: false, error: 'Este comprobante no tiene una propuesta automática: elige las sesiones a mano.' }
+  }
+  const pid = plan.patientId || e.proof.patient_id
+  if (!pid) return { ok: false, error: 'No se sabe a qué paciente corresponde.' }
+  if (await referenceReused(supabase, e.proof, e.ex?.transfer_id)) {
+    return { ok: false, error: 'La referencia de este comprobante ya se usó en otro. Revísalo a mano.' }
+  }
+  const target = { ...e.proof, patient_id: pid, attributedPatient: pid !== e.proof.patient_id }
+  const ctx = { payerId: e.patientById[pid]?.payer_id || null, aprobadoPor: userId || null, aprobadoAt: now.toISOString() }
+  const ok = await applyPlan(supabase, target, ctx, plan, now)
+  return ok ? { ok: true, plan: { ...plan, texto: describeProposal(plan, e.sessions) } } : { ok: false, error: 'No se pudo aplicar el pago.' }
 }
