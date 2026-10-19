@@ -6,6 +6,19 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 Newest first.
 
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-08 (#69) -->
+### 2026-10-07 — #57 Excepción a reglas por sesión (executor, 12878a3)
+- `sessions.excepcion_reglas bool not null default false` (`supabase/sessions-excepcion-reglas.sql`, migration
+  `sessions_excepcion_reglas`). `enforce_therapist_rules` returns early when true → skips ALL MARIANA_RULE checks.
+  **Only owner/service_role/postgres may set it true** — guard at the top of the trigger (raises
+  `EXCEPCION_REGLAS: …`); keeping an already-true flag on an edit is allowed. Verified as Mariana (authenticated,
+  rolled back): insert + update with the flag both rejected. Trigger never disabled; room cap etc. untouched.
+- JS mirror: `therapistRules.js#violatesRules` returns null when `excepcion_reglas`; drawer + Sesiones pass the
+  initial row's flag. `queries.js`: in SESSION_SELECT + SESSION_COLUMNS; `friendlySessionError` maps EXCEPCION_REGLAS.
+- Data: Mariana × Belén y Orlando 2026-10-07 17:20–18:50 en_linea pareja $35 programada, `excepcion_reglas=true`
+  (id c5fbacea…, Calendar event fdgk94b3h1rcmgb2ups7ghs7l0). Mariana = 4 sessions that day. A 5th without the
+  flag is still rejected ("máximo 3 sesiones por día", rolled back).
+- Note: an excepted session still COUNTS for her other sessions' checks (moving the 19:00 that day would be blocked).
+
 ### 2026-10-06 — #56 Modo prueba del bot desde el teléfono del dueño (executor, fda357c)
 Nicolás (owner phone 593968029896, the only phone he has) can test the lead flow as a first-time lead.
 - **Commands** (owner → 9933, exact message, case/accent-insensitive; replies via `sendStaffText`, no sanitizer/greeting):

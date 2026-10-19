@@ -103,6 +103,24 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-19 — #77 Comprobantes: auto only at exact tarifa · #76 Shariam 2 facturas (executor, a1214ef)
+- **#76 data:** patient b2135479 "Sharian Narvaez" → Shariam Alexandra Narváez Celi, cédula 1722319439, +593995879307,
+  email null, payer 4d0597f1 (herself), obligatoria + concepto_general, facturar_desde 2026-10-01. Session cdb9ad8f
+  12 Oct → **14 Oct** 16:00 (Calendar event oenue1uecvppljr9ida0h6co1k updated via calendar fn).
+- **#76 emitted (emit-one, Nicolás chat 19 Oct):** **001-001-000000323** (Shariam 14 Oct $39, cf 0yelnAYAwI3z7bER) +
+  **324** (Marthin 16 Oct $39, cf LmavAO2XQhPyXe3N), both billed to Shariam 1722319439, concepto general. RIDEs sent
+  via send-rides to …9307, both `delivered`. factura_aprobaciones cf4e61fb (origen chat, "extraordinaria 19 Oct, aprobado por Nicolás").
+- **#77 rule** (see CLAUDE.md "Comprobantes"): `decideAutoReconcile(proof, ex, group)` = the only automatic path (amount ==
+  tarifa ±0.005 of any group patient with an unpaid session → that oldest session, must cost that amount). Old logic
+  renamed `proposeAllocation` → stored in `whatsapp_messages.propuesta` for held receipts; one `notifyOwner`
+  `comprobante_pendiente` (replaces the comprobante_sin_identificar template alert). `approveProof` + new fn
+  `proof-approve` (owner bearer) → same `applyPlan`; lotes stamped `aprobado_por/aprobado_at`. `saldo.mjs#loteAprobado`
+  (aprobado_at OR proof_id null) filters credit in reminders, proposals and FIFO draws. Group now also includes
+  patients whose telefono = sender. Migration `supabase/comprobantes-tarifa-exacta-77.sql` (additive).
+- **Left alone on purpose:** DB trigger `consume_saldo_on_confirm` still spends ALL lotes (in-progress auto packages —
+  Catalina, Emily, Juan Carlos, Andrea — depend on it). Changing it = Nicolás's audit decision.
+- Harness `node scripts/harness-comprobantes-77.mjs` 37/37 (fake DB, nothing sent).
+
 ### 2026-10-13 — #72 Facturación automática Mon+Thu + 4 facturas aprobadas en chat (executor, ec57bb8)
 - **Emitted (approved by Nicolás in chat 13 Oct)** via emit-one: 001-001-000000315 Mila 6 Oct $32 (Sébastien
   Paque, concepto general) · 316 Cecilia Saltos 8 Oct $39 (Dorian Solís) · 317 Raguel Conforme 9 Oct $36 (Laura
@@ -242,22 +260,17 @@ two PARALLEL turns: question + cards in turn 1; turn 2 repeated adolescentes and
   unchanged. es_prueba same path (decision flagged).
 - Harness `node scripts/harness-mensaje-no-disponible.mjs` (real e4f6ecd6 payload; 6 scenarios). Other 3 harnesses pass.
 
-### 2026-10-07 — #57 Excepción a reglas por sesión (executor, 12878a3)
-- `sessions.excepcion_reglas bool not null default false` (`supabase/sessions-excepcion-reglas.sql`, migration
-  `sessions_excepcion_reglas`). `enforce_therapist_rules` returns early when true → skips ALL MARIANA_RULE checks.
-  **Only owner/service_role/postgres may set it true** — guard at the top of the trigger (raises
-  `EXCEPCION_REGLAS: …`); keeping an already-true flag on an edit is allowed. Verified as Mariana (authenticated,
-  rolled back): insert + update with the flag both rejected. Trigger never disabled; room cap etc. untouched.
-- JS mirror: `therapistRules.js#violatesRules` returns null when `excepcion_reglas`; drawer + Sesiones pass the
-  initial row's flag. `queries.js`: in SESSION_SELECT + SESSION_COLUMNS; `friendlySessionError` maps EXCEPCION_REGLAS.
-- Data: Mariana × Belén y Orlando 2026-10-07 17:20–18:50 en_linea pareja $35 programada, `excepcion_reglas=true`
-  (id c5fbacea…, Calendar event fdgk94b3h1rcmgb2ups7ghs7l0). Mariana = 4 sessions that day. A 5th without the
-  flag is still rejected ("máximo 3 sesiones por día", rolled back).
-- Note: an excepted session still COUNTS for her other sessions' checks (moving the 19:00 that day would be blocked).
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **#77 audit — Nicolás decides each automatic lote** (27 rows with proof_id; list in the 19 Oct report). Biggest:
+      4 prepay lotes on **Mariana Villegas Kraemer** ($35+30+36+35 = $136 open — receipts from her phone, likely patients'
+      forwarded receipts mis-banked), Diana Marcial $90, Gabriela Acosta $70, Raguel $72+$36, Shariam(Marthin) $1, Luna $1.
+      ⚠️ **Shariam $76 prepay lote 48db0abf (20:00 UTC 19 Oct, last run of the OLD code):** her $76 receipt (ref 70167537)
+      for 14+16 Oct arrived after Nicolás had marked both paid by hand → banked as phantom credit (+ her old $1). No
+      sessions scheduled yet; the confirm-trigger WILL spend it on her next 2 sessions. Likely fix: remaining→0 on both.
+      Approve = set aprobado_at; reject = remaining→0 + mark the right sessions by hand.
+- [ ] **#77 first live held receipt** — check its `propuesta`, the owner message, and "Aprobar propuesta" in the panel.
 - [ ] **#69 live proof (Nicolás's phone):** "modo prueba" → write as lead → pick therapist → bot link must contain `&l=`
       → book with a DIFFERENT phone → check the test lead gets session_id/agendo_at, booking notas "[PRUEBA]", no CAPI
       → "reiniciar" (cancels that llamada) → "fin prueba".
