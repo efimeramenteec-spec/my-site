@@ -6,6 +6,21 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 Newest first.
 
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-08 (#69) -->
+### 2026-10-08 — #61 Recordatorios de pago al pagador (executor, 375b5c4)
+- **`paymentReminders.mjs` Option B (Nicolás 8 Oct):** patient with `payer_id` and a payer `telefono` that normalizes →
+  reminder to the PAYER, `{{1}}` = payer first name, `{{3}}` names the patient (`buildMinorSesionesText`: the child
+  `nombre_2` for a menor, `nombre` for an adult; "tu sesión" when the payer is the same adult — same phone + first name,
+  e.g. Laura Vásquez). No valid payer phone (Dorian Solis) → patient as before. Report entries gain
+  `patientLabel`, `recipient` ('payer'|'patient'), `payer_id`. Appointment reminders untouched (always the patient).
+- **`proofReconcile.mjs`:** `proofPatientGroup(proof, payers, payerPatients)` = matched patient + all patients whose
+  payer's phone is the sender. One owing → proof attributed to that patient (stamp also writes `whatsapp_messages.patient_id`);
+  several owing → pooled oldest-first, credit ignored, only an exact `mark` is automatic; anything that would bank a lote
+  → withhold `payer_ambiguous` (alert "pago de un pagador con varios pacientes pendientes"). Group of one = unchanged.
+- Harness (scratch, fake DB, nothing sent): Sébastien +593985506258 $32 → marks Mila's 6 Oct; Laura $36 → Emilie;
+  Laura $72 with 2 owing → both; $140 with 2 owing → held. Prod proofs-run dry: Sébastien's real 7 Oct $32 proof
+  (f1c247f9, was "unmatched") now → mark Mila 6 Oct.
+- **Data:** Mila (770ba3dc) telefono "985506380" → "+593985506380" (Raquel's).
+
 ### 2026-10-07 — #60 Facturación en espera + concepto general + 9 facturas (executor, f184057)
 - **Migration** `supabase/patients-facturacion-espera-concepto.sql` (additive): `patients.facturacion_en_espera`,
   `patients.factura_concepto_general` (bool, default false); `factura_aprobaciones.origen` now allows `'chat'`.
