@@ -193,6 +193,55 @@ for (const [label, sc] of [['$40', base(40)], ['$38', base(38)], ['$78', base(78
   const paid = r.tables.sessions.filter((s) => s.pagado).length
   check('$156 with 5 unpaid → oldest 4 marked, no lote', r.item.action === 'mark' && paid === 4 && !r.tables.sessions.find((s) => s.id === 'p4').pagado && r.tables.saldo_lotes.length === 0)
 }
+// 12. #81 A — receipts from Mariana's number are ALWAYS held, even exact tarifa / 4 × tarifa.
+{
+  const MV = { id: 'mv', nombre: 'Mariana', apellido: 'Villegas Kraemer', tarifa: 39, payer_id: null, telefono: '+593994342657', es_lead: false }
+  const LUIS = { id: 'luis', nombre: 'Luis', apellido: 'Pérez', tarifa: 39, payer_id: null, telefono: '+593990000009', es_lead: false }
+  const mk = (amount, exExtra = {}, withSelf = true) => {
+    const proof = proofRow({ patient_id: withSelf ? 'mv' : null, from: '593994342657', amount })
+    Object.assign(proof.extracted, exExtra)
+    const sc = scenario('mariana', { patients: [MV, LUIS, ANA],
+      sessions: [sess('mv1', 'mv', '2026-10-01'), sess('lu1', 'luis', '2026-10-12'), sess('lu2', 'luis', '2026-10-15'), sess('s1', 'ana', '2026-10-10')],
+      proof })
+    sc.db.tables.therapists = [{ id: 't-mar', nombre: 'Mariana', telefono: '+593994342657' }]
+    return sc
+  }
+  for (const amt of [39, 156]) {
+    const sc = mk(amt, { sender_name: 'LUIS ANDRES PEREZ' })
+    const r = await run(sc)
+    check(`Mariana's number + $${amt} → held`, r.item.action === 'withhold' && r.item.reason === 'remitente_mariana', `reason=${r.item.reason}`)
+    check(`Mariana's number + $${amt} → nothing paid, no lote`, !r.tables.sessions.some((s) => s.pagado) && r.tables.saldo_lotes.length === 0)
+    const pr = sc.db.tables.whatsapp_messages[0].propuesta
+    check(`Mariana's number + $${amt} → proposal names Luis (from the receipt), not Mariana`, pr?.patient_id === 'luis' && pr?.remitente === 'Mariana', pr?.texto)
+    check(`Mariana's number + $${amt} → owner told once, "enviado por Mariana"`, r.notified.length === 1 && /enviado por Mariana/.test(r.notified[0].messages[0].body))
+  }
+  // Therapist row only (her patient record not matched) → still held.
+  {
+    const sc = mk(39, { sender_name: 'Luis Perez' }, false)
+    const r = await run(sc)
+    check('therapist phone only, $39 → held', r.item.action === 'withhold' && !r.tables.sessions.some((s) => s.pagado))
+  }
+  // Approve → applies to Luis's oldest session, never Mariana's own record.
+  {
+    const sc = mk(39, { bank_description: 'sesion Luis Pérez' })
+    await run(sc)
+    const a = await approveProof(sc.db, sc.proof.id, { userId: 'owner-uid', now: NOW })
+    const paid = sc.db.tables.sessions.filter((s) => s.pagado).map((s) => s.id).join()
+    check('approve Mariana-forwarded $39 → Luis 12 Oct paid', a.ok && paid === 'lu1' && sc.db.tables.whatsapp_messages[0].patient_id === 'luis', a.error || paid)
+  }
+  // Receipt names nobody → held, no automatic proposal.
+  {
+    const sc = mk(39, { sender_name: 'MARIANA VILLEGAS' })
+    const r = await run(sc)
+    const pr = sc.db.tables.whatsapp_messages[0].propuesta
+    check('Mariana-forwarded, no patient named → held, pick by hand', r.item.action === 'withhold' && pr?.accion === 'withhold' && !pr?.patient_id, pr?.texto)
+  }
+  // Ana's own $39 still auto (rule unchanged for everyone else).
+  {
+    const r = await run(base(39))
+    check('control: Ana $39 from her own phone still auto', r.item.action === 'mark')
+  }
+}
 // 10. Reminder credit filter.
 check('reminders: auto lote not counted', loteAprobado({ proof_id: 'x', aprobado_at: null }) === false)
 check('reminders: approved lote counted', loteAprobado({ proof_id: 'x', aprobado_at: '2026-10-19' }) === true)

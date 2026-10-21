@@ -79,6 +79,7 @@ const MOTIVO = {
   no_amount: 'no se pudo leer el monto',
   monto_distinto_tarifa: 'el monto no es la tarifa fija del paciente',
   monto_sesion_distinto: 'la sesión pendiente más antigua tiene otro valor',
+  remitente_mariana: 'lo envió Mariana desde su número (reenvío de un paciente)',
 }
 function motivoFor(reason) {
   if (!reason) return 'requiere revisión'
@@ -470,8 +471,20 @@ async function evaluateProofs(supabase, { now, daysBack, onlyId = null, ocr = tr
     if (g.payer) proof.payerName = [g.payer.nombre, g.payer.apellido].filter(Boolean).join(' ') || null
   }
 
+    // #81 A: receipts sent from Mariana's own number (her therapist row or her own
+  // patient record) are forwards of someone else's payment → never automatic.
+  const fromMariana = await marianaPhoneCheck(supabase, groupPatients)
+  const guessPool = proofs.some((p) => fromMariana(p.raw_payload?.message?.from))
+    ? await loadGuessPool(supabase) : []
+  for (const proof of proofs) {
+    if (!fromMariana(proof.raw_payload?.message?.from)) continue
+    proof.fromMariana = true
+    proof.nameCandidates = nameCandidates(proof.extracted, guessPool)
+    for (const c of proof.nameCandidates) patientById[c.id] ||= c
+  }
+
   // Unpaid confirmed sessions up to & including TODAY, oldest-first.
-  const patientIds = [...new Set(proofs.flatMap((p) => p.groupIds))]
+  const patientIds = [...new Set(proofs.flatMap((p) => [...p.groupIds, ...(p.nameCandidates || []).map((c) => c.id)]))]
   const byPatient = {}
   const creditByPatient = {}
   if (patientIds.length) {
@@ -507,7 +520,37 @@ async function evaluateProofs(supabase, { now, daysBack, onlyId = null, ocr = tr
 
     // ── #77 gate: the only automatic path ──
     const group = proof.groupIds.map((id) => ({ id, tarifa: patientById[id]?.tarifa, unpaid: byPatient[id] || [] }))
-    const gate = decideAutoReconcile(proof, ex, group, { metodoPago: proof.patient?.metodo_pago })
+    let gate = decideAutoReconcile(proof, ex, group, { metodoPago: proof.patient?.metodo_pago })
+
+    // ── #81 A: Mariana's number → ALWAYS held (even exact tarifa / 4 × tarifa). The
+    // proposal targets the patient the receipt itself names, never Mariana's own record.
+    if (proof.fromMariana && gate.action !== 'skip') {
+      const g = precheck({ ...proof, patient_id: proof.patient_id || 'mariana' }, ex)
+      gate = g && g.action === 'skip' ? g : { action: 'withhold', reason: 'remitente_mariana' }
+      if (gate.action === 'withhold') {
+        const real = pickRealPatient(proof.nameCandidates || [], ex, byPatient)
+        const sessions = real ? byPatient[real.id] || [] : []
+        let proposal = { action: 'withhold', reason: 'remitente_mariana' }
+        if (real && ex?.amount != null) {
+          // What the #77/#80 rule would do if the patient had sent it; else the pre-#77 proposal.
+          const asOwn = decideAutoReconcile({ ...proof, patient_id: real.id }, ex,
+            [{ id: real.id, tarifa: real.tarifa, unpaid: sessions }], { metodoPago: real.metodo_pago })
+          if (asOwn.action === 'mark' || asOwn.action === 'lote') {
+            const { autoPackage, ...plan } = asOwn
+            proposal = plan
+          } else {
+            proposal = allocate({ ...proof, patient_id: real.id, patient: real }, ex, sessions, {
+              credit: creditByPatient[real.id] || 0, tarifa: real.tarifa, payerId: real.payer_id || null,
+            })
+          }
+          proposal.patientId = real.id
+        }
+        const guess = real ? null : (proof.nameCandidates || []).map(patientName).filter(Boolean)
+        out.push({ proof, ex, status, gate, proposal, proposalCtx: {}, sessions, patientById,
+          marianaGuess: { patientId: real?.id || null, posibles: guess } })
+        continue
+      }
+    }
 
     // ── Proposal for a held receipt (pre-#77 rules, incl. #61 pooling) ──
     const pp = { ...proof }
@@ -546,9 +589,80 @@ async function evaluateProofs(supabase, { now, daysBack, onlyId = null, ocr = tr
   return out
 }
 
+// ── #81 A helpers ───────────────────────────────────────────────────────────
+// Mariana's phones = every therapist named Mariana + her own patient record
+// (Mariana Villegas, inactive). Returns a sender → boolean test on the last 9 digits.
+async function marianaPhoneCheck(supabase, patients = []) {
+  const { data: ther, error } = await supabase.from('therapists').select('id,nombre,telefono')
+  if (error) console.warn('[proof-auto] therapists load failed (Mariana check uses patients only):', error.message)
+  const phones = new Set([
+    ...(ther || []).filter((t) => /^mariana\b/i.test(t.nombre || '')),
+    ...(patients || []).filter((p) => /mariana/i.test(p.nombre || '') && /villegas/i.test(p.apellido || '')),
+  ].map((r) => last9(r.telefono)).filter((x) => x.length === 9))
+  return (from) => phones.has(last9(from))
+}
+export const _marianaPhoneCheck = marianaPhoneCheck
+
+async function loadGuessPool(supabase) {
+  const { data, error } = await supabase.from('patients')
+    .select(PATIENT_COLS + ',apellido_2').eq('es_lead', false)
+  if (error) { console.warn('[proof-auto] guess pool load failed:', error.message); return [] }
+  // Never guess Mariana herself.
+  return (data || []).filter((p) => !(/mariana/i.test(p.nombre || '') && /villegas/i.test(p.apellido || '')))
+}
+
+const fold = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+const words = (s) => fold(s).split(/[^a-zñ]+/).filter((w) => w.length >= 3)
+
+// Patients whose name appears in the receipt (sender name + bank description). A person
+// counts when BOTH their first name and surname appear; best-scoring patients win.
+export function nameCandidates(ex, pool = []) {
+  const text = new Set([...words(ex?.sender_name), ...words(ex?.bank_description)])
+  if (!text.size) return []
+  const hit = (n, a) => {
+    const nw = words(n), aw = words(a)
+    return nw.length && aw.length && nw.some((w) => text.has(w)) && aw.some((w) => text.has(w))
+      ? nw.filter((w) => text.has(w)).length + aw.filter((w) => text.has(w)).length : 0
+  }
+  const scored = pool.map((p) => ({ p, s: Math.max(hit(p.nombre, p.apellido), hit(p.nombre_2, p.apellido_2 || p.apellido)) }))
+    .filter((x) => x.s > 0)
+  const best = Math.max(0, ...scored.map((x) => x.s))
+  return scored.filter((x) => x.s === best).map((x) => x.p)
+}
+
+// One candidate → it. Several → narrow by tarifa = amount, then by an unpaid session on the
+// transfer date. Still several (or none) → null: Nicolás picks by hand.
+export function pickRealPatient(cands, ex, byPatient = {}) {
+  let c = cands
+  if (c.length > 1 && ex?.amount != null) {
+    const t = c.filter((p) => same(Number(p.tarifa || 0), Number(ex.amount)))
+    if (t.length) c = t
+  }
+  if (c.length > 1 && ex?.transfer_date) {
+    const d = c.filter((p) => (byPatient[p.id] || []).some((s) => s.fecha === ex.transfer_date))
+    if (d.length) c = d
+  }
+  return c.length === 1 ? c[0] : null
+}
+
 // What the panel stores for a held receipt (whatsapp_messages.propuesta).
 function proposalRecord(e, motivo) {
   const p = e.proposal
+  if (e.marianaGuess) {
+    const pat = e.marianaGuess.patientId ? e.patientById[e.marianaGuess.patientId] : null
+    const touched = new Set(p.sessionIds || [])
+    const pos = e.marianaGuess.posibles || []
+    return {
+      motivo, remitente: 'Mariana',
+      accion: p.action, patient_id: pat?.id || null, paciente: patientName(pat), tarifa: pat?.tarifa ?? null,
+      monto: e.ex?.amount ?? null, session_ids: p.sessionIds || [],
+      sesiones: e.sessions.filter((s) => touched.has(s.id)).map((s) => ({ id: s.id, fecha: s.fecha, monto: Number(s.monto) })),
+      credito_usado: p.creditConsume || 0, lote: p.lote || null, metodo: p.metodo || null,
+      texto: pat ? `según el comprobante es de ${patientName(pat)}: ${describeProposal(p, e.sessions)}`
+        : pos.length ? `no se pudo decidir el paciente (posibles: ${pos.join(', ')}) — elige a mano`
+          : 'el comprobante no nombra a un paciente conocido — elige a mano',
+    }
+  }
   const pid = p.patientId || e.proof.patient_id || e.proof.groupIds?.[0] || null
   const pat = pid ? e.patientById[pid] : null
   const touched = new Set(p.sessionIds || [])
@@ -611,9 +725,10 @@ export async function runProofAutomation(supabase, { now = new Date(), live = fa
       if (!proof.alerted_at) {
         item.alert = live ? 'sending' : 'would-alert'
         if (live) {
-          const who = rec.paciente || alertSender(proof, ex)
+          const who = rec.paciente || (proof.fromMariana ? ex?.sender_name || 'paciente sin identificar' : alertSender(proof, ex))
+          const by = proof.fromMariana ? 'Mariana' : proof.payerName
           const body = `Comprobante en espera: ${who}` +
-            `${proof.payerName && proof.payerName !== who ? ` (enviado por ${proof.payerName})` : ''}` +
+            `${by && by !== who ? ` (enviado por ${by})` : ''}` +
             ` pagó ${ex?.amount != null ? fmt$(ex.amount) : '¿monto?'}` +
             `${rec.tarifa != null ? `, tarifa ${fmt$(rec.tarifa)}` : ''}.\nMotivo: ${item.motivo}.\n` +
             `Propuesta: ${rec.texto}.\nApruébalo o corrígelo en el panel → Comprobantes.`

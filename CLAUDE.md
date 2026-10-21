@@ -365,6 +365,11 @@ reused reference: nothing is marked and **NO credit (lote) is created**. The dai
   credit. Lotes banked automatically before #77 count as NOT approved. The DB trigger
   `consume_saldo_on_confirm` still spends every lote (in-progress packages depend on it; Nicolás is reviewing
   every existing credit by hand, 19 Oct — switch it to approved-only only after he's done).
+- **#81 A (21 Oct): receipts sent FROM MARIANA'S NUMBER are ALWAYS held** (therapist row named Mariana or her own
+  Mariana Villegas patient record, last-9) — even exact tarifa / 4 × tarifa; motivo `remitente_mariana`, owner message says
+  "enviado por Mariana". The proposal names the REAL patient from the receipt (`nameCandidates`: nombre+apellido found in
+  `sender_name`/`bank_description`; ties narrowed by tarifa = amount, then an unpaid session on `transfer_date`) and is what
+  #77/#80 would do for that patient; no clear patient → "elige a mano". Never proposes against Mariana's own record.
 - Never add another automatic path that banks credit or accepts another amount (the #80 package is the only one) — that's Nicolás's call.
   Harness: `node scripts/harness-comprobantes-77.mjs`. Migration `supabase/comprobantes-tarifa-exacta-77.sql`.
   Dry run on prod data: `/.netlify/functions/proofs-run?t=<token>&mode=dry`.
