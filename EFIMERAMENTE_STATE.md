@@ -257,6 +257,9 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
       (drop `proof_id is not null`), list every credit one per line, no ~15-line cap for that list.
 - [ ] **Nicolás approves/corrects the paused lotes (#81 C)** — Catalina + Fátima first (sessions 22 Oct). Correct the 5
       wrong-price lotes (Andrea +47, Juan Carlos +8, Catalina +4, Emily +4, Ramesvary +4) before approving them.
+- [ ] **⚠️ Push to `main` no longer auto-deploys** (21 Oct: 3 pushes, live stayed on 57b8d95). Deployed via the Netlify
+      connector `deploy-site` → `npx @netlify/mcp … --site-id f8418788…` (needs `npm_config_cache=<scratchpad>`: ~/.npm has
+      root-owned files → EEXIST). Check the GitHub→Netlify build hook in the dashboard (Nicolás) or keep using the connector.
 - [ ] Felipe y Mafer is `tipo_paciente='individual'` but is a couple (session 20 Oct tipo pareja) — ask Nicolás.
 - [ ] **#77 audit — Nicolás decides each automatic lote by hand** (27 rows with proof_id; list in the 19 Oct report). Biggest:
       4 prepay lotes on **Mariana Villegas Kraemer** ($35+30+36+35 = $136 open — receipts from her phone, likely patients'
