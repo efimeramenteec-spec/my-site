@@ -27,7 +27,7 @@
 //     they always go to the patient.
 
 import { sendDualhookPaymentReminder, normalizePhone } from './whatsapp.mjs'
-import { loteAprobado } from './saldo.mjs'
+import { loteAprobado, owedAfterCredit } from './saldo.mjs'
 
 const GYE_OFFSET_H = -5 // Ecuador, no DST
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100
@@ -134,10 +134,12 @@ export async function runPaymentReminders(supabase, { now = new Date(), live = f
   const pids = [...byPatient.keys()]
   if (pids.length) {
     const { data: lotes, error: lErr } = await supabase
-      .from('saldo_lotes').select('patient_id, remaining, proof_id, aprobado_at').in('patient_id', pids).gt('remaining', 0)
+      .from('saldo_lotes').select('patient_id, remaining, price_per_session, origin, proof_id, aprobado_at, created_at')
+      .in('patient_id', pids).gt('remaining', 0).order('created_at', { ascending: true })
     if (lErr) throw new Error('lotes query: ' + lErr.message)
     for (const l of (lotes || []).filter(loteAprobado)) {
-      creditByPatient.set(l.patient_id, round2((creditByPatient.get(l.patient_id) || 0) + Number(l.remaining || 0)))
+      if (!creditByPatient.has(l.patient_id)) creditByPatient.set(l.patient_id, [])
+      creditByPatient.get(l.patient_id).push(l)
     }
   }
 
@@ -154,8 +156,10 @@ export async function runPaymentReminders(supabase, { now = new Date(), live = f
     // Greeting: the payer when it goes to the payer; else the tutor for a menor, the patient otherwise.
     const name = toPayer ? firstName(p.payer.nombre) : firstName(p.nombre)
     const gross = round2(rows.reduce((a, r) => a + Number(r.monto || 0), 0))
-    const credit = creditByPatient.get(pid) || 0
-    const net = round2(Math.max(0, gross - credit))
+    // #81 B: a package covers one session per unit at its own price ($35 covers a $39 session).
+    const sorted = [...rows].sort((a, b) => (a.fecha > b.fecha ? 1 : a.fecha < b.fecha ? -1 : 0))
+    const net = owedAfterCredit(sorted, creditByPatient.get(pid) || []).net
+    const credit = round2(gross - net)
     const monto = fmtMonto(net)
     const fechas = rows.map((r) => r.fecha)
     // {{3}} names the patient whenever the reader isn't the patient: the child for a

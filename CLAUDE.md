@@ -362,9 +362,18 @@ reused reference: nothing is marked and **NO credit (lote) is created**. The dai
   `saldo_lotes.aprobado_por/aprobado_at`. The manual "Marcar pagado" picker still exists for other splits.
 - **Credit counts only if approved** (`saldo.mjs#loteAprobado`: `aprobado_at` set, or `proof_id` null = made by
   hand/backfill): payment reminders ask `sum(monto) − approved credit`; proposals/approvals draw only approved
-  credit. Lotes banked automatically before #77 count as NOT approved. The DB trigger
-  `consume_saldo_on_confirm` still spends every lote (in-progress packages depend on it; Nicolás is reviewing
-  every existing credit by hand, 19 Oct — switch it to approved-only only after he's done).
+  credit. Lotes banked automatically before #77 count as NOT approved.
+- **#81 B+C (21 Oct) — the DB spends credit ONLY from approved lotes (`aprobado_at` set: Nicolás or the #80 rule)**
+  and **at the lote's price**: `consume_saldo_on_confirm` draws ONE unit = `price_per_session` (a $35 package unit pays
+  a $39 session) from the oldest approved lote holding a full unit → a package covers exactly 4 sessions; package lotes
+  are never pooled. Fallback: approved NON-package fragments pooled for the session's monto. Every draw is logged in
+  **`saldo_consumos`** (lote, session, amount); a session turning `cancelada` gets its draws back (`revertido_at`).
+  Approving a lote (aprobado_at null→set) or inserting a hand-made approved lote settles the patient's confirmada+unpaid
+  sessions (`settle_saldo_for_patient`, which "touches" each session so the one trigger does the draw). Unapproved lotes
+  sit untouched. JS mirrors it: `saldo.mjs#loteGastable` (approved only) for proposals/`fifoConsumeLotes` (never package
+  credit); `owedAfterCredit` for payment reminders (package units, then fragments; reminders still count hand-made lotes
+  via `loteAprobado` so nobody is asked for a session their package covers). Migration `supabase/saldo-precio-paquete-81.sql`;
+  DB harness `scripts/harness-saldo-81.sql` (BEGIN…ROLLBACK).
 - **#81 A (21 Oct): receipts sent FROM MARIANA'S NUMBER are ALWAYS held** (therapist row named Mariana or her own
   Mariana Villegas patient record, last-9) — even exact tarifa / 4 × tarifa; motivo `remitente_mariana`, owner message says
   "enviado por Mariana". The proposal names the REAL patient from the receipt (`nameCandidates`: nombre+apellido found in

@@ -30,6 +30,41 @@ export function loteAprobado(l) {
   return !!l?.aprobado_at || !l?.proof_id
 }
 
+// #81 C (Nicolás, 21 Oct): credit the SYSTEM may spend on its own = approved only
+// (aprobado_at set — by Nicolás or by the #80 4 × tarifa rule). Mirrors the DB trigger
+// consume_saldo_on_confirm. (loteAprobado above stays wider on purpose: reminders don't
+// ask a patient for sessions a hand-made package already covers.)
+export function loteGastable(l) {
+  return !!l?.aprobado_at
+}
+
+// #81 B: what a patient still owes on `rows` (unpaid sessions, oldest first) given open
+// `lotes` ({remaining, price_per_session, origin}, oldest first) — the same order the DB
+// trigger spends them: one unit at the lote's own price per session from the oldest lote
+// holding a full unit (package $35 covers a $39 session), else non-package fragments pooled
+// for the session's monto. Returns { net, covered:[ids] }.
+export function owedAfterCredit(rows = [], lotes = []) {
+  const ls = (lotes || []).map((l) => ({ ...l, remaining: round2(l.remaining || 0), pps: round2(l.price_per_session || 0) }))
+  const covered = []
+  let net = 0
+  for (const r of rows) {
+    const monto = round2(r.monto || 0)
+    if (monto <= EPS) continue
+    const unit = ls.find((l) => l.pps > 0 && l.remaining + EPS >= l.pps)
+    if (unit) { unit.remaining = round2(unit.remaining - unit.pps); covered.push(r.id); continue }
+    const frag = ls.filter((l) => l.origin !== 'package' && l.remaining > EPS)
+    if (round2(frag.reduce((a, l) => a + l.remaining, 0)) + EPS >= monto) {
+      let need = monto
+      for (const l of frag) { const t = Math.min(l.remaining, need); l.remaining = round2(l.remaining - t); need = round2(need - t) }
+      covered.push(r.id); continue
+    }
+    net = round2(net + monto)
+  }
+  // Leftover fragments still lower what is asked (spec #19: odd remainder applies to the next session).
+  const frag = round2(ls.filter((l) => l.origin !== 'package').reduce((a, l) => a + l.remaining, 0))
+  return { net: round2(Math.max(0, net - frag)), covered }
+}
+
 // Total available credit for an owner = sum of open lotes' remaining.
 export function totalCredit(lotes = []) {
   return round2((lotes || []).reduce((a, l) => a + Number(l.remaining || 0), 0))
@@ -49,7 +84,9 @@ export function isPackagePayment(amount) {
   return Math.abs(Number(amount) - PACKAGE_PRICE) <= EPS
 }
 
-// The lote a $140 package payment creates.
+// The lote a $140 package payment creates. #81 B: a package lote is spent ONE SESSION AT A
+// TIME at its price_per_session ($35 for a $39 session) and never pooled — it covers exactly
+// amount / price_per_session sessions (4).
 export function packageLote(extra = {}) {
   return { amount: PACKAGE_PRICE, price_per_session: PACKAGE_RATE, remaining: PACKAGE_PRICE, origin: 'package', ...extra }
 }

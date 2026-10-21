@@ -42,9 +42,9 @@
 //     lote (package/prepay/overpayment) is HELD — whose saldo it is needs a human.
 //
 // Resolution, given the patient's owed sessions and their saldo a favor (#19 credit):
-//   amount == $140 (exactly)          → ALWAYS a package → bank a $35/session lote,
-//                                        then settle whatever the pooled credit now
-//                                        fully covers (spec #19). No warning.
+//   amount == $140 (exactly)          → ALWAYS a package: 4 sessions at $35 — the oldest
+//                                        unpaid (≤4) marked, the rest a $35/session lote
+//                                        (#81 B: never pooled with other credit).
 //   no debt                           → whole payment banks as a prepay lote (tarifa).
 //   amount > owed NET of credit       → overpayment: mark all owed, draw existing
 //                                        credit, bank the surplus as a lote (tarifa).
@@ -57,7 +57,7 @@
 import { ocrProofRow } from './proofOcr.mjs'
 import { normalizePhone } from './whatsapp.mjs'
 import { notifyOwner } from './ownerOutbox.mjs'
-import { isPackagePayment, loteAprobado, PACKAGE_PRICE, PACKAGE_RATE } from './saldo.mjs'
+import { isPackagePayment, loteGastable, PACKAGE_PRICE, PACKAGE_RATE } from './saldo.mjs'
 
 const EPS = 0.5
 const GYE_OFFSET_H = -5
@@ -117,20 +117,6 @@ function metodoFromDestination(dest) {
   return 'transferencia' // any bank / unknown → transferencia
 }
 
-// FIFO, full-coverage-only settle simulation: which unpaid sessions (oldest-first) a
-// credit pool can fully pay. Mirrors consume_saldo_on_confirm — a session is only
-// covered whole; leftover credit rolls to the next affordable session.
-function coveredByCredit(unpaid, credit) {
-  let c = round2(credit)
-  const ids = []
-  for (const s of unpaid) {
-    const m = round2(Number(s.monto || 0))
-    if (m <= EPS) continue
-    if (c + EPS >= m) { c = round2(c - m); ids.push(s.id) }
-  }
-  return ids
-}
-const montoOf = (unpaid, id) => Number((unpaid.find((s) => s.id === id) || {}).monto || 0)
 
 // Pure decision → a plan the runner applies:
 //   { action:'skip'|'withhold', reason }
@@ -173,15 +159,18 @@ function allocate(proof, ex, unpaidSessions, ctx) {
   const netTotal = round2(Math.max(0, total - credit))
   const allIds = unpaid.map((s) => s.id)
 
-  // Package: exactly $140 is ALWAYS a package (spec #19). Bank a $35/session lote and
-  // settle whatever the pooled credit (existing + new) now fully covers, oldest-first.
+  // Package: exactly $140 is ALWAYS a package (spec #19). #81 B: it pays 4 sessions at $35
+  // each — the oldest unpaid (≤4) are marked directly, the rest stays as a package lote of
+  // whole units. Never pooled with other credit.
   if (isPackagePayment(amount)) {
-    const covered = coveredByCredit(unpaid, round2(credit + PACKAGE_PRICE))
-    const creditConsume = round2(covered.reduce((a, id) => a + montoOf(unpaid, id), 0))
+    const n = Math.round(PACKAGE_PRICE / PACKAGE_RATE)
+    const covered = unpaid.slice(0, n).map((s) => s.id)
+    const left = round2((n - covered.length) * PACKAGE_RATE)
+    if (left <= EPS) return { action: 'mark', sessionIds: covered, creditConsume: 0, metodo }
     return {
       action: 'lote', loteKind: 'package',
-      lote: { amount: PACKAGE_PRICE, price_per_session: PACKAGE_RATE, origin: 'package' },
-      sessionIds: covered, creditConsume, metodo,
+      lote: { amount: left, price_per_session: PACKAGE_RATE, origin: 'package' },
+      sessionIds: covered, creditConsume: 0, metodo,
     }
   }
 
@@ -273,12 +262,14 @@ async function fifoConsumeLotes(supabase, patientId, amount) {
   let need = round2(amount)
   if (need <= EPS) return 0
   const { data: lotes, error } = await supabase
-    .from('saldo_lotes').select('id, remaining, proof_id, aprobado_at')
+    .from('saldo_lotes').select('id, remaining, proof_id, aprobado_at, origin')
     .eq('patient_id', patientId).gt('remaining', 0)
     .order('created_at', { ascending: true }).order('id', { ascending: true })
   if (error) { console.error('[proof-auto] lotes load failed:', error.message); return 0 }
   let used = 0
-  for (const l of (lotes || []).filter(loteAprobado)) { // #77: approved credit only
+  // #81: approved credit only, and never package credit (that is spent by the DB trigger,
+  // one session at a time at the package price).
+  for (const l of (lotes || []).filter((x) => loteGastable(x) && x.origin !== 'package')) {
     if (need <= EPS) break
     const avail = Number(l.remaining || 0)
     const take = Math.min(avail, need)
@@ -499,10 +490,11 @@ async function evaluateProofs(supabase, { now, daysBack, onlyId = null, ocr = tr
     for (const s of sess || []) (byPatient[s.patient_id] ||= []).push(s)
     // Open saldo a favor — used ONLY by the proposal (never by the automatic gate).
     const { data: lotes, error: lErr } = await supabase
-      .from('saldo_lotes').select('patient_id, remaining, proof_id, aprobado_at')
+      .from('saldo_lotes').select('patient_id, remaining, proof_id, aprobado_at, origin')
       .in('patient_id', patientIds).gt('remaining', 0)
     if (lErr) throw new Error('lotes query: ' + lErr.message)
-    for (const l of (lotes || []).filter(loteAprobado)) { // #77: approved credit only
+    // #81: approved, non-package credit only (packages are never mixed with cash).
+    for (const l of (lotes || []).filter((x) => loteGastable(x) && x.origin !== 'package')) {
       creditByPatient[l.patient_id] = round2((creditByPatient[l.patient_id] || 0) + Number(l.remaining || 0))
     }
   }

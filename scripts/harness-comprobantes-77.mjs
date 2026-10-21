@@ -6,7 +6,7 @@
 //   node scripts/harness-comprobantes-77.mjs
 
 import { runProofAutomation, approveProof } from '../netlify/lib/proofReconcile.mjs'
-import { loteAprobado } from '../netlify/lib/saldo.mjs'
+import { loteAprobado, loteGastable, owedAfterCredit } from '../netlify/lib/saldo.mjs'
 
 // ── Minimal PostgREST-ish fake ───────────────────────────────────────────────
 function get(row, col) {
@@ -241,6 +241,31 @@ for (const [label, sc] of [['$40', base(40)], ['$38', base(38)], ['$78', base(78
     const r = await run(base(39))
     check('control: Ana $39 from her own phone still auto', r.item.action === 'mark')
   }
+}
+// 13. #81 B — package credit at the package price, never pooled; #81 C approved-only spend.
+{
+  const pk = (rem, extra = {}) => ({ remaining: rem, price_per_session: 35, origin: 'package', aprobado_at: 'x', ...extra })
+  const rows = [1, 2, 3].map((i) => ({ id: `r${i}`, monto: 39 }))
+  let o = owedAfterCredit(rows, [pk(70)])
+  check('reminder: $70 package left + three $39 sessions → 2 covered, asks $39', o.covered.length === 2 && o.net === 39, JSON.stringify(o))
+  o = owedAfterCredit(rows.slice(0, 1), [pk(31)])
+  check('reminder: $31 package fragment never covers a session → asks $39', o.net === 39 && !o.covered.length, JSON.stringify(o))
+  o = owedAfterCredit(rows.slice(0, 1), [{ remaining: 20, price_per_session: 39, origin: 'overpayment' }, { remaining: 19, price_per_session: 39, origin: 'prepay' }])
+  check('reminder: non-package fragments $20+$19 pool for a $39 session', o.net === 0 && o.covered.length === 1)
+  check('C: unapproved lote not spendable', loteGastable({ proof_id: null, aprobado_at: null }) === false && loteGastable({ aprobado_at: 'x' }) === true)
+  // $140 proposal: 2 unpaid → both marked at the package, $70 (2 × $35) lote; no credit drawn.
+  const sc = base(140)
+  await run(sc)
+  const pr = sc.db.tables.whatsapp_messages[0].propuesta
+  check('$140 proposal → mark 2 oldest + $70 package lote @35, no credit used', pr?.lote?.amount === 70 && pr?.lote?.price_per_session === 35 &&
+    pr?.session_ids?.length === 2 && pr?.credito_usado === 0, pr?.texto)
+  // Approval draws no package credit through fifo: an approved package lote of an exact-net payment stays whole.
+  const sc2 = scenario('pkg credit not pooled', { patients: [ANA], sessions: [sess('s1', 'ana', '2026-10-10')],
+    lotes: [{ id: 'pk', patient_id: 'ana', remaining: 35, price_per_session: 35, origin: 'package', proof_id: null, aprobado_at: '2026-10-01', created_at: '2026-10-01' }],
+    proof: proofRow({ patient_id: 'ana', from: '593990000001', amount: 4 }) })
+  await run(sc2)
+  const pr2 = sc2.db.tables.whatsapp_messages[0].propuesta
+  check('$4 + $35 package credit → NOT proposed as "exact net" (packages never mixed with cash)', pr2?.accion === 'withhold', pr2?.texto)
 }
 // 10. Reminder credit filter.
 check('reminders: auto lote not counted', loteAprobado({ proof_id: 'x', aprobado_at: null }) === false)
