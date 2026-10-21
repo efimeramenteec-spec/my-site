@@ -103,6 +103,18 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-21 (pm) — #82 package-bug damage corrected (executor)
+- Backups `saldo_lotes_backup_20261021` (37) + `sessions_backup_20261021` (78, all package patients), owner RLS + GRANTs.
+- Lotes corrected (amount − $35 × non-cancelled sessions covered) + approved (aprobado_por = Nicolás 92ebe5c0, note
+  "aprobado nicolas-82"): Andrea 23→70, Catalina 101→105, Emily (2nd) 136→140, Juan Carlos 62→70, Ramesvary 31→35;
+  also approved as verified-correct: Daniel 35, Samantha 48 @24. Unchanged at 0: Emily 1st, Gabriela Páliz, Isabel, Shyam.
+- 9 package sessions monto 39→35 (Andrea 23 Sep + 1 Oct, Catalina 8 Oct, Emily 15 Aug + 14 Sep + 10 Oct, Juan Carlos
+  1 + 15 Oct, Ramesvary 17 Oct). None invoiced; none paid out of pocket by a patient because of the bug.
+- **Fátima Tubón NOT touched (unclear):** lote 120 @30, 60 left; 8 + 16 Oct both marked paid by hand 13 Oct (payphone) but
+  only one $30 left the lote → either 30 or 60 is right. Her 22 Oct session won't auto-pay until Nicolás decides/approves.
+- Going forward: trigger sets monto = package price on a package draw; `allocate` $140 → `sessionMonto` 35 (harness 61/61).
+  Migration `paquetes_correccion_82` = `supabase/paquetes-correccion-82.sql` (data block guarded on current values).
+
 ### 2026-10-21 — #81 A/B/C: Mariana's receipts held · package credit at package price · only approved credit spent (executor, 23bc4f2, 3d2cd78)
 - **#81 A:** `proofReconcile.mjs` — sender last-9 = a therapist named Mariana (+593994342657) or her Mariana Villegas patient
   record → ALWAYS `withhold` (`remitente_mariana`), even exact tarifa / 4×tarifa. `nameCandidates` (nombre+apellido in OCR
@@ -255,8 +267,7 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
 - [ ] **Brief fix (director):** routine trig_014bnWaSpPv3quC8YPHZWqGS item 2 → `remaining > 0 and aprobado_at is null`
       (drop `proof_id is not null`), list every credit one per line, no ~15-line cap for that list.
-- [ ] **Nicolás approves/corrects the paused lotes (#81 C)** — Catalina + Fátima first (sessions 22 Oct). Correct the 5
-      wrong-price lotes (Andrea +47, Juan Carlos +8, Catalina +4, Emily +4, Ramesvary +4) before approving them.
+- [ ] **Nicolás: Fátima Tubón's package lote (30 or 60 left?) + the non-package paused lotes (#81 C).** Packages fixed by #82.
 - [ ] **⚠️ Push to `main` no longer auto-deploys** (21 Oct: 3 pushes, live stayed on 57b8d95). Deployed via the Netlify
       connector `deploy-site` → `npx @netlify/mcp … --site-id f8418788…` (needs `npm_config_cache=<scratchpad>`: ~/.npm has
       root-owned files → EEXIST). Check the GitHub→Netlify build hook in the dashboard (Nicolás) or keep using the connector.

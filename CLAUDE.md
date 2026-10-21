@@ -374,6 +374,10 @@ reused reference: nothing is marked and **NO credit (lote) is created**. The dai
   credit); `owedAfterCredit` for payment reminders (package units, then fragments; reminders still count hand-made lotes
   via `loteAprobado` so nobody is asked for a session their package covers). Migration `supabase/saldo-precio-paquete-81.sql`;
   DB harness `scripts/harness-saldo-81.sql` (BEGIN…ROLLBACK).
+- **#82 (21 Oct): a package = 4 sessions at the package price.** A session paid from a `package` lote takes
+  `monto = price_per_session` (trigger unit branch; `allocate` $140 plans carry `sessionMonto` → `applyPlan` sets it) —
+  invoices read `sessions.monto`, so they go out at $35. Past damage corrected by `supabase/paquetes-correccion-82.sql`
+  (backups `saldo_lotes_backup_20261021`, `sessions_backup_20261021`).
 - **#81 A (21 Oct): receipts sent FROM MARIANA'S NUMBER are ALWAYS held** (therapist row named Mariana or her own
   Mariana Villegas patient record, last-9) — even exact tarifa / 4 × tarifa; motivo `remitente_mariana`, owner message says
   "enviado por Mariana". The proposal names the REAL patient from the receipt (`nameCandidates`: nombre+apellido found in

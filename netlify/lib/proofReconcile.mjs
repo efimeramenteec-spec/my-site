@@ -166,11 +166,12 @@ function allocate(proof, ex, unpaidSessions, ctx) {
     const n = Math.round(PACKAGE_PRICE / PACKAGE_RATE)
     const covered = unpaid.slice(0, n).map((s) => s.id)
     const left = round2((n - covered.length) * PACKAGE_RATE)
-    if (left <= EPS) return { action: 'mark', sessionIds: covered, creditConsume: 0, metodo }
+    // #82: a session the package pays is worth the package price ($35), not the patient's $39.
+    if (left <= EPS) return { action: 'mark', sessionIds: covered, creditConsume: 0, metodo, sessionMonto: PACKAGE_RATE }
     return {
       action: 'lote', loteKind: 'package',
       lote: { amount: left, price_per_session: PACKAGE_RATE, origin: 'package' },
-      sessionIds: covered, creditConsume: 0, metodo,
+      sessionIds: covered, creditConsume: 0, metodo, sessionMonto: PACKAGE_RATE,
     }
   }
 
@@ -335,7 +336,7 @@ async function applyPlan(supabase, proof, ctx, plan, now) {
   if (plan.sessionIds?.length) {
     const { error: sErr } = await supabase
       .from('sessions')
-      .update({ pagado: true, metodo_pago: plan.metodo, paid_at: iso })
+      .update({ pagado: true, metodo_pago: plan.metodo, paid_at: iso, ...(plan.sessionMonto ? { monto: plan.sessionMonto } : {}) })
       .in('id', plan.sessionIds)
       .neq('estado', 'cancelada') // hard rule: a cancelled session is never pagado
     if (sErr) { console.error('[proof-auto] mark-paid failed:', sErr.message); return false }

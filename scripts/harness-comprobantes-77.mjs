@@ -257,6 +257,9 @@ for (const [label, sc] of [['$40', base(40)], ['$38', base(38)], ['$78', base(78
   const sc = base(140)
   await run(sc)
   const pr = sc.db.tables.whatsapp_messages[0].propuesta
+  const a140 = await approveProof(sc.db, sc.proof.id, { userId: 'owner-uid', now: NOW })
+  const m = sc.db.tables.sessions.filter((x) => x.pagado).map((x) => x.monto).join()
+  check('#82 approve $140 → the 2 sessions it pays show monto $35', a140.ok && m === '35,35', a140.error || m)
   check('$140 proposal → mark 2 oldest + $70 package lote @35, no credit used', pr?.lote?.amount === 70 && pr?.lote?.price_per_session === 35 &&
     pr?.session_ids?.length === 2 && pr?.credito_usado === 0, pr?.texto)
   // Approval draws no package credit through fifo: an approved package lote of an exact-net payment stays whole.
