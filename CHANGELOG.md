@@ -6,6 +6,24 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 Newest first.
 
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-08 (#69) -->
+### 2026-10-07 — #60 Facturación en espera + concepto general + 9 facturas (executor, f184057)
+- **Migration** `supabase/patients-facturacion-espera-concepto.sql` (additive): `patients.facturacion_en_espera`,
+  `patients.factura_concepto_general` (bool, default false); `factura_aprobaciones.origen` now allows `'chat'`.
+- **En espera:** `facturarCore#fetchEligible` filters `patient.facturacion_en_espera=false`; `fetchEnEspera()` (obligatoria
+  AND en_espera, count of paid/uninvoiced/non-llamada sessions, **no floor**) → `dryRun().enEspera` → `prepareFacturas`
+  adds "En espera: {name} ({n} sesiones)" lines (never in the snapshot); `runReport` also notifies when only en-espera
+  exists; HTTP dry-run shows `en_espera`. Lifting a hold on pre-floor sessions also needs `patients.facturar_desde`.
+- **Concepto general:** `buildDescripcion` → "Sesión Psicológica Individual | Sesión {fecha}" (no patient, no CIE);
+  billing still the payer. The RIDE WhatsApp still names the patient to the payer ("la sesión de Mila…").
+- Both flags: owner-only Toggles in Pacientes → Configuración; in PATIENT_SELECT + PATIENT_COLUMNS.
+- **Data:** Mauro Baquero obligatoria + en_espera (8 paid sessions, all pre-floor). Marthin Spatz concepto_general,
+  facturar_desde 2026-07-29. Mila: new payer Sébastien Paque (1004438295, +593985506258, sebpaque@gmail.com),
+  obligatoria + concepto_general, facturar_desde 2026-09-15 (6 Oct unpaid → normal list). Thomas Quevedo
+  facturar_desde 2026-08-14. (facturar_desde = how the floor is lifted per patient so the RIDE sweep sends them.)
+- **Emitted via emit-one:** 001-001-000000304..306 (Gabriela, $35×3), 307..309 (Shariam, $39×3), 310..312
+  (Sébastien, $39/$32/$32). Logged `factura_aprobaciones` 272d6249… origen chat, $325. RIDEs via factura-rides-sweep.
+- Not emitted (outside #60, ready for Thursday's list): Valentina Loor 2 Oct, Cinthya Perez 3 Oct.
+
 ### 2026-10-07 — #59 Turnos coherentes + terapia familiar (executor, 5d5c3e3)
 Evidence: lead +59398590… sent "atienden terapia para 16 años manejo de ira ?" + "O terapias familiares ?" 2 s apart →
 two PARALLEL turns: question + cards in turn 1; turn 2 repeated adolescentes and answered FAMILY with the COUPLES canned.
