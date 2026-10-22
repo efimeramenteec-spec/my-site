@@ -116,3 +116,7 @@ update public.saldo_lotes set remaining = 30,
 --   $35 19 Oct (cc82f2a1) = Karo Merizalde → her 15 Oct session paid.
 -- Each: saldo_consumos row (lote → session), session pagado/paid_at, lote remaining → 0 + note,
 -- whatsapp_messages.reconciled_session_ids → the session. Result: 0 unapproved lotes with remaining > 0.
+
+-- Follow-up 3 (Nicolás, 22 Oct): David Betancourt tarifa 39→35; his 3 Oct session monto 39→35 (already paid by the
+-- $35 receipt ref 199192280) → $4 gap closed. Martín Torres: facturacion_obligatoria = false, so the cédula-less payer
+-- (Gabriela Acosta) never blocks anything — dropped as a flag.
