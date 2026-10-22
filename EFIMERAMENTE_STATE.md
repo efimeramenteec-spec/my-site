@@ -119,7 +119,7 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - **Payer:** new `payers` row Gabriela Acosta (+593998179787, 53d623a4) → `patients.payer_id` of Martín Torres. The payer has NO
   cédula — irrelevant here (Martín isn't `facturacion_obligatoria`), but it WOULD block invoices for an obligatoria patient.
 - Follow-up (Nicolás): the 3 Mariana-forwarded leftovers applied — $30 = Paola Ibarra 8 Oct; $36 = Daniela Santillan 17 Oct
-  (monto 39→36, tarifa stays 39); $35 = Karo 15 Oct. David Betancourt tarifa + 3 Oct monto 39→35. Final: `remaining>0 and aprobado_at is null` = **0**.
+  (monto 39→36, then tarifa 39→36 too); $35 = Karo 15 Oct. David Betancourt tarifa + 3 Oct monto 39→35. Final: `remaining>0 and aprobado_at is null` = **0**.
 
 ### 2026-10-22 (pm) — #84 A Mariana's rules = public link only · B 6 Mariana sessions created (executor, 2024472)
 - **A:** rules (11:00–20:00 starts, ≥2h, 3/day, en línea) now bind ONLY public booking (public-booking / lead bot =
@@ -232,9 +232,8 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
-- [ ] **#85 flags:** Karo still `inactivo` with a 15 Oct session · Daniela Santillan's tarifa is still $39 but she paid
-      $36 for 17 Oct — is her real rate $36? Odd-character phones (Cristina Gomez, Andres Luzuriaga, Sebastián Villegas).
-      (Closed: David Betancourt tarifa + 3 Oct → $35; Martín Torres isn't facturacion_obligatoria → payer cédula irrelevant.)
+- [ ] **#85 flags:** Karo still `inactivo` with a 15 Oct session · Odd-character phones (Cristina Gomez, Andres Luzuriaga, Sebastián Villegas).
+      (Closed: David Betancourt tarifa + 3 Oct → $35; Daniela Santillan tarifa → $36; Martín Torres isn't facturacion_obligatoria → payer cédula irrelevant.)
 - [ ] **Brief fix (director):** routine trig_014bnWaSpPv3quC8YPHZWqGS item 2 → `remaining > 0 and aprobado_at is null`
       (drop `proof_id is not null`), list every credit one per line, no ~15-line cap for that list.
 - [ ] **⚠️ Push to `main` no longer auto-deploys** (21 Oct: 3 pushes, live stayed on 57b8d95). Deployed via the Netlify
