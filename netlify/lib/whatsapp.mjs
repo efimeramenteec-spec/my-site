@@ -12,6 +12,7 @@
 // number) must match.
 
 import { createClient } from '@supabase/supabase-js'
+import { supabaseRepo, logReminderSend, failedBefore } from './reminderSends.mjs'
 
 export const SUPABASE_URL = process.env.SUPABASE_URL || 'https://vnityzpuhnkumsyfnskz.supabase.co'
 export const TZ_OFFSET = '-05:00' // Ecuador, no DST (matches src/lib/queries.js)
@@ -240,13 +241,22 @@ export async function deliverReminder(supabase, s) {
   const toE164 = normalizePhone(s.patient?.telefono)
   if (!toE164) { console.warn(`[reminders] skip session ${s.id}: un-normalizable phone`); return 'skipped' }
   const provider = (process.env.REMINDERS_PROVIDER || 'dualhook').toLowerCase()
+  // #86 C: this session's reminder already failed on this number → don't resend.
+  const repo = supabaseRepo(supabase)
+  try {
+    if (await failedBefore(repo, { kind: 'cita', telefono: toE164, sessionIds: [s.id] })) {
+      console.warn(`[reminders] skip session ${s.id}: reminder already failed on ${toE164}`); return 'skipped'
+    }
+  } catch (e) { console.warn('[reminders] failedBefore lookup failed (sending anyway):', e.message) }
   try {
     if (provider === 'twilio') {
       await sendWhatsAppReminder({ toE164, name })
     } else {
-      await sendDualhookReminder({
+      const resp = await sendDualhookReminder({
         toE164, name, fecha: formatFechaEs(s.fecha), hora: formatHora(s.hora_inicio),
       })
+      // #86 C: log the wamid so an async 'failed' un-stamps reminder_sent_at.
+      await logReminderSend(repo, { kind: 'cita', resp, patientId: s.patient_id, sessionIds: [s.id], telefono: toE164 })
     }
     const { error: upErr } = await supabase
       .from('sessions').update({ reminder_sent_at: new Date().toISOString() }).eq('id', s.id)

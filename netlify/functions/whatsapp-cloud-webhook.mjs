@@ -31,6 +31,7 @@ import { isTherapistOrPayer, recordLead, handleEchoes, runBot, handleTherapistRe
 import { sendReadReceipt } from '../lib/waSend.mjs'
 import { isOwnerPhone, isFacturasCommand, facturaTap, handleDescartar } from '../lib/facturarAprobacion.mjs'
 import { flushOwnerOutbox, supersedeOwnerOutbox } from '../lib/ownerOutbox.mjs'
+import { reconcileWithSupabase } from '../lib/reminderSends.mjs'
 import { handleEstadoTap } from '../lib/sesionesPendientes.mjs'
 import { routeOwnerMessage } from '../lib/botTestMode.mjs'
 import { enqueueInbound, logInboxError } from '../lib/leadTurns.mjs'
@@ -380,6 +381,9 @@ export default async (req) => {
       .upsert(statusRows, { onConflict: 'wamid,status', ignoreDuplicates: true })
     if (error) console.error('[wa-cloud] status insert failed:', error.message)
     else console.log(`[wa-cloud] logged ${statusRows.length} delivery status(es)`)
+    // #86 C: a failed reminder must not count as sent → un-stamp + tell Nicolás once.
+    const failedWamids = statusRows.filter((r) => r.status === 'failed' && r.wamid).map((r) => r.wamid)
+    if (failedWamids.length) await reconcileWithSupabase(supabase, { wamids: failedWamids })
   }
 
   // Meta requires a prompt 200 or it retries + eventually disables the webhook.

@@ -9,6 +9,9 @@
 //   ?t=TOKEN&mode=live  → actually send + stamp recordatorio_pago_at (bypasses the
 //                         PAYMENT_REMINDERS_LIVE kill-switch, ON PURPOSE — this path
 //                         is the manual override)
+//   &only=<uuid,uuid>     → restrict to these patients
+//   &resend=1             → (needs only) resend the normal reminder for ALL their unpaid
+//                         confirmed sessions, even ones already reminded / en mora (#86 B)
 //
 // Any request without the token returns 404. Uses the same core as the scheduled
 // sender, so eligibility/grouping/copy are identical.
@@ -30,8 +33,12 @@ export default async (req) => {
 
   const mode = (url.searchParams.get('mode') || 'dry').toLowerCase()
   const live = mode === 'live'
+  const only = (url.searchParams.get('only') || '').split(',').map((x) => x.trim()).filter(Boolean)
+  const resend = url.searchParams.get('resend') === '1'
   try {
-    const report = await runPaymentReminders(supabase, { now: new Date(), live, dryRun: !live })
+    const report = await runPaymentReminders(supabase, {
+      now: new Date(), live, dryRun: !live, only: only.length ? only : null, resend,
+    })
     return json({ mode, report })
   } catch (e) {
     return json({ error: e.message }, 500)

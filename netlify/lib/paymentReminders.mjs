@@ -28,6 +28,7 @@
 
 import { sendDualhookPaymentReminder, normalizePhone } from './whatsapp.mjs'
 import { loteAprobado, owedAfterCredit } from './saldo.mjs'
+import { supabaseRepo, logReminderSend, failedBefore, reconcileWithSupabase } from './reminderSends.mjs'
 
 const GYE_OFFSET_H = -5 // Ecuador, no DST
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100
@@ -93,25 +94,36 @@ function firstName(nombre) {
   return String(nombre || '').trim().split(/\s+/)[0] || 'paciente'
 }
 
-// Run the protocol. Options: { now, live, dryRun }.
+// Run the protocol. Options: { now, live, dryRun, only, resend }.
 //   • dryRun (or !live): compute the plan, send NOTHING, mark NOTHING.
-//   • live: send + stamp recordatorio_pago_at on each included session.
+//   • live: send + stamp recordatorio_pago_at on each included session, and log the
+//     wamid in reminder_sends (#86 C) so a later async 'failed' clears the stamp.
+//   • only: [patient_id] — restrict the run to these patients (manual runs).
+//   • resend: with `only`, ALSO include sessions already reminded and ignore "en mora"
+//     — a deliberate resend of the normal reminder for all their unpaid sessions
+//     (#86 B). Never used by the scheduled sender.
 // Never throws mid-batch on a single bad send — one patient can't crash the run.
-export async function runPaymentReminders(supabase, { now = new Date(), live = false, dryRun = false } = {}) {
+export async function runPaymentReminders(supabase, { now = new Date(), live = false, dryRun = false, only = null, resend = false } = {}) {
   const { dateStr: today, dow } = gyeParts(now)
-  if (dow === 0) return { skippedSunday: true, today, sent: 0, failed: 0, skipped: 0, patients: [] }
+  if (dow === 0 && !only) return { skippedSunday: true, today, sent: 0, failed: 0, skipped: 0, patients: [] }
   const cutoff = addDaysStr(today, -2)
+  if (resend && !only?.length) throw new Error('resend requires an explicit patient list (only)')
+  const sendRepo = supabaseRepo(supabase)
+  // #86 C: un-stamp anything Meta reported failed since the last run (before eligibility).
+  if (live && !dryRun) await reconcileWithSupabase(supabase, { now })
 
-  const { data: sessions, error } = await supabase
+  let sq = supabase
     .from('sessions')
     .select('id, fecha, monto, patient_id, patient:patients(nombre, apellido, nombre_2, tipo_paciente, telefono, payer_id,' +
       ' payer:payers(id, nombre, apellido, telefono))')
     .eq('estado', 'confirmada')
     .neq('tipo', 'llamada')
     .eq('pagado', false)
-    .is('recordatorio_pago_at', null)
     .eq('pago_excluido', false)
     .lte('fecha', cutoff)
+  if (!resend) sq = sq.is('recordatorio_pago_at', null)
+  if (only?.length) sq = sq.in('patient_id', only)
+  const { data: sessions, error } = await sq
   if (error) throw new Error('eligible query: ' + error.message)
 
   // "En mora": any patient with a reminded-and-still-unpaid session is skipped whole.
@@ -123,7 +135,7 @@ export async function runPaymentReminders(supabase, { now = new Date(), live = f
 
   const byPatient = new Map()
   for (const s of sessions || []) {
-    if (moraSet.has(s.patient_id)) continue
+    if (moraSet.has(s.patient_id) && !resend) continue
     if (!byPatient.has(s.patient_id)) byPatient.set(s.patient_id, [])
     byPatient.get(s.patient_id).push(s)
   }
@@ -143,7 +155,7 @@ export async function runPaymentReminders(supabase, { now = new Date(), live = f
     }
   }
 
-  const report = { today, cutoff, live: !!live, dryRun: !!dryRun, sent: 0, skipped: 0, failed: 0, patients: [] }
+  const report = { today, cutoff, live: !!live, dryRun: !!dryRun, resend: !!resend, sent: 0, skipped: 0, failed: 0, patients: [] }
   for (const [pid, rows] of byPatient) {
     const p = rows[0].patient || {}
     const isMenor = p.tipo_paciente === 'menor'
@@ -179,9 +191,16 @@ export async function runPaymentReminders(supabase, { now = new Date(), live = f
     // it isn't treated as "reminded and unpaid" = en mora). The confirm-trigger pays it.
     if (net <= 0) { entry.result = 'skipped_covered_by_credit'; report.skipped++; report.patients.push(entry); continue }
     if (!toE164) { entry.result = 'skipped_no_phone'; report.skipped++; report.patients.push(entry); continue }
+    // #86 C: these sessions already failed on this number → don't hammer a dead phone.
+    let deadNumber = false
+    try { deadNumber = await failedBefore(sendRepo, { kind: 'pago', telefono: toE164, sessionIds: entry.sessionIds }) }
+    catch (e) { console.warn('[payment-reminders] failedBefore lookup failed (sending anyway):', e.message) }
+    if (deadNumber) { entry.result = 'skipped_failed_before'; report.skipped++; report.patients.push(entry); continue }
     if (dryRun || !live) { entry.result = 'dry'; report.patients.push(entry); continue }
     try {
-      await sendDualhookPaymentReminder({ toE164, name, monto, sesionesText })
+      const resp = await sendDualhookPaymentReminder({ toE164, name, monto, sesionesText })
+      entry.wamid = resp?.messages?.[0]?.id || null
+      await logReminderSend(sendRepo, { kind: 'pago', resp, patientId: pid, sessionIds: entry.sessionIds, telefono: toE164 })
       const { error: uErr } = await supabase
         .from('sessions').update({ recordatorio_pago_at: now.toISOString() }).in('id', entry.sessionIds)
       if (uErr) { entry.result = 'sent_mark_failed'; entry.error = uErr.message; report.failed++ }

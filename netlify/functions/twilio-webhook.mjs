@@ -87,7 +87,7 @@ export default async (req) => {
   if (testSessionId) {
     const { data: s, error } = await supabase
       .from('sessions')
-      .select('id, fecha, hora_inicio, estado, reminder_sent_at, patient:patients(nombre, apellido, telefono)')
+      .select('id, fecha, hora_inicio, estado, reminder_sent_at, patient_id, patient:patients(nombre, apellido, telefono)')
       .eq('id', testSessionId)
       .single()
     if (error || !s) {

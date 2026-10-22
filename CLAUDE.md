@@ -475,6 +475,15 @@ Window = appointments 23–25h out.
 - Env: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`, `TWILIO_CONTENT_SID`, `SUPABASE_SERVICE_KEY`.
   ⚠️ Never hardcode the Twilio Content SID in source — Netlify's secret scanner fails the build.
 
+### Failed reminders don't count as sent — `netlify/lib/reminderSends.mjs` (#86 C, 22 Oct 2026)
+Every ACCEPTED payment ('pago') / appointment ('cita') reminder is logged in **`reminder_sends`** (wamid, session_ids,
+telefono; `supabase/reminder-sends-86.sql`). A rejected send stamps nothing. When Meta reports `failed` for that wamid
+(webhook, right away; plus a reconcile at the start of each reminder run) → `recordatorio_pago_at` / `reminder_sent_at`
+cleared on those sessions, `failed_at`/`error` set, ONE `notifyOwner` kind `recordatorio_fallido` (patient, number, error).
+A session that already failed on a number is not retried to that number (`failedBefore`) — fixing the phone re-enables it.
+`payment-run?mode=live&only=<ids>&resend=1` = deliberate resend for named patients (ignores already-reminded + en mora).
+Harness: `node scripts/harness-recordatorio-fallido-86.mjs`.
+
 ### `twilio-webhook.mjs` — HTTP surface (health, test-send, inbound replies)
 The one HTTP-reachable WhatsApp function. Three paths:
 - `GET ?health` — presence-only env diagnostics (booleans, never values) + `build` marker.

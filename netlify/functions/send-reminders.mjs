@@ -18,6 +18,7 @@
 // ⚠️ Requires sessions.reminder_sent_at — see supabase/add-reminder-sent-at.sql.
 
 import { getSupabaseAdmin, deliverReminder, TZ_OFFSET } from '../lib/whatsapp.mjs'
+import { reconcileWithSupabase } from '../lib/reminderSends.mjs'
 
 export const config = { schedule: '0 * * * *' }
 
@@ -50,7 +51,7 @@ export default async () => {
   // matter how the row was created.
   const { data: sessions, error } = await supabase
     .from('sessions')
-    .select('id, fecha, hora_inicio, estado, reminder_sent_at, patient:patients(nombre, apellido, telefono)')
+    .select('id, fecha, hora_inicio, estado, reminder_sent_at, patient_id, patient:patients(nombre, apellido, telefono)')
     .eq('estado', 'programada')
     .neq('tipo', 'llamada')
     .is('reminder_sent_at', null)
@@ -75,6 +76,8 @@ export default async () => {
     return json({ dryRun: true, eligible: due.length, sent: 0 })
   }
 
+  // #86 C: un-stamp reminders Meta reported failed since the last run.
+  await reconcileWithSupabase(supabase, { now })
   let sent = 0, failed = 0, skipped = 0
   for (const s of due) {
     const status = await deliverReminder(supabase, s)
