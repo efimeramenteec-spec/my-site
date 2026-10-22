@@ -5,6 +5,45 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-22 (#84) -->
+### 2026-10-08 — #69 Fuga de atribución: cada llamada/paciente ligado a su lead + Meta (executor, e417b7a)
+- **Link carries the lead:** `leadBot.mjs#freeCallLink(therapistId, lead.id)` → `/agendar?terapeuta=…&l=<lead id>` (copy unchanged).
+  `PublicBooking.jsx` sends `lead_id`; `public-booking.mjs` validates it (uuid, exists); `booking.mjs#createBooking({leadId})` →
+  `leadLinker.mjs#linkLeadById` even when the typed phone differs. Real booking never links an es_prueba lead; a lead
+  link to the owner's TEST lead while modo prueba is active makes the booking `prueba` (any typed phone). `reiniciar`
+  now also cancels [PRUEBA] llamadas tied by the test lead's `session_id`.
+- **Linker** `netlify/lib/leadLinker.mjs#runLeadLinker` (step L in `lead-followups`, last 8 days, before CAPI; backfill
+  `node scripts/link-leads-69.mjs [--apply] [since]`): llamadas + each patient's first real session with no lead; match
+  (1) last-9, (2) lead active (first_at or inbound msg) ≤72 h before booking with phone OSA distance ≤2 (national digits),
+  (3) same window + WA profile name = first name + one more token. Unique only; ambiguous/none logged. Fills ONLY null
+  `patient_id/session_id/agendo_at` (agendo_at = session.created_at); **never `stage`** — lead-followups B/C/D message
+  by stage, so linking can't change what a lead receives. Lead tied to another patient → skipped. Harness `scripts/harness-linker-69.mjs`.
+- **Backfill (since 1 Oct):** Wolfgang Armas → lead +593963158790 (phone typo), Gissela Morales → lead +593984287059
+  (2 digits swapped) — both QualifiedLead **200** on 9 Oct 02:15 UTC (event_time = booking time). Nikole Estrella: existing
+  patient since June, no lead row (not an ad lead). Génesis Taco (llamada + 1st session): no WhatsApp from her number or
+  name in the 72 h before → no match. Valeria Salazar / Marthina: linked, organic (no ctwa_clid) → nothing to Meta.
+  Ronnal Pasquel: already sent 8 Oct.
+- **Source:** trigger `trg_leads_source_from_clid` (BEFORE insert/update) + `recordLead` patch → ctwa_clid ⇒ source
+  `meta_ctwa`; backfilled (0 mismatches left). Migration `lead_attribution_69` = `supabase/lead-attribution-69.sql`.
+- **Views:** `funnel_v` now ALL non-test leads + `source` + `meta_tag` (appended columns); new `campaign_results_v`
+  (per GYE day: llamadas_agendadas, primeras_sesiones by booking day, primeras_pagadas by paid_at; [PRUEBA] excluded;
+  security_invoker; granted authenticated + service_role). Marketing module already counted all sources — no change.
+- **CAPI** (`capi.mjs`): QualifiedLead event_time = agendo_at; QualifiedLead/Purchase >7 days → `stale`, skipped, not
+  stamped. ph-only path (`user_data.ph` = sha256 E.164 digits) behind `CAPI_PH_ONLY=true` — **OFF**: one Test Events try
+  (`capi-admin?action=test-ph`, code TEST52701) → 400 subcode 2804069 "Missing Page ID" (business_messaging/whatsapp
+  without ctwa_clid needs `page_id` in user_data).
+
+### 2026-10-08 — #66 Texto de cada envío del bot + vista funnel_v (executor, e29b64f)
+- Table `lead_bot_sends` (migration `lead_bot_sends_66` = `supabase/lead-bot-sends-66.sql`, owner-only RLS, #62 grants).
+  Logged from `leadBot.mjs` (text/question/cards/link, +22h nudge as text, recordatorio_llamada/primera_sesion/
+  rebook_llamada as template — base name, a `_v2` swap is not recorded). `resultado_llamada` (therapist) not logged.
+- View `funnel_v` (migration `funnel_v_66` = `supabase/funnel-v-66.sql`): 72 ad leads at ship time. `silent_turns`
+  counts turns (distinct processed_at) and only after logging began; older leads show bot_sends 0.
+- Harness `scripts/harness-sendlog-66.mjs`: wamid + es_prueba logged, failed send re-thrown, slow/failing DB = 0 ms delay.
+- `botSendLog.mjs`: `loggedSend` (wraps a send), `logBotSend` (fire-and-forget insert into a module-level pending Set),
+  `flushBotSendLogs(3000)` called at the end of `runBot`, after the rebook in `handleTherapistResult`, and before CAPI in
+  `lead-followups`. The table was empty at close: no bot send since the deploy (deploy 6ac7ee00, ready).
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-22 (#83) -->
 ### 2026-10-08 — #62 Bot silencioso por #59 (executor, 4b87b4e + ed4b2ab)
 - **Cause (exact):** `lead_inbox` (#59, `supabase/lead-funnel-12-turnos.sql`) was created with NO table grants →

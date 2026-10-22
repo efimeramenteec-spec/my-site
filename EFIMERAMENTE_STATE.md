@@ -103,6 +103,22 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-22 (pm) — #84 A Mariana's rules = public link only · B 6 Mariana sessions created (executor, 2024472)
+- **A:** rules (11:00–20:00 starts, ≥2h, 3/day, en línea) now bind ONLY public booking (public-booking / lead bot =
+  service_role). Panel: `therapistRules.js#panelBypassesRules({fullAccess,terapeutaId}, session.terapeuta_id)` → drawer
+  skips `forcedModalidad` + `ruleError`, `Sesiones#handleSubmit` skips `violatesRules`. DB: `enforce_therapist_rules`
+  returns early on `is_owner() or my_terapeuta_id() = mariana` (`supabase/therapist-rules-public-only-84.sql`, applied as
+  migration `therapist_rules_public_only_84`). Room cap untouched; `excepcion_reglas` still honoured. Tested in a
+  rollback DO block (Sat 31 Oct 09:00 presencial): owner SAVED, Mariana SAVED, service_role → MARIANA_RULE. Deployed via
+  connector (deploy 6ada7cced7c89aee898e91d3). Gotcha: service-role scripts writing Mariana sessions outside her rules
+  must either set `excepcion_reglas` or write with owner JWT claims (`set local role authenticated` + request.jwt.claims).
+- **B:** 6 sessions created AS OWNER (jwt claims, born programada → confirmada), 1 h, monto = tarifa, Calendar events
+  via the `calendar` fn + google_event_id stamped. 20 Oct 17:00 Buitrón $39 e149caab · 17 Oct 09:00 presencial Baquero $36
+  545b122b · 15 Oct 19:00 Merizalde $39 d24f4f32 · 11 Oct 09:00 Kathy $10 PAID 3761a0b2 · 27 Oct 13:00 presencial Diana
+  $45 fd3464c3 · 27 Oct 18:00 Grace $36 2379c51a. No saldo draws (their lotes are unapproved). Kathy's duplicate record
+  c1d2422c → inactivo (it had 1 CANCELLED 25 Aug session, not zero). María Emilia's telefono had invisible U+202A/U+202C
+  → normalizePhone returned null → cleaned to +593982697856.
+
 ### 2026-10-22 — #83 Held receipts resolved (A) + repeated receipts closed automatically (B) (executor, aefce83)
 - **A (data, Nicolás's decisions):** 11 held receipts closed. Applied once (approve-path equivalent, reconciled_by =
   Nicolás 92ebe5c0): ref 5076515 → Camila Mena 15 Oct (proof 92d43ef6); ref 289142206 → Kathy 14 Sep (4998a0af); Luis
@@ -214,47 +230,12 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - Preview 13 Oct for Thu 15 Oct: Emilie Conforme 3 Oct $36 + Valentina Loor 9 Oct $39 (+ whatever gets paid
   by then); Mauro Baquero en espera (8).
 
-### 2026-10-08 — #69 Fuga de atribución: cada llamada/paciente ligado a su lead + Meta (executor, e417b7a)
-- **Link carries the lead:** `leadBot.mjs#freeCallLink(therapistId, lead.id)` → `/agendar?terapeuta=…&l=<lead id>` (copy unchanged).
-  `PublicBooking.jsx` sends `lead_id`; `public-booking.mjs` validates it (uuid, exists); `booking.mjs#createBooking({leadId})` →
-  `leadLinker.mjs#linkLeadById` even when the typed phone differs. Real booking never links an es_prueba lead; a lead
-  link to the owner's TEST lead while modo prueba is active makes the booking `prueba` (any typed phone). `reiniciar`
-  now also cancels [PRUEBA] llamadas tied by the test lead's `session_id`.
-- **Linker** `netlify/lib/leadLinker.mjs#runLeadLinker` (step L in `lead-followups`, last 8 days, before CAPI; backfill
-  `node scripts/link-leads-69.mjs [--apply] [since]`): llamadas + each patient's first real session with no lead; match
-  (1) last-9, (2) lead active (first_at or inbound msg) ≤72 h before booking with phone OSA distance ≤2 (national digits),
-  (3) same window + WA profile name = first name + one more token. Unique only; ambiguous/none logged. Fills ONLY null
-  `patient_id/session_id/agendo_at` (agendo_at = session.created_at); **never `stage`** — lead-followups B/C/D message
-  by stage, so linking can't change what a lead receives. Lead tied to another patient → skipped. Harness `scripts/harness-linker-69.mjs`.
-- **Backfill (since 1 Oct):** Wolfgang Armas → lead +593963158790 (phone typo), Gissela Morales → lead +593984287059
-  (2 digits swapped) — both QualifiedLead **200** on 9 Oct 02:15 UTC (event_time = booking time). Nikole Estrella: existing
-  patient since June, no lead row (not an ad lead). Génesis Taco (llamada + 1st session): no WhatsApp from her number or
-  name in the 72 h before → no match. Valeria Salazar / Marthina: linked, organic (no ctwa_clid) → nothing to Meta.
-  Ronnal Pasquel: already sent 8 Oct.
-- **Source:** trigger `trg_leads_source_from_clid` (BEFORE insert/update) + `recordLead` patch → ctwa_clid ⇒ source
-  `meta_ctwa`; backfilled (0 mismatches left). Migration `lead_attribution_69` = `supabase/lead-attribution-69.sql`.
-- **Views:** `funnel_v` now ALL non-test leads + `source` + `meta_tag` (appended columns); new `campaign_results_v`
-  (per GYE day: llamadas_agendadas, primeras_sesiones by booking day, primeras_pagadas by paid_at; [PRUEBA] excluded;
-  security_invoker; granted authenticated + service_role). Marketing module already counted all sources — no change.
-- **CAPI** (`capi.mjs`): QualifiedLead event_time = agendo_at; QualifiedLead/Purchase >7 days → `stale`, skipped, not
-  stamped. ph-only path (`user_data.ph` = sha256 E.164 digits) behind `CAPI_PH_ONLY=true` — **OFF**: one Test Events try
-  (`capi-admin?action=test-ph`, code TEST52701) → 400 subcode 2804069 "Missing Page ID" (business_messaging/whatsapp
-  without ctwa_clid needs `page_id` in user_data).
-
-### 2026-10-08 — #66 Texto de cada envío del bot + vista funnel_v (executor, e29b64f)
-- Table `lead_bot_sends` (migration `lead_bot_sends_66` = `supabase/lead-bot-sends-66.sql`, owner-only RLS, #62 grants).
-  Logged from `leadBot.mjs` (text/question/cards/link, +22h nudge as text, recordatorio_llamada/primera_sesion/
-  rebook_llamada as template — base name, a `_v2` swap is not recorded). `resultado_llamada` (therapist) not logged.
-- View `funnel_v` (migration `funnel_v_66` = `supabase/funnel-v-66.sql`): 72 ad leads at ship time. `silent_turns`
-  counts turns (distinct processed_at) and only after logging began; older leads show bot_sends 0.
-- Harness `scripts/harness-sendlog-66.mjs`: wamid + es_prueba logged, failed send re-thrown, slow/failing DB = 0 ms delay.
-- `botSendLog.mjs`: `loggedSend` (wraps a send), `logBotSend` (fire-and-forget insert into a module-level pending Set),
-  `flushBotSendLogs(3000)` called at the end of `runBot`, after the rebook in `handleTherapistResult`, and before CAPI in
-  `lead-followups`. The table was empty at close: no bot send since the deploy (deploy 6ac7ee00, ready).
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **#84 follow-ups (Nicolás):** Karo Merizalde is `inactivo` but had a 15 Oct session — reactivate? She also holds an
+      unapproved $35 prepay lote (a4c09041); Diana Marcial an unapproved $90 overpayment lote (fa29c5a3). Phones with
+      odd characters (check they normalize): Cristina Gomez (activo), Andres Luzuriaga, Sebastián Villegas.
 - [ ] **Brief fix (director):** routine trig_014bnWaSpPv3quC8YPHZWqGS item 2 → `remaining > 0 and aprobado_at is null`
       (drop `proof_id is not null`), list every credit one per line, no ~15-line cap for that list.
 - [ ] **Nicolás: Fátima Tubón's package lote (30 or 60 left?) + the non-package paused lotes (#81 C).** Packages fixed by #82.
