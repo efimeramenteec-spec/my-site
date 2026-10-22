@@ -58,6 +58,7 @@ import { ocrProofRow } from './proofOcr.mjs'
 import { normalizePhone } from './whatsapp.mjs'
 import { notifyOwner } from './ownerOutbox.mjs'
 import { isPackagePayment, loteGastable, PACKAGE_PRICE, PACKAGE_RATE } from './saldo.mjs'
+import { normalizeReference, sameReceipt, isApplied, isPending, referenceAppliedIn } from '../../src/lib/proofRef.js'
 
 const EPS = 0.5
 const GYE_OFFSET_H = -5
@@ -80,6 +81,7 @@ const MOTIVO = {
   monto_distinto_tarifa: 'el monto no es la tarifa fija del paciente',
   monto_sesion_distinto: 'la sesión pendiente más antigua tiene otro valor',
   remitente_mariana: 'lo envió Mariana desde su número (reenvío de un paciente)',
+  ref_check_failed: 'no se pudo verificar si la referencia ya se usó',
 }
 function motivoFor(reason) {
   if (!reason) return 'requiere revisión'
@@ -97,6 +99,8 @@ function alertSender(proof, ex) {
 function gyeToday(now) {
   return new Date(now.getTime() + GYE_OFFSET_H * 3600e3).toISOString().slice(0, 10)
 }
+
+const gyeDate = (ms) => new Date(ms + GYE_OFFSET_H * 3600e3).toISOString().slice(0, 10)
 
 function sentAtMs(row) {
   const ts = row.raw_payload?.message?.timestamp
@@ -356,34 +360,63 @@ async function applyPlan(supabase, proof, ctx, plan, now) {
   return true
 }
 
-// Bank references are the same number written differently across screenshots:
-// leading zeros, spaces, hyphens, mixed case. Compare on the canonical form.
-//
-// 2026-09-29: Andrea Torres sent one transfer twice; OCR read '91822893' on one
-// screenshot and '0091822893' on the other. The old exact-string match saw two
-// different references and credited the money twice. Stripping leading zeros can
-// in theory collide two genuinely different references — that errs toward
-// withholding for human review, which is the safe direction for money.
-export function normalizeReference(raw) {
-  const cleaned = String(raw ?? '').replace(/[^0-9a-zA-Z]/g, '').toUpperCase()
-  if (!cleaned) return ''
-  const trimmed = cleaned.replace(/^0+/, '')
-  return trimmed || '0' // an all-zeros reference stays a reference
-}
+// #83: reference normalization + "applied once" live in src/lib/proofRef.js (shared with the
+// panel's manual "Marcar pagado"). Re-exported for existing callers.
+export { normalizeReference }
 
-// Is this transfer_id already recorded on a DIFFERENT comprobante? (reused reference)
-// Only ~dozens of proofs ever carry a reference, so we read them and compare
-// canonically in JS — PostgREST can't normalize inside the filter.
-async function referenceReused(supabase, proof, transferId) {
-  const target = normalizeReference(transferId)
-  if (!target) return false
+// Every comprobante that carries a reference (~dozens) — read once, compared canonically in
+// JS (PostgREST can't normalize inside the filter). THROWS on error: callers fail closed.
+async function loadRefRows(supabase) {
   const { data, error } = await supabase
     .from('whatsapp_messages')
-    .select('id, extracted')
+    .select('id, received_at, reconciled_at, cierre, extracted, raw_payload')
     .not('extracted->>transfer_id', 'is', null)
-    .neq('id', proof.id)
-  if (error) { console.warn('[proof-auto] reused-ref check failed (treat as not reused):', error.message); return false }
-  return (data || []).some((r) => normalizeReference(r?.extracted?.transfer_id) === target)
+  if (error) throw new Error('reference rows: ' + error.message)
+  return data || []
+}
+
+// Is this reference already on an APPLIED comprobante? (#83: closed copies/duplicates and
+// not-yet-applied originals don't count, so the original of a pending payment can still be
+// approved.) Returns 'reused' | 'ok' | 'error' — 'error' MUST be treated as a hold.
+async function referenceReused(supabase, proof, transferId, rows = null) {
+  if (!normalizeReference(transferId)) return 'ok'
+  try {
+    const list = rows || await loadRefRows(supabase)
+    return referenceAppliedIn(list, proof.id, transferId) ? 'reused' : 'ok'
+  } catch (err) {
+    console.warn('[proof-auto] reused-ref check failed (HOLD):', err.message)
+    return 'error'
+  }
+}
+
+// #83 — repeats never reach the approval list. For an unapplied receipt with a reference:
+//   • same receipt (ref + amount + bank) already APPLIED → close 'duplicado de <fecha>';
+//   • same receipt closed as 'ignorado' → close 'ignorado' too (Nicolás already decided);
+//   • several pending copies → the FIRST (oldest sent, within the window) stays pending,
+//     the rest are closed as 'copia'.
+// Returns null (keep going) or { cierre, nota, of } — pure, decided on `rows`.
+export function repeatVerdict(proof, ex, rows, { sinceMs = 0 } = {}) {
+  if (!ex || !normalizeReference(ex.transfer_id)) return null
+  const twins = (rows || []).filter((r) => r.id !== proof.id && sameReceipt(r.extracted, ex))
+  if (!twins.length) return null
+  const byTime = (a, b) => (sentAtMs(a) - sentAtMs(b)) || (a.id > b.id ? 1 : -1)
+  const applied = twins.filter(isApplied).sort(byTime)[0]
+  if (applied) return { cierre: 'duplicado', nota: `duplicado de ${fechaCorta(gyeDate(sentAtMs(applied)))}`, of: applied.id }
+  const ignored = twins.find((r) => r.cierre === 'ignorado')
+  if (ignored) return { cierre: 'ignorado', nota: `copia de un comprobante ignorado (${fechaCorta(gyeDate(sentAtMs(ignored)))})`, of: ignored.id }
+  const first = [...twins.filter((r) => isPending(r) && sentAtMs(r) >= sinceMs), { ...proof }].sort(byTime)[0]
+  if (first.id !== proof.id) return { cierre: 'copia', nota: `copia de comprobante del ${fechaCorta(gyeDate(sentAtMs(first)))} (queda ese)`, of: first.id }
+  return null
+}
+
+async function closeAsRepeat(supabase, proofId, verdict, now) {
+  const { error } = await supabase.from('whatsapp_messages').update({
+    reconciled_at: now.toISOString(), reconciled_session_ids: [], auto_reconciled: true,
+    cierre: verdict.cierre, cierre_nota: verdict.nota,
+  }).eq('id', proofId).is('reconciled_at', null)
+  if (error) { console.error(`[proof-auto] close-as-repeat failed for ${proofId}:`, error.message); return false }
+  console.log(`[proof-auto] proof ${proofId} closed: ${verdict.cierre} — ${verdict.nota}`)
+  return true
 }
 
 const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
@@ -405,7 +438,7 @@ export function proofPatientGroup(proof, payers, payerPatients, phonePatients = 
   return { ids: [...ids], payer }
 }
 
-const PATIENT_COLS = 'id,nombre,apellido,nombre_2,tipo_paciente,metodo_pago,tarifa,payer_id,telefono'
+const PATIENT_COLS = 'id,nombre,apellido,nombre_2,tipo_paciente,metodo_pago,tarifa,payer_id,telefono,estado_general'
 const fmt$ = (n) => { const v = Number(n); return '$' + (Number.isInteger(v) ? v : v.toFixed(2)) }
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 const fechaCorta = (f) => { const [, m, d] = String(f).split('-').map(Number); return `${d} ${MESES[m - 1] || ''}` }
@@ -475,8 +508,26 @@ async function evaluateProofs(supabase, { now, daysBack, onlyId = null, ocr = tr
     for (const c of proof.nameCandidates) patientById[c.id] ||= c
   }
 
+  // #83 same-person: the sender matched an INACTIVE record (e.g. Karina Almache's own old
+  // file) → the active records where that same person is the contact/guardian or the payer
+  // (Karina → "Karina Almache (Tutor) + Camila Mena"). Used by the proposal only, and only
+  // when the inactive record owes nothing (decided after the sessions load below).
+  const needAlt = proofs.filter((p) => !p.fromMariana && p.patient?.estado_general === 'inactivo')
+  if (needAlt.length) {
+    const [{ data: act, error: aErr }, { data: allPayers, error: pyErr }] = await Promise.all([
+      supabase.from('patients').select(PATIENT_COLS).eq('estado_general', 'activo').eq('es_lead', false),
+      supabase.from('payers').select('id,nombre,apellido'),
+    ])
+    if (aErr || pyErr) console.warn('[proof-auto] same-person lookup failed (no redirect):', (aErr || pyErr).message)
+    else for (const proof of needAlt) {
+      proof.altPatients = samePersonActive(proof.patient, act || [], allPayers || [])
+      for (const a of proof.altPatients) patientById[a.id] ||= a
+    }
+  }
+
   // Unpaid confirmed sessions up to & including TODAY, oldest-first.
-  const patientIds = [...new Set(proofs.flatMap((p) => [...p.groupIds, ...(p.nameCandidates || []).map((c) => c.id)]))]
+  const patientIds = [...new Set(proofs.flatMap((p) => [...p.groupIds, ...(p.nameCandidates || []).map((c) => c.id),
+    ...(p.altPatients || []).map((c) => c.id)]))]
   const byPatient = {}
   const creditByPatient = {}
   if (patientIds.length) {
@@ -548,6 +599,10 @@ async function evaluateProofs(supabase, { now, daysBack, onlyId = null, ocr = tr
     // ── Proposal for a held receipt (pre-#77 rules, incl. #61 pooling) ──
     const pp = { ...proof }
     let pooled = false
+    // #83 same-person: inactive record with nothing unpaid → its one active twin record.
+    const alt = proof.altPatients?.length === 1 && proof.groupIds.length === 1 && !(byPatient[proof.patient_id] || []).length
+      ? proof.altPatients[0] : null
+    if (alt) { pp.patient_id = alt.id; pp.patient = alt; pp.groupIds = [alt.id] }
     if (pp.groupIds.length > 1 || (pp.groupIds.length === 1 && !pp.patient_id)) {
       const owing = pp.groupIds.filter((id) => byPatient[id]?.length)
       const pick = owing.length === 1 ? owing[0] : (owing.length === 0 && pp.groupIds.length === 1 ? pp.groupIds[0] : null)
@@ -576,10 +631,22 @@ async function evaluateProofs(supabase, { now, daysBack, onlyId = null, ocr = tr
     if (proposal.action === 'mark' && pooled && proposal.sessionIds?.length) {
       proposal.patientId = unpaid.find((s) => s.id === proposal.sessionIds[0])?.patient_id || pp.patient_id
     }
-    const sessions = proof.groupIds.flatMap((id) => byPatient[id] || [])
+    const sessions = [...new Set([...proof.groupIds, ...(alt ? [alt.id] : [])])].flatMap((id) => byPatient[id] || [])
     out.push({ proof, ex, status, gate, proposal, proposalCtx, sessions, patientById })
   }
   return out
+}
+
+// #83 — active records where the person of `inactive` (nombre + apellido) is person 1
+// (contact / tutor) or is the payer. Exact folded-name match; never the record itself.
+export function samePersonActive(inactive, active = [], payers = []) {
+  if (!inactive) return []
+  const key = (n, a) => `${fold(n).trim()}|${fold(a).trim()}`
+  const me = key(inactive.nombre, inactive.apellido)
+  if (me === '|') return []
+  const payerIds = new Set(payers.filter((y) => key(y.nombre, y.apellido) === me).map((y) => y.id))
+  return active.filter((p) => p.id !== inactive.id &&
+    (key(p.nombre, p.apellido) === me || (p.payer_id && payerIds.has(p.payer_id))))
 }
 
 // ── #81 A helpers ───────────────────────────────────────────────────────────
@@ -679,13 +746,33 @@ function proposalRecord(e, motivo) {
 export async function runProofAutomation(supabase, { now = new Date(), live = false, daysBack = 7, deps = {} } = {}) {
   const notify = deps.notifyOwner || notifyOwner
   const evals = await evaluateProofs(supabase, { now, daysBack })
-  const report = { today: gyeToday(now), live: !!live, marked: 0, lotes: 0, withheld: 0, alerted: 0, failed: 0, items: [] }
+  const report = { today: gyeToday(now), live: !!live, marked: 0, lotes: 0, withheld: 0, alerted: 0, failed: 0, repeats: 0, items: [] }
+  // #83: one read of every referenced comprobante for the whole run. null = the read failed
+  // → no repeat is closed and nothing with a reference is auto-applied (fail closed).
+  let refRows = null
+  try { refRows = await loadRefRows(supabase) } catch (err) { console.warn('[proof-auto] reference rows unavailable (HOLD):', err.message) }
+  const sinceMs = now.getTime() - daysBack * 864e5
   for (const e of evals) {
     const { proof, ex, status } = e
+    // #83: a repeat is closed silently — no proposal, never pending, never applied.
+    const verdict = refRows && e.gate.reason !== 'not_payment_proof' ? repeatVerdict(proof, ex, refRows, { sinceMs }) : null
+    if (verdict) {
+      report.repeats++
+      report.items.push({ proofId: proof.id, patient: patientName(proof.patient), amount: ex?.amount ?? null,
+        transferId: ex?.transfer_id || null, action: verdict.cierre, reason: verdict.nota })
+      if (live && await closeAsRepeat(supabase, proof.id, verdict, now)) {
+        const r = refRows.find((x) => x.id === proof.id)
+        if (r) Object.assign(r, { reconciled_at: now.toISOString(), cierre: verdict.cierre })
+      }
+      continue
+    }
     let plan = e.gate
-    // Reused-reference is ALWAYS a hold (spec #2: suspicion).
-    if ((plan.action === 'mark' || plan.action === 'lote') && await referenceReused(supabase, proof, ex?.transfer_id)) {
-      plan = { action: 'withhold', reason: 'reused_reference' }
+    // Reused-reference is ALWAYS a hold (spec #2: suspicion); a failed check holds too (#83).
+    if (plan.action === 'mark' || plan.action === 'lote') {
+      const ref = refRows ? await referenceReused(supabase, proof, ex?.transfer_id, refRows)
+        : normalizeReference(ex?.transfer_id) ? 'error' : 'ok'
+      if (ref === 'reused') plan = { action: 'withhold', reason: 'reused_reference' }
+      if (ref === 'error') plan = { action: 'withhold', reason: 'ref_check_failed' }
     }
     const markPid = plan.action === 'mark' || plan.action === 'lote' ? plan.patientId : null
     const markPatient = markPid ? e.patientById[markPid] : proof.patient
@@ -703,7 +790,13 @@ export async function runProofAutomation(supabase, { now = new Date(), live = fa
       const ctx = { payerId: e.patientById[markPid]?.payer_id || null, ...(plan.autoPackage ? { aprobadoAt: now.toISOString(), autoPackage: true } : {}) }
       item.loteAmount = plan.lote?.amount ?? null
       const ok = live ? await applyPlan(supabase, target, ctx, plan, now) : true
-      if (!ok) { item.action = 'failed'; report.failed++ } else { if (plan.action === 'lote') report.lotes++; if (plan.sessionIds?.length) report.marked++ }
+      if (!ok) { item.action = 'failed'; report.failed++ } else {
+        if (plan.action === 'lote') report.lotes++
+        if (plan.sessionIds?.length) report.marked++
+        // Later copies in this same run now see it as applied.
+        const r = live && refRows?.find((x) => x.id === proof.id)
+        if (r) r.reconciled_at = now.toISOString()
+      }
     } else if (plan.action === 'withhold') {
       report.withheld++
       item.motivo = motivoFor(plan.reason)
@@ -759,11 +852,29 @@ export async function approveProof(supabase, proofId, { userId, now = new Date()
   }
   const pid = plan.patientId || e.proof.patient_id
   if (!pid) return { ok: false, error: 'No se sabe a qué paciente corresponde.' }
-  if (await referenceReused(supabase, e.proof, e.ex?.transfer_id)) {
-    return { ok: false, error: 'La referencia de este comprobante ya se usó en otro. Revísalo a mano.' }
-  }
+  const ref = await referenceReused(supabase, e.proof, e.ex?.transfer_id)
+  if (ref === 'reused') return { ok: false, error: 'La referencia de este comprobante ya se aplicó en otro. Revísalo a mano.' }
+  if (ref === 'error') return { ok: false, error: 'No se pudo verificar si la referencia ya se usó. Intenta de nuevo en un momento.' }
   const target = { ...e.proof, patient_id: pid, attributedPatient: pid !== e.proof.patient_id }
   const ctx = { payerId: e.patientById[pid]?.payer_id || null, aprobadoPor: userId || null, aprobadoAt: now.toISOString() }
   const ok = await applyPlan(supabase, target, ctx, plan, now)
+  if (ok) await closeCopiesOf(supabase, e.proof.id, e.ex, now)
   return ok ? { ok: true, plan: { ...plan, texto: describeProposal(plan, e.sessions) } } : { ok: false, error: 'No se pudo aplicar el pago.' }
+}
+
+// #83: once a receipt is applied, its still-pending copies are duplicates — close them now
+// (the cron would also catch them; this keeps the panel clean right after an approval).
+// Best-effort: a failure here never undoes the payment.
+export async function closeCopiesOf(supabase, appliedId, ex, now = new Date()) {
+  if (!normalizeReference(ex?.transfer_id)) return 0
+  let rows
+  try { rows = await loadRefRows(supabase) } catch (err) { console.warn('[proof-auto] copies not closed:', err.message); return 0 }
+  const applied = rows.find((r) => r.id === appliedId)
+  const nota = `duplicado de ${fechaCorta(gyeDate(applied ? sentAtMs(applied) : now.getTime()))}`
+  let n = 0
+  for (const r of rows) {
+    if (r.id === appliedId || !isPending(r) || !sameReceipt(r.extracted, ex)) continue
+    if (await closeAsRepeat(supabase, r.id, { cierre: 'duplicado', nota }, now)) n++
+  }
+  return n
 }

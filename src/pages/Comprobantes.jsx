@@ -508,7 +508,8 @@ export default function Comprobantes() {
                     {p.patient ? patientLabel(p.patient) : p.waName || p.fromPhone || 'Desconocido'}
                   </span>
                   <span className="font-caption text-xs text-content-muted">
-                    {p.reconciledSessionIds?.length ? `${p.reconciledSessionIds.length} sesión(es) marcada(s)` : 'Descartado'}
+                    {p.cierreNota && p.cierre ? p.cierreNota
+                      : p.reconciledSessionIds?.length ? `${p.reconciledSessionIds.length} sesión(es) marcada(s)` : 'Descartado'}
                     {p.autoReconciled && <span className="ml-1 text-brand-lavender">· auto</span>}
                   </span>
                 </div>

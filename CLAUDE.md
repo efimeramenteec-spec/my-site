@@ -383,6 +383,18 @@ reused reference: nothing is marked and **NO credit (lote) is created**. The dai
   "enviado por Mariana". The proposal names the REAL patient from the receipt (`nameCandidates`: nombre+apellido found in
   `sender_name`/`bank_description`; ties narrowed by tarifa = amount, then an unpaid session on `transfer_date`) and is what
   #77/#80 would do for that patient; no clear patient → "elige a mano". Never proposes against Mariana's own record.
+- **#83 (22 Oct): repeated receipts never reach the approval list; a reference is applied ONCE.** Shared logic in
+  `src/lib/proofRef.js` (server + panel). `whatsapp_messages.cierre` (`duplicado|copia|ignorado`) + `cierre_nota` mark a
+  receipt closed WITHOUT applying — **applied = `reconciled_at` set AND `cierre` null**. In `process-proofs`
+  (`repeatVerdict`, before the gate): same receipt (normalized ref + amount + bank) already APPLIED → closed `duplicado
+  de <fecha>`, no proposal, no message; copy of an `ignorado` one → `ignorado`; several pending copies → the FIRST (oldest
+  sent, within the window) stays, the rest `copia`. `approveProof` closes the approved receipt's pending copies right away
+  (`closeCopiesOf`). `referenceReused` (auto path, `approveProof`, the panel's manual "Marcar pagado") compares ONLY against
+  APPLIED receipts and **fails closed**: a failed check = hold (`ref_check_failed`) / refusal, never "not reused".
+  Panel "Descartar" now stamps `cierre='ignorado'`. **Same person:** sender matched an INACTIVE record that owes nothing and
+  the same person (nombre+apellido) is contact/tutor or payer on ONE active record → the proposal targets that record
+  (Karina Almache → Camila Mena); proposal only, never automatic. Harness `node scripts/harness-comprobantes-83.mjs`;
+  migration `supabase/comprobantes-cierre-83.sql`.
 - Never add another automatic path that banks credit or accepts another amount (the #80 package is the only one) — that's Nicolás's call.
   Harness: `node scripts/harness-comprobantes-77.mjs`. Migration `supabase/comprobantes-tarifa-exacta-77.sql`.
   Dry run on prod data: `/.netlify/functions/proofs-run?t=<token>&mode=dry`.

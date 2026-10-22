@@ -3,6 +3,7 @@
 // returning a `source: 'live' | 'demo'` flag the UI can surface.
 import { supabase, isSupabaseConfigured } from './supabase.js'
 import { patientLabel, dateKey } from './format.js'
+import { normalizeReference, referenceAppliedIn } from './proofRef.js'
 import {
   getDemoStore,
   demoCreateSession, demoUpdateSession, demoDeleteSession,
@@ -325,6 +326,9 @@ function normalizeProof(row) {
     reconciledAt: row.reconciled_at || null,
     reconciledSessionIds: row.reconciled_session_ids || [],
     autoReconciled: row.auto_reconciled || false,
+    // #83: closed WITHOUT applying (duplicado | copia | ignorado) + why.
+    cierre: row.cierre || null,
+    cierreNota: row.cierre_nota || null,
     // #77: the allocation the system proposes for a held receipt (approve in one tap).
     propuesta: row.propuesta || null,
     // OCR: the structured transfer record + its status (null/'pending' = not
@@ -355,7 +359,7 @@ export async function getPaymentProofsData({ daysBack = PROOF_WINDOW_DAYS } = {}
         .from('whatsapp_messages')
         .select(
           'id, patient_id, cuerpo, received_at, reconciled_at, reconciled_session_ids, auto_reconciled, raw_payload,' +
-            ' extracted, extraction_status, propuesta,' +
+            ' extracted, extraction_status, propuesta, cierre, cierre_nota,' +
             ' patient:patients(id,nombre,apellido,nombre_2,apellido_2,tipo_paciente,telefono,metodo_pago)',
         )
         .eq('direccion', 'inbound')
@@ -403,7 +407,7 @@ export async function getPaymentProofsData({ daysBack = PROOF_WINDOW_DAYS } = {}
 // Stamp a proof as reconciled so the same comprobante can never be applied
 // twice. `sessionIds` records which session(s) it covered (audit; supports the
 // advance-payment case where one payment pays several sessions).
-async function reconcileProof(messageId, sessionIds) {
+async function reconcileProof(messageId, sessionIds, extra = {}) {
   if (!isSupabaseConfigured) return { ok: true }
   try {
     const { data: sess } = await supabase.auth.getSession()
@@ -414,12 +418,39 @@ async function reconcileProof(messageId, sessionIds) {
         reconciled_at: new Date().toISOString(),
         reconciled_by: uid,
         reconciled_session_ids: sessionIds,
+        ...extra,
       })
       .eq('id', messageId)
     if (error) throw error
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err?.message || 'No se pudo marcar el comprobante.' }
+  }
+}
+
+// #83: a bank reference can only be applied once — refuse the manual path when this
+// receipt's reference is already on an APPLIED comprobante. If the check itself fails,
+// refuse too (fail closed): never "assume not reused".
+async function proofReferenceCheck(messageId) {
+  if (!isSupabaseConfigured) return { ok: true }
+  try {
+    const { data: me, error } = await supabase
+      .from('whatsapp_messages').select('id, extracted').eq('id', messageId).single()
+    if (error) throw error
+    const transferId = me?.extracted?.transfer_id
+    if (!normalizeReference(transferId)) return { ok: true }
+    const { data: rows, error: rErr } = await supabase
+      .from('whatsapp_messages')
+      .select('id, reconciled_at, cierre, extracted')
+      .not('extracted->>transfer_id', 'is', null)
+      .not('reconciled_at', 'is', null)
+    if (rErr) throw rErr
+    if (referenceAppliedIn(rows, messageId, transferId)) {
+      return { ok: false, error: 'La referencia de este comprobante ya se aplicó en otro. Es un duplicado: no se marca nada.' }
+    }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: 'No se pudo verificar si la referencia ya se usó. Intenta de nuevo en un momento.' }
   }
 }
 
@@ -430,6 +461,8 @@ export async function confirmProofPayment(messageId, sessionIds, metodo) {
   if (!Array.isArray(sessionIds) || sessionIds.length === 0) {
     return { ok: false, error: 'Selecciona al menos una sesión.' }
   }
+  const ref = await proofReferenceCheck(messageId)
+  if (!ref.ok) return ref
   for (const id of sessionIds) {
     const res = await updateSession(id, { pagado: true, metodo_pago: metodo })
     if (!res.ok) return res // stop on first failure; nothing reconciled yet
@@ -463,7 +496,8 @@ export async function approveProofProposal(messageId) {
 // already handled. Keeps it out of the pending list (manual-attention path for
 // unmatched rows) without ever marking anything paid.
 export async function dismissProof(messageId) {
-  return reconcileProof(messageId, [])
+  // #83: dismissed = closed WITHOUT applying, so its reference never counts as "used".
+  return reconcileProof(messageId, [], { cierre: 'ignorado', cierre_nota: 'descartado en el panel' })
 }
 
 // Trigger (or fetch the cached) OCR of a proof via the owner-gated extract-proof
