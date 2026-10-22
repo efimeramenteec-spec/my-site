@@ -109,3 +109,10 @@ update public.saldo_lotes set remaining = 0,
 update public.saldo_lotes set remaining = 30,
        note = coalesce(note,'') || ' | #85 22 Oct: 60→30 — 1/8/16 Oct pagadas del paquete, queda 1 sesión — Nicolás 22 Oct'
  where id = '8c803ca8-38eb-455a-bd73-0b84d4136ccf' and remaining = 60;
+
+-- Follow-up 2 (Nicolás, 22 Oct): Mariana's 3 remaining forwarded receipts applied (sessions backed up first).
+--   $30 13 Oct payphone (064a92fe) = Paola Ibarra → her 8 Oct session paid.
+--   $36 17 Oct (6b64f244) = Daniela Santillan → her 17 Oct session monto 39→36, paid (tarifa stays 39).
+--   $35 19 Oct (cc82f2a1) = Karo Merizalde → her 15 Oct session paid.
+-- Each: saldo_consumos row (lote → session), session pagado/paid_at, lote remaining → 0 + note,
+-- whatsapp_messages.reconciled_session_ids → the session. Result: 0 unapproved lotes with remaining > 0.

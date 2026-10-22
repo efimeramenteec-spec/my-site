@@ -118,7 +118,8 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - **Karo Merizalde:** tarifa 39→35; 16 Sep monto 39→35 (paid); 15 Oct 39→35 still UNPAID; her $35 lote → 0.
 - **Payer:** new `payers` row Gabriela Acosta (+593998179787, 53d623a4) → `patients.payer_id` of Martín Torres. Gotcha:
   the payer has NO cédula → Martín's invoices now block ("payer has no cédula") until it's added (facturarCore#blockingReasons).
-- Final: `remaining>0 and aprobado_at is null` = 3 lotes / $101, all on Mariana's record (G leftovers, see backlog).
+- Follow-up (Nicolás): the 3 Mariana-forwarded leftovers applied — $30 = Paola Ibarra 8 Oct; $36 = Daniela Santillan 17 Oct
+  (monto 39→36, tarifa stays 39); $35 = Karo 15 Oct. Final: `remaining>0 and aprobado_at is null` = **0**.
 
 ### 2026-10-22 (pm) — #84 A Mariana's rules = public link only · B 6 Mariana sessions created (executor, 2024472)
 - **A:** rules (11:00–20:00 starts, ≥2h, 3/day, en línea) now bind ONLY public booking (public-booking / lead bot =
@@ -231,12 +232,9 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
-- [ ] **#85 leftovers for Nicolás (3 unapproved lotes on Mariana's record, $101):** $30 13 Oct payphone, no name (064a92fe;
-      candidates: Laura Chávez 6 Oct — already marked paid by hand 13 Oct 19:20, likely the same; Paola Ibarra 8 Oct / Pamela
-      Iturralde 10 Oct unpaid $30) · $36 17 Oct Daniela Santillan (6b64f244; her 17 Oct is $39 unpaid) · $35 19 Oct Karo
-      Merizalde (cc82f2a1; "olvidé hacerte la transferencia" → would pay her 15 Oct $35, but #85 E said keep it unpaid).
 - [ ] **#85 flags:** Gabriela Acosta payer has no cédula → Martín Torres' invoices blocked until added · David Betancourt
-      3 Oct monto $39 paid by a $35 receipt ($4 gap) · Karo still `inactivo` with a 15 Oct session. Odd-character phones
+      3 Oct monto $39 paid by a $35 receipt ($4 gap) · Karo still `inactivo` with a 15 Oct session · Daniela Santillan's
+      sessions after 17 Oct are $39 (her 17 Oct went out at $36) — is her real rate $36? Odd-character phones
       (Cristina Gomez, Andres Luzuriaga, Sebastián Villegas) still to check.
 - [ ] **Brief fix (director):** routine trig_014bnWaSpPv3quC8YPHZWqGS item 2 → `remaining > 0 and aprobado_at is null`
       (drop `proof_id is not null`), list every credit one per line, no ~15-line cap for that list.
