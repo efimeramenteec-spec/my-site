@@ -104,3 +104,8 @@ update public.saldo_lotes set remaining = 0,
  where id = 'a540af30-bff4-4b0d-b01e-47c256283665';
 -- Left for Nicolás: $30 13 Oct (payphone, no name), $36 17 Oct (Daniela Santillan; her 17 Oct is $39),
 -- $35 19 Oct (Karo Merizalde; would pay her 15 Oct, but E says it stays unpaid).
+
+-- Follow-up (Nicolás, 22 Oct): Fátima Tubón (Valentina) package — 1/8/16 Oct already paid from it → 1 session left.
+update public.saldo_lotes set remaining = 30,
+       note = coalesce(note,'') || ' | #85 22 Oct: 60→30 — 1/8/16 Oct pagadas del paquete, queda 1 sesión — Nicolás 22 Oct'
+ where id = '8c803ca8-38eb-455a-bd73-0b84d4136ccf' and remaining = 60;

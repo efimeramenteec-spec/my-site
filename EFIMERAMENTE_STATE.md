@@ -113,7 +113,7 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   +$15). Raguel 16-Oct lote $72 → Emilie 17 Oct paid ($36 `saldo_consumos` row) + rest 0. Zara $32 → 22 Oct paid
   (`saldo_consumos` row). Consumos rows written so a later cancel refunds the lote via the trigger.
 - **Approved** (aprobado_por = owner uuid 92ebe5c0 — the column is uuid, "nicolas-85" lives in the note): Diana $90,
-  Fátima/Valentina package $60, Natalie $25. Settle trigger drew nothing (no confirmada+unpaid sessions).
+  Fátima/Valentina package (then corrected 60→30 by Nicolás: 1/8/16 Oct already paid → 1 session left), Natalie $25. Settle trigger drew nothing (no confirmada+unpaid sessions).
 - **Forgiven:** Luna $1, Valentina Andrade $1, Shariam/Marthin $1 (her 14+16 Oct already pagado → nothing owed).
 - **Karo Merizalde:** tarifa 39→35; 16 Sep monto 39→35 (paid); 15 Oct 39→35 still UNPAID; her $35 lote → 0.
 - **Payer:** new `payers` row Gabriela Acosta (+593998179787, 53d623a4) → `patients.payer_id` of Martín Torres. Gotcha:
@@ -235,8 +235,7 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
       candidates: Laura Chávez 6 Oct — already marked paid by hand 13 Oct 19:20, likely the same; Paola Ibarra 8 Oct / Pamela
       Iturralde 10 Oct unpaid $30) · $36 17 Oct Daniela Santillan (6b64f244; her 17 Oct is $39 unpaid) · $35 19 Oct Karo
       Merizalde (cc82f2a1; "olvidé hacerte la transferencia" → would pay her 15 Oct $35, but #85 E said keep it unpaid).
-- [ ] **#85 flags:** Gabriela Acosta payer has no cédula → Martín Torres' invoices blocked until added · Fátima/Valentina
-      package $60 approved but 1/8/16 Oct already paid (no consumos rows) → maybe one unit too much · David Betancourt
+- [ ] **#85 flags:** Gabriela Acosta payer has no cédula → Martín Torres' invoices blocked until added · David Betancourt
       3 Oct monto $39 paid by a $35 receipt ($4 gap) · Karo still `inactivo` with a 15 Oct session. Odd-character phones
       (Cristina Gomez, Andres Luzuriaga, Sebastián Villegas) still to check.
 - [ ] **Brief fix (director):** routine trig_014bnWaSpPv3quC8YPHZWqGS item 2 → `remaining > 0 and aprobado_at is null`
