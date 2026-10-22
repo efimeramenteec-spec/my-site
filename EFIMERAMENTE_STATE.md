@@ -234,7 +234,7 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
 - [ ] **#85 flags:** Gabriela Acosta payer has no cédula → Martín Torres' invoices blocked until added · David Betancourt
       3 Oct monto $39 paid by a $35 receipt ($4 gap) · Karo still `inactivo` with a 15 Oct session · Daniela Santillan's
-      sessions after 17 Oct are $39 (her 17 Oct went out at $36) — is her real rate $36? Odd-character phones
+      tarifa is still $39 but she paid $36 for 17 Oct — is her real rate $36? Odd-character phones
       (Cristina Gomez, Andres Luzuriaga, Sebastián Villegas) still to check.
 - [ ] **Brief fix (director):** routine trig_014bnWaSpPv3quC8YPHZWqGS item 2 → `remaining > 0 and aprobado_at is null`
       (drop `proof_id is not null`), list every credit one per line, no ~15-line cap for that list.
