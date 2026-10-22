@@ -5,7 +5,7 @@ import { PatientSelect } from './PatientSelect.jsx'
 import { dateKey, addDays, addMinutesToTime, formatTime, fullName } from '../../lib/format.js'
 import { TIPO_FORM, TIPO_PACIENTE, MODALIDAD, DURACION_MIN, TARIFA_DEFAULT, toOptions } from '../../lib/constants.js'
 import { findConflict, roomsFull, CONSULTORIOS } from '../../lib/conflicts.js'
-import { violatesRules, scheduleChanged, forcedModalidad, onlyModalidadCopy } from '../../lib/therapistRules.js'
+import { violatesRules, scheduleChanged, forcedModalidad, onlyModalidadCopy, panelBypassesRules } from '../../lib/therapistRules.js'
 import { checkFreebusy } from '../../lib/queries.js'
 import { isAttended } from '../../lib/adherence.js'
 import { AllianceCheckin } from './AllianceCheckin.jsx'
@@ -107,7 +107,9 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
   // #43: a therapist restricted to one modalidad (Mariana: en línea) gets it
   // pre-selected on NEW sessions. Edits keep the stored value (no silent change);
   // a schedule change on a presencial row is then blocked by ruleError below.
-  const onlyModalidad = forcedModalidad(form.terapeuta_id)
+  // #84: owner / the therapist herself bypass the rules in the panel → no forcing.
+  const bypassRules = panelBypassesRules({ fullAccess, terapeutaId }, form.terapeuta_id)
+  const onlyModalidad = bypassRules ? null : forcedModalidad(form.terapeuta_id)
   useEffect(() => {
     if (open && mode !== 'edit' && onlyModalidad && form.modalidad !== onlyModalidad) {
       setForm((f) => ({ ...f, modalidad: onlyModalidad }))
@@ -227,7 +229,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
     hora_fin: endTime ? endTime + ':00' : '',
     excepcion_reglas: mode === 'edit' && initial ? !!initial.excepcion_reglas : false,
   }
-  const ruleError = scheduleChanged(mode === 'edit' ? initial : null, candidate)
+  const ruleError = !bypassRules && scheduleChanged(mode === 'edit' ? initial : null, candidate)
     ? violatesRules(candidate, sessions)
     : null
 
@@ -434,7 +436,7 @@ export function SesionDrawer({ open, mode = 'create', initial, defaultDate, pati
               value={form.modalidad}
               onChange={(e) => set('modalidad', e.target.value)}
               placeholder="Modalidad…"
-              hint={onlyModalidadCopy(form.terapeuta_id) || undefined}
+              hint={(onlyModalidad && onlyModalidadCopy(form.terapeuta_id)) || undefined}
             />
             <Field label="Tarifa (USD)" error={errors.monto}>
               <input type="number" min="0" step="1" className={nativeInput} value={form.monto} onChange={(e) => set('monto', e.target.value)} />

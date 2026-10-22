@@ -9,7 +9,7 @@ import { SesionDrawer } from '../features/sesiones/SesionDrawer.jsx'
 import { formatWeekRange, formatMonthYear, addDays, addMonths, fullName, patientLabel, patientSearchText, formatTime } from '../lib/format.js'
 import { CONFIRMACION } from '../lib/constants.js'
 import { findConflict, roomsFull, CONSULTORIOS } from '../lib/conflicts.js'
-import { violatesRules, scheduleChanged } from '../lib/therapistRules.js'
+import { violatesRules, scheduleChanged, panelBypassesRules } from '../lib/therapistRules.js'
 import { groupSessionsByPatient } from '../lib/conversion.js'
 import { IconChevronRight, IconPlus, IconDownload } from '../layout/icons.jsx'
 import { useAuth } from '../lib/auth.jsx'
@@ -133,7 +133,9 @@ export default function Sesiones() {
     }
     // Per-therapist hard rules (#43 — Mariana). Edits are checked only when the
     // schedule changes, like the DB trigger, so flag-only re-saves never block.
-    if (scheduleChanged(drawer.mode === 'edit' ? drawer.initial : null, payload)) {
+    // #84: owner / the therapist herself are never blocked by them in the panel.
+    if (!panelBypassesRules({ fullAccess, terapeutaId }, payload.terapeuta_id) &&
+        scheduleChanged(drawer.mode === 'edit' ? drawer.initial : null, payload)) {
       const ruleError = violatesRules({ ...payload, id: excludeId, excepcion_reglas: drawer.mode === 'edit' && !!drawer.initial.excepcion_reglas }, data?.sessions || [])
       if (ruleError) return { ok: false, error: ruleError }
     }

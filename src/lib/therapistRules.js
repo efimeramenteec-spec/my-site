@@ -35,6 +35,15 @@ const isFreed = (s) => s.estado === 'cancelada' || s.estado === 'no_show'
 
 export const rulesFor = (terapeutaId) => THERAPIST_RULES[terapeutaId] || null
 
+/**
+ * #84 (2026-10-22): the rules bind ONLY the public booking link (/agendar, /reservar,
+ * public-booking, lead bot). In the panel, the owner and the therapist herself can
+ * schedule anything (any time/day/modalidad). Mirrors the DB trigger's writer check.
+ * `viewer`: { fullAccess, terapeutaId } from useAuth().
+ */
+export const panelBypassesRules = (viewer, sessionTerapeutaId) =>
+  !!viewer?.fullAccess || (!!viewer?.terapeutaId && viewer.terapeutaId === sessionTerapeutaId)
+
 /** [earliestStartMin, latestStartMin] the therapist may START in, or null (no restriction). */
 export function allowedStartWindow(terapeutaId) {
   const r = rulesFor(terapeutaId)

@@ -145,6 +145,17 @@ Llamadas: sessions.estado is a legacy value and is ignored. Their only state is 
 - **All modules are built** — no placeholders remain (2026-07-04).
 - Session create/edit UI lives in `src/features/sesiones/` (`SesionDrawer.jsx`, `views.jsx`, `PatientSelect.jsx`).
 
+### Per-therapist rules — Mariana (#43/#57; scope #84, Nicolás 22 Oct 2026)
+Mariana Villegas: starts 11:00–20:00, ≥2 h apart, max 3/day, en línea only. JS source of truth
+`src/lib/therapistRules.js` (used by the slot engine `booking.mjs` + drawer/Sesiones); DB backstop
+trigger `enforce_therapist_rules` (raises `MARIANA_RULE: …`). **Since #84 the rules bind ONLY the
+public booking link** (/agendar, /reservar, public-booking, lead bot — all service_role writes).
+Panel writes by the **owner** or by **Mariana's own login** are never blocked (any time/day/modalidad):
+client side `panelBypassesRules({fullAccess, terapeutaId}, session.terapeuta_id)`; DB side the trigger
+returns early on `is_owner() or my_terapeuta_id() = mariana` (`supabase/therapist-rules-public-only-84.sql`).
+`sessions.excepcion_reglas` (#57) still works (old rows; service-role scripts writing outside her rules
+must set it). The 3-consultorio cap still applies to everyone.
+
 ### 2026-09-14 changes (UX polish batch — see EFIMERAMENTE_STATE.md)
 - **LEADS vs patients:** `patients.es_lead` (bool, default false). A person who books a free
   **llamada** via `/agendar` is a LEAD (es_lead=true), NOT a patient. They're auto-promoted
