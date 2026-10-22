@@ -5,6 +5,21 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-22 (#83) -->
+### 2026-10-08 — #62 Bot silencioso por #59 (executor, 4b87b4e + ed4b2ab)
+- **Cause (exact):** `lead_inbox` (#59, `supabase/lead-funnel-12-turnos.sql`) was created with NO table grants →
+  `service_role` had only TRUNCATE/REFERENCES/TRIGGER → every `enqueueInbound` upsert failed with Postgres
+  **"permission denied for table lead_inbox"** (postgres_logs) → the webhook's catch logged "lead handling failed" and
+  nothing reached runBot. 0 rows ever; no lead_ai_decisions from 7 Oct 12:57 GYE until the fix. #58 not involved.
+- **Fix:** migration `lead_inbox_grants_62` = `supabase/lead-inbox-grants-62.sql` (grant s/i/u/d to service_role +
+  authenticated; RLS is_owner unchanged). Verified as service_role: 2 inserts 2 s apart + a duplicate wamid (ignored)
+  → claimed together in ONE turn (rolled back).
+- **Fallback (permanent):** `leadTurns.mjs#logInboxError`; if `enqueueInbound` throws, the webhook logs console +
+  `lead_ai_decisions` motivo **`inbox_error`** (error in `reply`) and wakes `lead-reply-background` with
+  `{phone, msg, isNew, direct:true}` → plain `runBot({msg})` (pre-#59 path, no merge). Same for a legacy body whose
+  enqueue fails. The queue can never silence the bot again.
+- CLAUDE.md gotcha added: new tables need explicit GRANTs. The 10 unanswered leads were NOT messaged (Nicolás answered by hand).
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-08 (#69) -->
 ### 2026-10-08 — #61 Recordatorios de pago al pagador (executor, 375b5c4)
 - **`paymentReminders.mjs` Option B (Nicolás 8 Oct):** patient with `payer_id` and a payer `telefono` that normalizes →

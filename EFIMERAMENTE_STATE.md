@@ -103,6 +103,25 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-22 — #83 Held receipts resolved (A) + repeated receipts closed automatically (B) (executor, aefce83)
+- **A (data, Nicolás's decisions):** 11 held receipts closed. Applied once (approve-path equivalent, reconciled_by =
+  Nicolás 92ebe5c0): ref 5076515 → Camila Mena 15 Oct (proof 92d43ef6); ref 289142206 → Kathy 14 Sep (4998a0af); Luis
+  Vaca c0cd37ec $50 → 20 Oct session monto 35→50 (it was ALREADY tipo pareja, so Carolina's payroll was already $30 —
+  no payroll change, +$15 income). Closed `duplicado`: 55fa5107, afc84632, c5911b17, e6319647, 434e7d2a, a11981c9.
+  Closed `ignorado`: 138b0f8a (Cecília/Dorian $39), 27030cd6 (Mariana $7.25). No lote created.
+- **B:** new columns `whatsapp_messages.cierre` (`duplicado|copia|ignorado`) + `cierre_nota` (migration
+  `comprobantes_cierre_83` = `supabase/comprobantes-cierre-83.sql`). **Applied = reconciled_at set AND cierre null.**
+  Shared pure helpers `src/lib/proofRef.js` (`normalizeReference`, `sameReceipt` = ref+amount+bank, `isApplied`,
+  `referenceAppliedIn`) used by `proofReconcile.mjs` AND `queries.js#confirmProofPayment` (manual "Marcar pagado").
+- `proofReconcile.mjs`: `loadRefRows` (throws → fail closed), `repeatVerdict` (before the gate in `runProofAutomation`;
+  applied twin → `duplicado de <fecha>`; ignorado twin → ignorado; pending copies → first stays, rest `copia`),
+  `closeAsRepeat`, `closeCopiesOf` (called by `approveProof` after applying), `referenceReused` → 'reused'|'ok'|'error'
+  vs APPLIED only; error → withhold `ref_check_failed` / approve refused. `samePersonActive` + inactive-record redirect
+  of the PROPOSAL only (Karina old record → Camila). Panel "Descartar" now sets `cierre='ignorado'`; processed list shows
+  `cierre_nota`. Harness `scripts/harness-comprobantes-83.mjs` 21/21; #77 harness 61/61. Prod dry check: 0 pending
+  receipts with a reference at deploy. Deployed via connector (deploy 6ada7a55) — push still doesn't auto-deploy.
+- Gotcha: historic panel dismissals (reconciled, no sessions, cierre null) still count as "applied" (conservative).
+
 ### 2026-10-21 (pm) — #82 package-bug damage corrected (executor)
 - Backups `saldo_lotes_backup_20261021` (37) + `sessions_backup_20261021` (78, all package patients), owner RLS + GRANTs.
 - Lotes corrected (amount − $35 × non-cancelled sessions covered) + approved (aprobado_por = Nicolás 92ebe5c0, note
@@ -233,20 +252,6 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   `flushBotSendLogs(3000)` called at the end of `runBot`, after the rebook in `handleTherapistResult`, and before CAPI in
   `lead-followups`. The table was empty at close: no bot send since the deploy (deploy 6ac7ee00, ready).
 
-### 2026-10-08 — #62 Bot silencioso por #59 (executor, 4b87b4e + ed4b2ab)
-- **Cause (exact):** `lead_inbox` (#59, `supabase/lead-funnel-12-turnos.sql`) was created with NO table grants →
-  `service_role` had only TRUNCATE/REFERENCES/TRIGGER → every `enqueueInbound` upsert failed with Postgres
-  **"permission denied for table lead_inbox"** (postgres_logs) → the webhook's catch logged "lead handling failed" and
-  nothing reached runBot. 0 rows ever; no lead_ai_decisions from 7 Oct 12:57 GYE until the fix. #58 not involved.
-- **Fix:** migration `lead_inbox_grants_62` = `supabase/lead-inbox-grants-62.sql` (grant s/i/u/d to service_role +
-  authenticated; RLS is_owner unchanged). Verified as service_role: 2 inserts 2 s apart + a duplicate wamid (ignored)
-  → claimed together in ONE turn (rolled back).
-- **Fallback (permanent):** `leadTurns.mjs#logInboxError`; if `enqueueInbound` throws, the webhook logs console +
-  `lead_ai_decisions` motivo **`inbox_error`** (error in `reply`) and wakes `lead-reply-background` with
-  `{phone, msg, isNew, direct:true}` → plain `runBot({msg})` (pre-#59 path, no merge). Same for a legacy body whose
-  enqueue fails. The queue can never silence the bot again.
-- CLAUDE.md gotcha added: new tables need explicit GRANTs. The 10 unanswered leads were NOT messaged (Nicolás answered by hand).
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
@@ -256,6 +261,10 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [ ] **⚠️ Push to `main` no longer auto-deploys** (21 Oct: 3 pushes, live stayed on 57b8d95). Deployed via the Netlify
       connector `deploy-site` → `npx @netlify/mcp … --site-id f8418788…` (needs `npm_config_cache=<scratchpad>`: ~/.npm has
       root-owned files → EEXIST). Check the GitHub→Netlify build hook in the dashboard (Nicolás) or keep using the connector.
+- [ ] **#83 notes for Nicolás (untouched, his call):** Luis Vaca record is tipo individual / tarifa $35 but his sessions are
+      pareja (2 Oct pareja billed $35 too); Karina Almache's OLD record holds an unapproved $35 prepay lote from 6 Oct (ref
+      2358170, proof a844a2d8); Luis has an unapproved $15 lote from 1 Oct.
+- [ ] **#83 live proof:** first real repeat receipt → check it's closed `duplicado` with no owner message.
 - [ ] Felipe y Mafer is `tipo_paciente='individual'` but is a couple (session 20 Oct tipo pareja) — ask Nicolás.
 - [ ] **#77 audit — Nicolás decides each automatic lote by hand** (27 rows with proof_id; list in the 19 Oct report). Biggest:
       4 prepay lotes on **Mariana Villegas Kraemer** ($35+30+36+35 = $136 open — receipts from her phone, likely patients'
