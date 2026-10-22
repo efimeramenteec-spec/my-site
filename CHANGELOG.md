@@ -5,7 +5,25 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
-<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-22 (#85) -->
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-22 (#85, #86) -->
+### 2026-10-19 — #77 Comprobantes: auto only at exact tarifa · #76 Shariam 2 facturas (executor, a1214ef)
+- **#76 data:** patient b2135479 "Sharian Narvaez" → Shariam Alexandra Narváez Celi, cédula 1722319439, +593995879307,
+  email null, payer 4d0597f1 (herself), obligatoria + concepto_general, facturar_desde 2026-10-01. Session cdb9ad8f
+  12 Oct → **14 Oct** 16:00 (Calendar event oenue1uecvppljr9ida0h6co1k updated via calendar fn).
+- **#76 emitted (emit-one, Nicolás chat 19 Oct):** **001-001-000000323** (Shariam 14 Oct $39, cf 0yelnAYAwI3z7bER) +
+  **324** (Marthin 16 Oct $39, cf LmavAO2XQhPyXe3N), both billed to Shariam 1722319439, concepto general. RIDEs sent
+  via send-rides to …9307, both `delivered`. factura_aprobaciones cf4e61fb (origen chat, "extraordinaria 19 Oct, aprobado por Nicolás").
+- **#77 rule** (see CLAUDE.md "Comprobantes"): `decideAutoReconcile(proof, ex, group)` = the only automatic path (amount ==
+  tarifa ±0.005 of any group patient with an unpaid session → that oldest session, must cost that amount). Old logic
+  renamed `proposeAllocation` → stored in `whatsapp_messages.propuesta` for held receipts; one `notifyOwner`
+  `comprobante_pendiente` (replaces the comprobante_sin_identificar template alert). `approveProof` + new fn
+  `proof-approve` (owner bearer) → same `applyPlan`; lotes stamped `aprobado_por/aprobado_at`. `saldo.mjs#loteAprobado`
+  (aprobado_at OR proof_id null) filters credit in reminders, proposals and FIFO draws. Group now also includes
+  patients whose telefono = sender. Migration `supabase/comprobantes-tarifa-exacta-77.sql` (additive).
+- **Left alone on purpose:** DB trigger `consume_saldo_on_confirm` still spends ALL lotes (in-progress auto packages —
+  Catalina, Emily, Juan Carlos, Andrea — depend on it). Changing it = Nicolás's audit decision.
+- Harness `node scripts/harness-comprobantes-77.mjs` 37/37 (fake DB, nothing sent).
+
 ### 2026-10-13 — #72 Facturación automática Mon+Thu + 4 facturas aprobadas en chat (executor, ec57bb8)
 - **Emitted (approved by Nicolás in chat 13 Oct)** via emit-one: 001-001-000000315 Mila 6 Oct $32 (Sébastien
   Paque, concepto general) · 316 Cecilia Saltos 8 Oct $39 (Dorian Solís) · 317 Raguel Conforme 9 Oct $36 (Laura

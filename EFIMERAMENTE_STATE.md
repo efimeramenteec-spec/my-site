@@ -103,6 +103,29 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-22 (late night) — #86 A Emily merge · B 4 payment reminders resent · C failed reminders ≠ sent · D Marthina package (executor, 0ab636f)
+- Backups first: `patients_backup_20261022b`, `sessions_backup_20261022b`, `saldo_lotes_backup_20261022b` (Emily ×2 records, Marthina; RLS on, GRANT service_role).
+- **A Emily Rivera:** kept 9a8013b6 → telefono `+61433182326` (was `+593433182326` = AU number with an EC prefix → 131026 every time), tarifa 35.
+  Moved 18 Oct (confirmada, paid) + 17 Oct (cancelada) from 25fa01b0 → 9a8013b6; 25fa01b0 `inactivo` (not deleted). Its phone
+  +593996404279 belongs to NO other patient/therapist — also 131026 undeliverable (16 + 20 Oct). Lote fc6ce9f9 ($140 package,
+  approved) → 2 `saldo_consumos` rows (10 + 18 Oct, $35 each), remaining 140→70. Old 26 Sep lote untouched. Nothing sent.
+- **D Marthina Cortes:** Nicolás marked 14 + 22 Oct paid by hand mid-session → new lote `4ddbfa84` (package, 140/35, approved
+  now, aprobado_por = owner uuid 92ebe5c0 — column is uuid, "nicolas-86" in the note), 2 consumos rows, remaining **70**.
+  Her next 2 confirmed sessions are drawn automatically by `consume_saldo_on_confirm`. Nothing sent.
+- **B:** `payment-run?…&mode=live&only=<4 ids>&resend=1` (new params) → recordatorio_pago_v2 to Grace Atiencia ($108, 6/13/20 Oct),
+  Génesis Taco ($39, 8 Oct), Pamela Iturralde ($30, 10 Oct), Gabriela Abril ($30, 18 Oct); none has a payer. 4/4 accepted;
+  3 delivered, Gabriela "sent" at close. wamids in `reminder_sends`.
+- **C:** new `netlify/lib/reminderSends.mjs` + table `reminder_sends` (`supabase/reminder-sends-86.sql`). Accepted pago/cita
+  reminders logged by wamid (`logReminderSend` in `paymentReminders.mjs` and `whatsapp.mjs#deliverReminder`); webhook calls
+  `reconcileWithSupabase({wamids})` on any `failed` status, and both reminder runs reconcile at start (status may beat the
+  log insert). Failure → stamp cleared, `failed_at/error`, ONE `notifyOwner` kind `recordatorio_fallido` (atomic claim).
+  `failedBefore` blocks re-sending the same session to the same dead number (fix the phone → retries). Harness
+  `node scripts/harness-recordatorio-fallido-86.mjs` (9/9). Gotcha: whatsapp.mjs ↔ reminderSends.mjs ↔ ownerOutbox.mjs is an
+  import cycle — fine because everything is used at call time only.
+- **C2 (by design):** Grace's 13 Oct — her 6 Oct was reminded and still unpaid → "en mora" skip. Paola Ibarra's 15 Oct — her
+  8 Oct was reminded and unpaid until 22 Oct (#85 follow-up) → en mora skip; the +1 number is fine (delivered 10 Oct).
+- Push to main DID auto-deploy this time (0ab636f live within minutes).
+
 ### 2026-10-22 (night) — #85 Credit cleanup, line by line by Nicolás (executor, data only)
 - One migration `credit_cleanup_85` = `supabase/credit-cleanup-85.sql`. Backups first: `saldo_lotes_backup_20261022` (all
   38 lotes), `sessions_backup_20261022` (7 touched + all of Martín Torres', 17 rows), `patients_backup_20261022` (Karo,
@@ -211,32 +234,17 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   open hand-made/backfill lotes (Daniel Granja $35, Fátima Tubon $60, Ramesvary $31, Samantha Aldaz $48) and caps at ~15 lines.
   Not edited from here (112 KB job_config, partial update could drop its tools) → director to fix.
 
-### 2026-10-19 — #77 Comprobantes: auto only at exact tarifa · #76 Shariam 2 facturas (executor, a1214ef)
-- **#76 data:** patient b2135479 "Sharian Narvaez" → Shariam Alexandra Narváez Celi, cédula 1722319439, +593995879307,
-  email null, payer 4d0597f1 (herself), obligatoria + concepto_general, facturar_desde 2026-10-01. Session cdb9ad8f
-  12 Oct → **14 Oct** 16:00 (Calendar event oenue1uecvppljr9ida0h6co1k updated via calendar fn).
-- **#76 emitted (emit-one, Nicolás chat 19 Oct):** **001-001-000000323** (Shariam 14 Oct $39, cf 0yelnAYAwI3z7bER) +
-  **324** (Marthin 16 Oct $39, cf LmavAO2XQhPyXe3N), both billed to Shariam 1722319439, concepto general. RIDEs sent
-  via send-rides to …9307, both `delivered`. factura_aprobaciones cf4e61fb (origen chat, "extraordinaria 19 Oct, aprobado por Nicolás").
-- **#77 rule** (see CLAUDE.md "Comprobantes"): `decideAutoReconcile(proof, ex, group)` = the only automatic path (amount ==
-  tarifa ±0.005 of any group patient with an unpaid session → that oldest session, must cost that amount). Old logic
-  renamed `proposeAllocation` → stored in `whatsapp_messages.propuesta` for held receipts; one `notifyOwner`
-  `comprobante_pendiente` (replaces the comprobante_sin_identificar template alert). `approveProof` + new fn
-  `proof-approve` (owner bearer) → same `applyPlan`; lotes stamped `aprobado_por/aprobado_at`. `saldo.mjs#loteAprobado`
-  (aprobado_at OR proof_id null) filters credit in reminders, proposals and FIFO draws. Group now also includes
-  patients whose telefono = sender. Migration `supabase/comprobantes-tarifa-exacta-77.sql` (additive).
-- **Left alone on purpose:** DB trigger `consume_saldo_on_confirm` still spends ALL lotes (in-progress auto packages —
-  Catalina, Emily, Juan Carlos, Andrea — depend on it). Changing it = Nicolás's audit decision.
-- Harness `node scripts/harness-comprobantes-77.mjs` 37/37 (fake DB, nothing sent).
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **#86 follow-ups:** confirm Gabriela Abril's 22 Oct wamid reaches delivered (`reminder_sends`). First real
+      `recordatorio_fallido` owner message → check it names patient/number/error and the stamp got cleared. Dead numbers
+      still to fix: Fátima Tubon +59398067281 (one digit short), Wolfgang Armas +59363158790 (→ +593963158790).
 - [ ] **#85 flags:** Karo still `inactivo` with a 15 Oct session · Odd-character phones (Cristina Gomez, Andres Luzuriaga, Sebastián Villegas).
       (Closed: David Betancourt tarifa + 3 Oct → $35; Daniela Santillan tarifa → $36; Martín Torres isn't facturacion_obligatoria → payer cédula irrelevant.)
 - [ ] **Brief fix (director):** routine trig_014bnWaSpPv3quC8YPHZWqGS item 2 → `remaining > 0 and aprobado_at is null`
       (drop `proof_id is not null`), list every credit one per line, no ~15-line cap for that list.
-- [ ] **⚠️ Push to `main` no longer auto-deploys** (21 Oct: 3 pushes, live stayed on 57b8d95). Deployed via the Netlify
+- [ ] **Auto-deploy flaky?** 21 Oct pushes didn't deploy; 22 Oct (0ab636f) did. If it stalls again: Deployed via the Netlify
       connector `deploy-site` → `npx @netlify/mcp … --site-id f8418788…` (needs `npm_config_cache=<scratchpad>`: ~/.npm has
       root-owned files → EEXIST). Check the GitHub→Netlify build hook in the dashboard (Nicolás) or keep using the connector.
 - [ ] **#83 notes for Nicolás (untouched, his call):** Luis Vaca record is tipo individual / tarifa $35 but his sessions are
@@ -272,7 +280,7 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [ ] **#56 live test (Nicolás, his own phone):** "modo prueba" → write as a lead → "reiniciar" to start over → "fin prueba".
 - [ ] **#54 real test (now doable from his own phone via #56 modo prueba):** price prefill → si → para mí → ansiedad → name → link → book → check `leads.agendo_at`.
 - [ ] "Lead atascado en el inicio" push fires on the 3rd message even when the lead IS advancing (pre-existing; seen in the #54 sim) — tune `maybeStuckPush`.
-- [ ] **#53** — 3 patients didn't get "Mariana retoma" (Diana Romero 131049, Luna Guamán + Emily Rivera 131026) → Nicolás
+- [ ] **#53** — 3 patients didn't get "Mariana retoma" (Diana Romero 131049, Luna Guamán + Emily Rivera 131026 — Emily's number fixed #86) → Nicolás
       sends by hand / fixes their phones. Broadcast 4e56df3a closes itself ~21:46 UTC 5 Oct (estado enviado + one owner notice).
 - [ ] **`sesion_pendiente` approved as MARKETING** (#52 code wants UTILITY) — Nicolás decides: accept (change category in
       STAFF_TEMPLATES) or resubmit as UTILITY.
