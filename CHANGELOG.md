@@ -5,6 +5,26 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-22 (#85) -->
+### 2026-10-13 — #72 Facturación automática Mon+Thu + 4 facturas aprobadas en chat (executor, ec57bb8)
+- **Emitted (approved by Nicolás in chat 13 Oct)** via emit-one: 001-001-000000315 Mila 6 Oct $32 (Sébastien
+  Paque, concepto general) · 316 Cecilia Saltos 8 Oct $39 (Dorian Solís) · 317 Raguel Conforme 9 Oct $36 (Laura
+  Vásquez) · 318 Cinthya Pérez 9 Oct $36. Snapshot 635734b1 (cron, 12 Oct) → aprobada, `resultado.nota`
+  "aprobado en chat 13 Oct" + emitidas. Its queued owner_outbox list (9c58b2fb) → fallido so the stale
+  Aprobar list never reaches him. RIDEs via factura-rides-sweep.
+- **Auto mode** (`netlify/lib/facturarAprobacion.mjs#runAuto`): facturar-report → `runReport` → runAuto('auto'):
+  same dryRun eligibility, overlap guard (an `en_curso` run < 15 min → skip), log row inserted first
+  (estado aprobada, `resultado.en_curso`), per-session re-check (still pagado/confirmada/not facturada) right
+  before emitOne, try/catch per item → `fallidas`; then ONE `notifyOwner` kind `facturas_emitidas` (text only,
+  split at ~3800 chars). Nothing ready/blocked/en espera → nothing sent.
+- **"facturas"** → webhook fires `facturar-aprobar-background` with `{comando:true}` → `handleFacturasCommand`
+  = runAuto('comando') + direct reply (emission is long, kept off the webhook). Legacy fac_ok/fac_no taps still
+  resolve old lists (`runAprobacion`/`handleDescartar`); `prepareFacturas` (list + buttons) removed.
+- `/facturar?mode=auto-preview` = runAuto preview (zero Contífico calls, no log, no send) → the exact message.
+- **Migration** `supabase/factura-aprobaciones-auto.sql`: origen check += `'auto'`.
+- Preview 13 Oct for Thu 15 Oct: Emilie Conforme 3 Oct $36 + Valentina Loor 9 Oct $39 (+ whatever gets paid
+  by then); Mauro Baquero en espera (8).
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-22 (#84) -->
 ### 2026-10-08 — #69 Fuga de atribución: cada llamada/paciente ligado a su lead + Meta (executor, e417b7a)
 - **Link carries the lead:** `leadBot.mjs#freeCallLink(therapistId, lead.id)` → `/agendar?terapeuta=…&l=<lead id>` (copy unchanged).

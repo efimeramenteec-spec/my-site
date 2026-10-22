@@ -103,6 +103,23 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-22 (night) — #85 Credit cleanup, line by line by Nicolás (executor, data only)
+- One migration `credit_cleanup_85` = `supabase/credit-cleanup-85.sql`. Backups first: `saldo_lotes_backup_20261022` (all
+  38 lotes), `sessions_backup_20261022` (7 touched + all of Martín Torres', 17 rows), `patients_backup_20261022` (Karo,
+  Martín) — GRANTs per #62. Notes appended to each lote as `| #85 22 Oct: …`. No messages sent.
+- **Zeroed (duplicates):** Ericka Rosero $35, Karina Almache old record $35, Nantu $4, Raguel 03-Oct $36, Shariam A. $76,
+  Gabriela Acosta $70, Mariana-fwd $35 (ref 199192280 = David Betancourt's receipt already applied 7 Oct to his 3 Oct).
+- **Zero + session:** Luis Vaca 2 Oct pareja monto 35→50 (payroll unchanged: pareja = $30 by tipo, `provision.js`; revenue
+  +$15). Raguel 16-Oct lote $72 → Emilie 17 Oct paid ($36 `saldo_consumos` row) + rest 0. Zara $32 → 22 Oct paid
+  (`saldo_consumos` row). Consumos rows written so a later cancel refunds the lote via the trigger.
+- **Approved** (aprobado_por = owner uuid 92ebe5c0 — the column is uuid, "nicolas-85" lives in the note): Diana $90,
+  Fátima/Valentina package $60, Natalie $25. Settle trigger drew nothing (no confirmada+unpaid sessions).
+- **Forgiven:** Luna $1, Valentina Andrade $1, Shariam/Marthin $1 (her 14+16 Oct already pagado → nothing owed).
+- **Karo Merizalde:** tarifa 39→35; 16 Sep monto 39→35 (paid); 15 Oct 39→35 still UNPAID; her $35 lote → 0.
+- **Payer:** new `payers` row Gabriela Acosta (+593998179787, 53d623a4) → `patients.payer_id` of Martín Torres. Gotcha:
+  the payer has NO cédula → Martín's invoices now block ("payer has no cédula") until it's added (facturarCore#blockingReasons).
+- Final: `remaining>0 and aprobado_at is null` = 3 lotes / $101, all on Mariana's record (G leftovers, see backlog).
+
 ### 2026-10-22 (pm) — #84 A Mariana's rules = public link only · B 6 Mariana sessions created (executor, 2024472)
 - **A:** rules (11:00–20:00 starts, ≥2h, 3/day, en línea) now bind ONLY public booking (public-booking / lead bot =
   service_role). Panel: `therapistRules.js#panelBypassesRules({fullAccess,terapeutaId}, session.terapeuta_id)` → drawer
@@ -211,34 +228,19 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   Catalina, Emily, Juan Carlos, Andrea — depend on it). Changing it = Nicolás's audit decision.
 - Harness `node scripts/harness-comprobantes-77.mjs` 37/37 (fake DB, nothing sent).
 
-### 2026-10-13 — #72 Facturación automática Mon+Thu + 4 facturas aprobadas en chat (executor, ec57bb8)
-- **Emitted (approved by Nicolás in chat 13 Oct)** via emit-one: 001-001-000000315 Mila 6 Oct $32 (Sébastien
-  Paque, concepto general) · 316 Cecilia Saltos 8 Oct $39 (Dorian Solís) · 317 Raguel Conforme 9 Oct $36 (Laura
-  Vásquez) · 318 Cinthya Pérez 9 Oct $36. Snapshot 635734b1 (cron, 12 Oct) → aprobada, `resultado.nota`
-  "aprobado en chat 13 Oct" + emitidas. Its queued owner_outbox list (9c58b2fb) → fallido so the stale
-  Aprobar list never reaches him. RIDEs via factura-rides-sweep.
-- **Auto mode** (`netlify/lib/facturarAprobacion.mjs#runAuto`): facturar-report → `runReport` → runAuto('auto'):
-  same dryRun eligibility, overlap guard (an `en_curso` run < 15 min → skip), log row inserted first
-  (estado aprobada, `resultado.en_curso`), per-session re-check (still pagado/confirmada/not facturada) right
-  before emitOne, try/catch per item → `fallidas`; then ONE `notifyOwner` kind `facturas_emitidas` (text only,
-  split at ~3800 chars). Nothing ready/blocked/en espera → nothing sent.
-- **"facturas"** → webhook fires `facturar-aprobar-background` with `{comando:true}` → `handleFacturasCommand`
-  = runAuto('comando') + direct reply (emission is long, kept off the webhook). Legacy fac_ok/fac_no taps still
-  resolve old lists (`runAprobacion`/`handleDescartar`); `prepareFacturas` (list + buttons) removed.
-- `/facturar?mode=auto-preview` = runAuto preview (zero Contífico calls, no log, no send) → the exact message.
-- **Migration** `supabase/factura-aprobaciones-auto.sql`: origen check += `'auto'`.
-- Preview 13 Oct for Thu 15 Oct: Emilie Conforme 3 Oct $36 + Valentina Loor 9 Oct $39 (+ whatever gets paid
-  by then); Mauro Baquero en espera (8).
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
-- [ ] **#84 follow-ups (Nicolás):** Karo Merizalde is `inactivo` but had a 15 Oct session — reactivate? She also holds an
-      unapproved $35 prepay lote (a4c09041); Diana Marcial an unapproved $90 overpayment lote (fa29c5a3). Phones with
-      odd characters (check they normalize): Cristina Gomez (activo), Andres Luzuriaga, Sebastián Villegas.
+- [ ] **#85 leftovers for Nicolás (3 unapproved lotes on Mariana's record, $101):** $30 13 Oct payphone, no name (064a92fe;
+      candidates: Laura Chávez 6 Oct — already marked paid by hand 13 Oct 19:20, likely the same; Paola Ibarra 8 Oct / Pamela
+      Iturralde 10 Oct unpaid $30) · $36 17 Oct Daniela Santillan (6b64f244; her 17 Oct is $39 unpaid) · $35 19 Oct Karo
+      Merizalde (cc82f2a1; "olvidé hacerte la transferencia" → would pay her 15 Oct $35, but #85 E said keep it unpaid).
+- [ ] **#85 flags:** Gabriela Acosta payer has no cédula → Martín Torres' invoices blocked until added · Fátima/Valentina
+      package $60 approved but 1/8/16 Oct already paid (no consumos rows) → maybe one unit too much · David Betancourt
+      3 Oct monto $39 paid by a $35 receipt ($4 gap) · Karo still `inactivo` with a 15 Oct session. Odd-character phones
+      (Cristina Gomez, Andres Luzuriaga, Sebastián Villegas) still to check.
 - [ ] **Brief fix (director):** routine trig_014bnWaSpPv3quC8YPHZWqGS item 2 → `remaining > 0 and aprobado_at is null`
       (drop `proof_id is not null`), list every credit one per line, no ~15-line cap for that list.
-- [ ] **Nicolás: Fátima Tubón's package lote (30 or 60 left?) + the non-package paused lotes (#81 C).** Packages fixed by #82.
 - [ ] **⚠️ Push to `main` no longer auto-deploys** (21 Oct: 3 pushes, live stayed on 57b8d95). Deployed via the Netlify
       connector `deploy-site` → `npx @netlify/mcp … --site-id f8418788…` (needs `npm_config_cache=<scratchpad>`: ~/.npm has
       root-owned files → EEXIST). Check the GitHub→Netlify build hook in the dashboard (Nicolás) or keep using the connector.
