@@ -146,7 +146,7 @@ export async function runPaymentReminders(supabase, { now = new Date(), live = f
   const pids = [...byPatient.keys()]
   if (pids.length) {
     const { data: lotes, error: lErr } = await supabase
-      .from('saldo_lotes').select('patient_id, remaining, price_per_session, origin, proof_id, aprobado_at, created_at')
+      .from('saldo_lotes').select('patient_id, remaining, price_per_session, origin, proof_id, aprobado_at, valido_desde, created_at')
       .in('patient_id', pids).gt('remaining', 0).order('created_at', { ascending: true })
     if (lErr) throw new Error('lotes query: ' + lErr.message)
     for (const l of (lotes || []).filter(loteAprobado)) {

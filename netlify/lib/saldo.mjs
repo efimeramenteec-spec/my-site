@@ -38,6 +38,12 @@ export function loteGastable(l) {
   return !!l?.aprobado_at
 }
 
+// #88: a lote with valido_desde only pays sessions dated on/after it (a prepay for FUTURE
+// sessions never covers an older owed one). Mirrors the DB trigger's date guard.
+export function loteValidoPara(l, fecha) {
+  return !l?.valido_desde || !fecha || String(fecha) >= String(l.valido_desde)
+}
+
 // #81 B: what a patient still owes on `rows` (unpaid sessions, oldest first) given open
 // `lotes` ({remaining, price_per_session, origin}, oldest first) — the same order the DB
 // trigger spends them: one unit at the lote's own price per session from the oldest lote
@@ -50,9 +56,9 @@ export function owedAfterCredit(rows = [], lotes = []) {
   for (const r of rows) {
     const monto = round2(r.monto || 0)
     if (monto <= EPS) continue
-    const unit = ls.find((l) => l.pps > 0 && l.remaining + EPS >= l.pps)
+    const unit = ls.find((l) => l.pps > 0 && l.remaining + EPS >= l.pps && loteValidoPara(l, r.fecha))
     if (unit) { unit.remaining = round2(unit.remaining - unit.pps); covered.push(r.id); continue }
-    const frag = ls.filter((l) => l.origin !== 'package' && l.remaining > EPS)
+    const frag = ls.filter((l) => l.origin !== 'package' && l.remaining > EPS && loteValidoPara(l, r.fecha))
     if (round2(frag.reduce((a, l) => a + l.remaining, 0)) + EPS >= monto) {
       let need = monto
       for (const l of frag) { const t = Math.min(l.remaining, need); l.remaining = round2(l.remaining - t); need = round2(need - t) }
@@ -61,7 +67,8 @@ export function owedAfterCredit(rows = [], lotes = []) {
     net = round2(net + monto)
   }
   // Leftover fragments still lower what is asked (spec #19: odd remainder applies to the next session).
-  const frag = round2(ls.filter((l) => l.origin !== 'package').reduce((a, l) => a + l.remaining, 0))
+  // A date-limited lote (#88) is kept for its future sessions, never netted against older debt.
+  const frag = round2(ls.filter((l) => l.origin !== 'package' && !l.valido_desde).reduce((a, l) => a + l.remaining, 0))
   return { net: round2(Math.max(0, net - frag)), covered }
 }
 

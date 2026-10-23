@@ -57,7 +57,7 @@
 import { ocrProofRow } from './proofOcr.mjs'
 import { normalizePhone } from './whatsapp.mjs'
 import { notifyOwner } from './ownerOutbox.mjs'
-import { isPackagePayment, loteGastable, PACKAGE_PRICE, PACKAGE_RATE } from './saldo.mjs'
+import { isPackagePayment, loteGastable, loteValidoPara, PACKAGE_PRICE, PACKAGE_RATE } from './saldo.mjs'
 import { normalizeReference, sameReceipt, isApplied, isPending, referenceAppliedIn } from '../../src/lib/proofRef.js'
 
 const EPS = 0.5
@@ -267,14 +267,16 @@ async function fifoConsumeLotes(supabase, patientId, amount) {
   let need = round2(amount)
   if (need <= EPS) return 0
   const { data: lotes, error } = await supabase
-    .from('saldo_lotes').select('id, remaining, proof_id, aprobado_at, origin')
+    .from('saldo_lotes').select('id, remaining, proof_id, aprobado_at, origin, valido_desde')
     .eq('patient_id', patientId).gt('remaining', 0)
     .order('created_at', { ascending: true }).order('id', { ascending: true })
   if (error) { console.error('[proof-auto] lotes load failed:', error.message); return 0 }
   let used = 0
   // #81: approved credit only, and never package credit (that is spent by the DB trigger,
   // one session at a time at the package price).
-  for (const l of (lotes || []).filter((x) => loteGastable(x) && x.origin !== 'package')) {
+  // #88: receipts settle past/today sessions — a lote limited to future sessions is skipped.
+  const today = gyeToday(new Date())
+  for (const l of (lotes || []).filter((x) => loteGastable(x) && x.origin !== 'package' && loteValidoPara(x, today))) {
     if (need <= EPS) break
     const avail = Number(l.remaining || 0)
     const take = Math.min(avail, need)
@@ -542,11 +544,12 @@ async function evaluateProofs(supabase, { now, daysBack, onlyId = null, ocr = tr
     for (const s of sess || []) (byPatient[s.patient_id] ||= []).push(s)
     // Open saldo a favor — used ONLY by the proposal (never by the automatic gate).
     const { data: lotes, error: lErr } = await supabase
-      .from('saldo_lotes').select('patient_id, remaining, proof_id, aprobado_at, origin')
+      .from('saldo_lotes').select('patient_id, remaining, proof_id, aprobado_at, origin, valido_desde')
       .in('patient_id', patientIds).gt('remaining', 0)
     if (lErr) throw new Error('lotes query: ' + lErr.message)
     // #81: approved, non-package credit only (packages are never mixed with cash).
-    for (const l of (lotes || []).filter((x) => loteGastable(x) && x.origin !== 'package')) {
+    // #88: sessions here are ≤ today, so a lote limited to future sessions doesn't count.
+    for (const l of (lotes || []).filter((x) => loteGastable(x) && x.origin !== 'package' && loteValidoPara(x, today))) {
       creditByPatient[l.patient_id] = round2((creditByPatient[l.patient_id] || 0) + Number(l.remaining || 0))
     }
   }
