@@ -233,7 +233,7 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
 - [ ] **/carrusel #93–#95** (#92 done 27 Oct): #93 queue (Nicolás sends IG links to 9933 → queued) + `/carrusel` command
-      (rewrite + `renderCarousel`), #94 WhatsApp preview to Nicolás → post to @efimera.mente ONLY after he replies "sí"
+      (rewrite + `renderCarousel`), #94 WhatsApp preview to Nicolás → post to @efimeramente.ec ONLY after he replies "sí"
       (Instagram posting), #95 Mon/Wed/Fri 19:00 GYE schedule. Test carousel waiting for Nicolás's verdict in Drive.
 - [ ] Ask blnk estudio whether Helvetica Now Display + Chetta Vissto can be used on the web (needed before the website).
 - [ ] **Zara Basantez 26 Oct $32 receipt** (e3d66145) held — waiting on Nicolás (what it pays). (#89)

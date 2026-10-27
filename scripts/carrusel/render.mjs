@@ -9,11 +9,15 @@
 // Spec:
 //   { "slides": [
 //       { "type": "portada",   "title": "…", "kicker": "…"? },
-//       { "type": "contenido", "title": "…", "body": "…" | ["…", "…"] },
-//       { "type": "cierre",    "title": "…", "body": "…"? }       // body = CTA
+//       { "type": "contenido", "title": "…"?, "body": "…" | ["…", "…"] },
+//       { "type": "cierre",    "title": "…", "body": "…"?, "credit": "…"? }  // body = CTA
 //   ] }
 //
-// Inside a title, **double asterisks** switch to the bold sans — the manual's
+// Design (#92b, Nicolás): flat cream #FEF8E9 + black, no gradients, NO logos.
+// Content titles are pinned to the top (same height on every slide). The handle
+// (HANDLE, @efimeramente.ec) appears ONLY on the closing slide.
+//
+// **double asterisks** switch to the bold sans (titles and body) — the manual's
 // own headline pattern ("identidad **de marca**", p.10/25/31). Text auto-fits:
 // every slide shrinks its type until nothing overflows; if it still overflows at
 // the minimum size the render FAILS rather than ship a clipped slide.
@@ -37,23 +41,12 @@ const BRAND = join(HERE, '..', '..', 'assets', 'brand')
 export const W = 1080
 export const H = 1350
 
-// Manual p.13–20. Principal + secundaria.
-const C = {
-  amarillo: '#FFD84A', naranja: '#FAAB55', rosa: '#F5A8A0', violeta: '#B48AE4',
-  azul: '#A9D8FF', lavanda: '#C3C4FF', menta: '#B7F5D8', durazno: '#FCD1B5',
-  crema: '#FEF8E9', tinta: '#000000',
-}
+// Manual p.13–20 has the full palette (see BRAND.md); carousels use only the
+// flat cream ground + black ink (Nicolás, #92b: no gradients, no logos).
+const C = { crema: '#FEF8E9', tinta: '#000000' }
 
-// Gradient orbs per slide (manual p.21 "gradientes", p.24 "órbita", p.26–28).
-// Rotated by slide index so a carousel feels like one continuous light.
-const ORBS = [
-  [['naranja', 10, 18, 820], ['azul', 92, 70, 760], ['rosa', 40, 95, 620]],
-  [['lavanda', 95, 8, 700], ['durazno', 5, 92, 680]],
-  [['amarillo', 92, 92, 700], ['rosa', 0, 10, 640]],
-  [['azul', 100, 15, 700], ['durazno', 0, 100, 700]],
-  [['violeta', 0, 0, 640], ['amarillo', 100, 100, 640]],
-  [['menta', 95, 0, 640], ['naranja', 0, 95, 660]],
-]
+// The ONLY place the Instagram handle lives. Shown on the closing slide only.
+export const HANDLE = '@efimeramente.ec'
 
 const SPARK = (size, fill = C.tinta) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 100 100" aria-hidden="true"><path d="M50 0 C53 34 66 47 100 50 C66 53 53 66 50 100 C47 66 34 53 0 50 C34 47 47 34 50 0Z" fill="${fill}"/></svg>`
@@ -92,9 +85,7 @@ body{background:${C.crema};color:${C.tinta};-webkit-font-smoothing:antialiased;
 .serif{font-family:'Chetta Vissto','Playfair Display',Georgia,serif;font-weight:400;
   font-feature-settings:"liga" 1;letter-spacing:-0.01em}
 .em{font-family:'Helvetica Now Display','Inter Tight',Helvetica,Arial,sans-serif;font-weight:700;letter-spacing:-0.035em}
-.slide{position:absolute;inset:0;overflow:hidden}
-.orb{position:absolute;border-radius:50%;filter:blur(70px);opacity:.85;transform:translate(-50%,-50%)}
-.veil{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 50%,rgba(254,248,233,.55),rgba(254,248,233,0) 70%)}
+.slide{position:absolute;inset:0;overflow:hidden;background:${C.crema}}
 .frame{position:absolute;left:96px;right:96px;top:104px;bottom:104px;display:flex;flex-direction:column}
 .top,.bottom{display:flex;align-items:center;justify-content:space-between;flex:none}
 .top{margin-bottom:48px}
@@ -110,51 +101,44 @@ body{background:${C.crema};color:${C.tinta};-webkit-font-smoothing:antialiased;
 .num span{font-weight:400;opacity:.5}
 `
 
-function background(i, strong) {
-  const set = ORBS[i % ORBS.length]
-  return set.map(([c, x, y, d]) => {
-    const size = strong ? d * 1.15 : d
-    return `<div class="orb" style="left:${x}%;top:${y}%;width:${size}px;height:${size}px;background:radial-gradient(circle,${C[c]} 0%,${C[c]}cc 35%,${C[c]}00 70%)"></div>`
-  }).join('') + (strong ? '' : '<div class="veil"></div>')
-}
-
-function slideHtml(s, i, n, logos) {
+function slideHtml(s, i, n) {
   const lines = Array.isArray(s.body) ? s.body : s.body ? [s.body] : []
   const body = lines.map((l) => `<p>${rich(l)}</p>`).join('')
   const num = `<div class="num">${String(i + 1).padStart(2, '0')}<span> / ${String(n).padStart(2, '0')}</span></div>`
   if (s.type === 'portada') {
-    return `<div class="slide">${background(i, true)}<div class="frame">
-      <div class="top"><div class="label serif" style="font-size:34px">${esc(s.kicker || 'efimeramente')}</div>${SPARK(44)}</div>
+    return `<div class="slide"><div class="frame">
+      <div class="top"><div class="label serif" style="font-size:34px">${esc(s.kicker || '')}</div>${SPARK(44)}</div>
       <div class="fit"><div class="inner">
         <h1 class="title serif" data-max="150" data-min="60">${rich(s.title)}</h1>
       </div></div>
-      <div class="bottom"><img src="${logos.corto}" style="height:84px"><div class="label">desliza →</div></div>
+      <div class="bottom"><div></div><div class="label">desliza →</div></div>
     </div></div>`
   }
   if (s.type === 'cierre') {
-    return `<div class="slide">${background(i, true)}<div class="frame">
-      <div class="top"><div></div>${SPARK(44)}</div>
+    return `<div class="slide"><div class="frame">
+      <div class="top">${num}${SPARK(44)}</div>
       <div class="fit"><div class="inner" style="gap:56px">
         <h2 class="title serif" data-max="112" data-min="52">${rich(s.title)}</h2>
         ${body ? `<div class="body" data-max="44" data-min="28" style="font-weight:500">${body}</div>` : ''}
       </div></div>
-      <div class="bottom" style="flex-direction:column;align-items:flex-start;gap:28px">
-        <img src="${logos.corto}" style="height:120px">
-        <div style="display:flex;justify-content:space-between;width:100%">
-          <div class="label" style="font-weight:700">@efimera.mente</div>
-          <div class="label serif" style="font-size:34px">pensar con luz</div>
+      <div class="bottom" style="align-items:flex-end">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="label" style="font-weight:700">${HANDLE}</div>
+          ${s.credit ? `<div class="label" style="font-size:24px;font-weight:400;opacity:.6">${esc(s.credit)}</div>` : ''}
         </div>
+        <div class="label serif" style="font-size:34px">pensar con luz</div>
       </div>
     </div></div>`
   }
-  // contenido
-  return `<div class="slide">${background(i, false)}<div class="frame">
+  // contenido — anchored to the top so the title sits at the same height on
+  // every content slide, whatever its length (#92b). Title is optional: a
+  // body-only slide starts at that same spot, a bit larger.
+  return `<div class="slide"><div class="frame">
     <div class="top">${num}${SPARK(36)}</div>
-    <div class="fit"><div class="inner" style="gap:48px">
-      <h2 class="title serif" data-max="96" data-min="50">${rich(s.title)}</h2>
-      ${body ? `<div class="body" data-max="46" data-min="30">${body}</div>` : ''}
+    <div class="fit top-align"><div class="inner" style="gap:48px">
+      ${s.title ? `<h2 class="title serif" data-max="96" data-min="50">${rich(s.title)}</h2>` : ''}
+      ${body ? `<div class="body" ${s.title ? 'data-max="46" data-min="30"' : 'data-max="56" data-min="32"'}>${body}</div>` : ''}
     </div></div>
-    <div class="bottom"><img src="${logos.iso}" style="height:48px"><div class="label">@efimera.mente</div></div>
   </div></div>`
 }
 
@@ -192,20 +176,16 @@ export async function renderCarousel(spec, outDir) {
   if (!Array.isArray(slides) || !slides.length) throw new Error('spec.slides vacío')
   for (const [i, s] of slides.entries()) {
     if (!['portada', 'contenido', 'cierre'].includes(s.type)) throw new Error(`slide ${i + 1}: type inválido "${s.type}"`)
-    if (!s.title) throw new Error(`slide ${i + 1}: falta title`)
+    if (!s.title && !(s.type === 'contenido' && s.body)) throw new Error(`slide ${i + 1}: falta title`)
   }
   mkdirSync(outDir, { recursive: true })
   const fonts = fontSetup()
-  const logos = {
-    corto: dataUrl(join(BRAND, 'logos', 'logotipo-corto.png'), 'image/png'),
-    iso: dataUrl(join(BRAND, 'logos', 'isotipo.png'), 'image/png'),
-  }
   const browser = await chromium.launch()
   const files = []
   try {
     const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 })
     for (const [i, s] of slides.entries()) {
-      const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">${fonts.head}<style>${CSS}</style></head><body>${slideHtml(s, i, slides.length, logos)}</body></html>`
+      const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">${fonts.head}<style>${CSS}</style></head><body>${slideHtml(s, i, slides.length)}</body></html>`
       await page.setContent(html, { waitUntil: 'networkidle' })
       await page.evaluate(() => document.fonts.ready)
       const fit = await page.evaluate(fitInPage)

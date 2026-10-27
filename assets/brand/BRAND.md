@@ -62,8 +62,7 @@ Files in `logos/` are trimmed (no padding), black on transparent, from Drive PNG
 
 **Área de respeto (p.29):** a minimum margin of one "x" on every side. Measured on the page,
 x ≈ the x-height of "efímera", i.e. about 20% of the stacked logo's height and about 30% of
-the isotipo's height. The renderer keeps the logo in the 96 px frame margin, with nothing
-else within that distance.
+the isotipo's height. Applies wherever a logo is used (carousels use none since #92b).
 
 **Usos incorrectos (p.30):** no two-color logo; never reorder "mente / efímera" or alter the
 isotipo; always scale proportionally (no stretching); no outline-only logo. Logos stay black.
@@ -75,13 +74,21 @@ isotipo; always scale proportionally (no stretching); no outline-only logo. Logo
   circles = **unión** (body and mind).
 - Elements (p.21–24): gradients, blurred illustrations, **destellos** (the 4-point star ✦ =
   clarity), **órbita** (soft circle = continuity).
-- Tagline **"pensar con luz"** (p.34–35). Handle **@efimera.mente** (p.32).
+- Tagline **"pensar con luz"** (p.34–35). Instagram handle **@efimeramente.ec**. The handle on the manual's p.32 business-card mockup is outdated: don't copy it.
 
-## Carrusel (Instagram) — spacing used by the renderer
-- Canvas 1080×1350 (4:5). Frame margin 96 px left/right, 104 px top/bottom. The manual's
-  square pages keep about 9% margins, and 96/1080 ≈ 9%.
-- Text auto-fits: all type in a slide shrinks together down to a minimum. If it still
-  doesn't fit, the render **fails** (no clipped slides).
-- Templates: `portada` (hook + logotipo corto), `contenido` (number NN / NN, title, 1–3
-  lines, isotipo + handle), `cierre` (takeaway, CTA, logotipo corto, @efimera.mente,
-  "pensar con luz").
+## Carrusel (Instagram): design in force (#92b, Nicolás 27 Oct)
+- **Flat cream `#FEF8E9` background + black text. No gradients, no orbs, nothing else in the
+  background.** The manual's gradient language (p.21–28) is NOT used on carousels.
+- **No logos on any slide** (no isotipo, no logotipo, cover and closing included). The ✦ ornament
+  stays (top-right of every slide).
+- **Handle `@efimeramente.ec` ONLY on the last slide** (`HANDLE` in `scripts/carrusel/render.mjs`
+  is the single source). Optional `credit` line under it (e.g. "Traducido de @drdianahill").
+- Canvas 1080×1350 (4:5). Frame margin 96 px left/right, 104 px top/bottom (≈9%, like the
+  manual's square pages).
+- Templates: `portada` (optional kicker, hook title, "desliza →"), `contenido` (NN / NN number +
+  ✦; title **pinned to the top**, the same height on every content slide whatever its length; body
+  right below; title optional, so a body-only slide starts at that same spot), `cierre` (number,
+  takeaway, optional CTA, handle, "pensar con luz").
+- Titles mix serif (Chetta) and bold sans (`**…**`). Body text supports `**bold**` too.
+- Text auto-fits: all type in a slide shrinks together down to a minimum. If it still doesn't
+  fit, the render **fails** (no clipped slides).
