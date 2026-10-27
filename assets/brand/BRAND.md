@@ -77,47 +77,48 @@ isotipo; always scale proportionally (no stretching); no outline-only logo. Logo
   clarity), **órbita** (soft circle = continuity).
 - Tagline **"pensar con luz"** (p.34–35). Instagram handle **@efimeramente.ec**. The handle on the manual's p.32 business-card mockup is outdated: don't copy it.
 
-## Carrusel (Instagram): design in force (#92b + #92c + #92d, Nicolás 27 Oct)
-- **Only the manual's colors (#92d, Nicolás 27 Oct): "Only the manual's colors. Adjustment = transparency
-  over cream only. Never darken or create colors."** Backgrounds are the p.13–20 hexes exactly as printed,
-  or one of them with transparency over cream `#FEF8E9` (`tint(base, alpha)` in `scripts/carrusel/colors.mjs`),
-  or plain cream. Text is black, cream or a manual color. `getPair()` refuses anything else, so the renderer
-  can't use it. (The deep shades tried in #92c, terracota, deep blue and so on, were removed.)
-- **One color pair per post (#92c):** a flat background + ONE ink for all the text, the same on every slide
-  of that post. No gradients, orbs, textures or anything else in the background. A spec picks its pair with
-  `"color": "<id>"` (default `crema-tinta`).
-- **Contrast:** every pair must reach WCAG AA for body text, **≥ 4.5:1** (one ink for titles and body, so
-  this also covers 3:1 for large titles). `node scripts/carrusel/colors.mjs` prints the table; the renderer
-  refuses a pair below 4.5 and logs the ratio in `render.json`. No manual color reaches 4.5:1 as text on
-  another manual color, so every pair uses black text today. Secondary text is drawn at full ink; only the
-  "/ NN" in the page number is at 60%.
-- **Rotation:** `nextPair(history)` returns the pair after the last one used (real pairs only), so
-  consecutive posts never repeat. #93 keeps the history.
+## Carrusel (Instagram): design in force (#92b to #92e, Nicolás 27 Oct)
+- **Colors (#92e, Nicolás 27 Oct): ONLY violet and yellow, two schemes, alternating post by post:**
+  A) `amarillo-violeta` = yellow background + violet text; B) `violeta-amarillo` = violet background +
+  yellow text. Every other pair (pastels with black, cream, etc.) is gone. **No black text anywhere.**
+  The colors are the manual's yellow and violet, matched to the ones Nicolás already uses in his feed
+  (sampled: yellow about `#FDE689`, violet about `#B586E4`). Never darken or create a color; the only
+  allowed adjustment is transparency over cream `#FEF8E9` (`tint(base, alpha)` in
+  `scripts/carrusel/colors.mjs`). `getPair()` refuses any other scheme.
+- **One scheme per post:** a flat background + ONE ink for all the text, the same on every slide. No
+  gradients, orbs or textures. A spec picks it with `"color": "<id>"` (default `amarillo-violeta`).
+- **Contrast is low (2.19:1) by decision.** Readability comes from SIZE and WEIGHT, not color: the
+  4.5:1 check no longer applies to these two schemes. The ratio is logged in `render.json`, never blocking.
+- **Rotation:** `nextPair(history)` alternates A/B (empty history starts with A). #93 keeps the history.
 
-| id | fondo (manual, exacto) | tinta | contraste |
+| id | fondo | texto | contraste |
 |---|---|---|---|
-| crema-tinta | `#FEF8E9` crema | `#000000` | 19.82 |
-| azul-tinta | `#A9D8FF` azul cielo, p.17 | `#000000` | 13.95 |
-| rosa-tinta | `#F5A8A0` rosa melón, p.15 | `#000000` | 10.99 |
-| menta-tinta | `#B7F5D8` verde menta, p.19 | `#000000` | 17.07 |
-| amarillo-tinta | `#FFD84A` amarillo bruma, p.13 | `#000000` | 15.17 |
-| lavanda-tinta | `#C3C4FF` lavanda humo, p.18 | `#000000` | 12.66 |
-| naranja-tinta | `#FAAB55` naranja aura, p.14 | `#000000` | 11.02 |
-| violeta-tinta | `#B48AE4` violeta neblina, p.16 | `#000000` | 7.70 |
-| durazno-tinta | `#FCD1B5` durazno pastel, p.20 | `#000000` | 14.93 |
+| amarillo-violeta | `#FFE58A` = amarillo bruma `#FFD84A` p.13 at 60% over cream (the printed hex is far more saturated than the feed; 60% lands about 2 RGB units from the feed's `#FDE689`) | `#B48AE4` violeta neblina p.16, exact (feed `#B586E4`) | 2.19 |
+| violeta-amarillo | `#B48AE4` violeta neblina | `#FFE58A` amarillo | 2.19 |
+
+- **Type (#92e):** every word in Helvetica Now Display sans. Titles Bold (700); body Medium (500) with
+  `**...**` = Bold; labels Bold. The Chetta serif accent was tried on the #92e test and dropped: its thin
+  strokes don't read at 2.19:1, so `**...**` in a title is plain bold and "pensar con luz" is bold sans too.
+- **Sizes at 1080 wide:** body never below **40 px** (body-only up to 60, with a title up to 52, closing
+  up to 50); titles much bigger (cover 150 to 80, content 104 to 72, closing 112 to 72); labels 34 px.
+- **Dense slides are split (#92e):** if a content slide doesn't fit at the minimum size, the renderer
+  splits it into consecutive slides at a paragraph break (most balanced break whose first part fits; the
+  rest splits again if needed) and renumbers everything (e.g. 01 / 11). **Words are never changed, cut
+  or summarized.** The second part has no title (the title is not repeated) and keeps the body size
+  range of the first. `render.json` logs `splits`. A single-paragraph slide, cover or closing that
+  doesn't fit still fails the render.
 - **No logos on any slide** (no isotipo, no logotipo, cover and closing included). The ✦ ornament
   stays (top-right of every slide).
 - **Handle `@efimeramente.ec` ONLY on the last slide** (`HANDLE` in `scripts/carrusel/render.mjs`
   is the single source). Optional `credit` line under it (e.g. "Traducido de @drdianahill").
 - Canvas 1080×1350 (4:5). Frame margin 96 px left/right, 104 px top/bottom (≈9%, like the
   manual's square pages).
-- Templates: `portada` (optional kicker, hook title, "desliza →"), `contenido` (NN / NN number +
+- Templates: `portada` (optional kicker, hook title, "desliza"), `contenido` (NN / NN number +
   ✦; title **pinned to the top**, the same height on every content slide whatever its length; body
   right below; title optional, so a body-only slide starts at that same spot), `cierre` (number,
   takeaway, optional CTA, handle, "pensar con luz").
-- Titles mix serif (Chetta) and bold sans (`**…**`). Body text supports `**bold**` too.
-- Text auto-fits: all type in a slide shrinks together down to a minimum. If it still doesn't
-  fit, the render **fails** (no clipped slides).
+- Text auto-fits: all type in a slide shrinks together down to its minimum; then the split rule above
+  applies (no clipped slides).
 
 ## /carrusel flow (#93, decided by Nicolás 27 Oct, #92c)
 1. **Mon / Wed / Fri:** the morning brief gives Nicolás the **full translated copy** (every slide
@@ -132,9 +133,9 @@ isotipo; always scale proportionally (no stretching); no outline-only logo. Logo
 - **Hashtags: exactly 5 per post**, Spanish and on topic: 2–3 broad, 1–2 medium, 1 niche.
   Example (#92c): `#saludmental #psicologia #terapiapsicologica #psicologosquito
   #flexibilidadpsicologica`. They go in the copy Nicolás corrects.
-- **Color:** each post picks its pair with `nextPair(history)` (`colors.mjs`). **#93 stores the
-  history** of used pairs (one id per post, in posting order) so consecutive posts never repeat.
-- **Layout limits:** body text never below the sizes of #92b/#92c (body-only slides 56 px,
-  with a title 46 px, closing 43 px; the renderer's floors are lower, 30–32 px). If a slide
-  doesn't fit, **stop and tell Nicolás which one**; never split a slide or edit his text to
-  make it fit.
+- **Color:** each post takes the next scheme with `nextPair(history)` (`colors.mjs`), so posts
+  alternate violet-on-yellow / yellow-on-violet. **#93 stores the history** (one id per post, in
+  posting order).
+- **Layout limits (#92e):** body never below 40 px. A slide that doesn't fit is split at a paragraph
+  break and renumbered (words untouched); only a slide that can't be split (one paragraph, cover,
+  closing) stops the render, and then Nicolás is told which one. Never edit his text to make it fit.
