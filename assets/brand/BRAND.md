@@ -25,8 +25,9 @@ which are a separate system.
   chosen because the manual's warmest pages (p.1, 26, 27, 31) use it.
 - **Ink `#000000`**: the logo PNGs are pure black (sampled), and the manual's text is black.
 
-Colors are never flat fills. They appear as soft blurred orbs/gradients (p.21 "gradientes:
-transiciones suaves", p.24 "órbita", p.26–28 variations). The renderer does exactly that.
+In the manual, colors appear as soft blurred orbs/gradients (p.21 "gradientes: transiciones
+suaves", p.24 "órbita", p.26–28 variations). Carousels don't use that: since #92c they use flat
+color pairs (see below).
 
 ## Tipografía (p.11–12)
 
@@ -76,9 +77,37 @@ isotipo; always scale proportionally (no stretching); no outline-only logo. Logo
   clarity), **órbita** (soft circle = continuity).
 - Tagline **"pensar con luz"** (p.34–35). Instagram handle **@efimeramente.ec**. The handle on the manual's p.32 business-card mockup is outdated: don't copy it.
 
-## Carrusel (Instagram): design in force (#92b, Nicolás 27 Oct)
-- **Flat cream `#FEF8E9` background + black text. No gradients, no orbs, nothing else in the
-  background.** The manual's gradient language (p.21–28) is NOT used on carousels.
+## Carrusel (Instagram): design in force (#92b + #92c, Nicolás 27 Oct)
+- **One color pair per post (#92c):** a flat background + ONE ink for all the text, the same on
+  every slide of that post. No gradients, orbs, textures or anything else in the background (the
+  manual's gradient language, p.21–28, is NOT used on carousels). Pairs live in
+  `scripts/carrusel/colors.mjs` (`PAIRS`); a spec picks one with `"color": "<id>"` (default
+  `crema-tinta`). Light pairs = a manual pastel + black. Deep pairs = a manual hue made deep with
+  `deep(hex, L)` (same HSL hue, saturation ≤ 80%, lightness L%), which gives terracota from
+  durazno pastel and an editorial blue from azul cielo. Mixing with black turns warm hues brown,
+  so we don't do that. The ink is black, crema, or another manual color.
+- **Contrast:** every pair must reach WCAG AA for body text, **≥ 4.5:1** (one ink for titles and
+  body, so this also covers the 3:1 large-title rule). `node scripts/carrusel/colors.mjs` prints
+  the table; the renderer refuses a pair below 4.5 and logs the ratio in `render.json`. Lowest
+  today: terracota + crema at 5.44:1. Secondary text (credit line) is drawn at full ink, never
+  faded; only the "/ NN" in the page number is at 60%.
+- **Rotation:** `nextPair(history)` returns the pair after the last one used, so consecutive posts
+  never repeat. Light and deep pairs alternate in `PAIRS`. #93 keeps the history of used pairs.
+
+| id | fondo | tinta | contraste |
+|---|---|---|---|
+| crema-tinta | `#FEF8E9` crema | `#000000` | 19.82 |
+| terracota-crema | `#A54C12` durazno profundo | `#FEF8E9` | 5.44 |
+| rosa-tinta | `#F5A8A0` rosa melón | `#000000` | 10.99 |
+| azul-profundo-crema | `#1263A5` azul cielo profundo | `#FEF8E9` | 5.91 |
+| amarillo-tinta | `#FFD84A` amarillo bruma | `#000000` | 15.17 |
+| violeta-profundo-amarillo | `#4E1F85` violeta profundo | `#FFD84A` amarillo bruma | 8.16 |
+| azul-tinta | `#A9D8FF` azul cielo | `#000000` | 13.95 |
+| ladrillo-crema | `#A52012` rosa melón profundo | `#FEF8E9` | 7.04 |
+| lavanda-tinta | `#C3C4FF` lavanda humo | `#000000` | 12.66 |
+| naranja-profundo-crema | `#814A0E` naranja aura profundo | `#FEF8E9` | 6.79 |
+| menta-tinta | `#B7F5D8` verde menta | `#000000` | 17.07 |
+
 - **No logos on any slide** (no isotipo, no logotipo, cover and closing included). The ✦ ornament
   stays (top-right of every slide).
 - **Handle `@efimeramente.ec` ONLY on the last slide** (`HANDLE` in `scripts/carrusel/render.mjs`
@@ -92,3 +121,23 @@ isotipo; always scale proportionally (no stretching); no outline-only logo. Logo
 - Titles mix serif (Chetta) and bold sans (`**…**`). Body text supports `**bold**` too.
 - Text auto-fits: all type in a slide shrinks together down to a minimum. If it still doesn't
   fit, the render **fails** (no clipped slides).
+
+## /carrusel flow (#93, decided by Nicolás 27 Oct, #92c)
+1. **Mon / Wed / Fri:** the morning brief gives Nicolás the **full translated copy** (every slide
+   plus the caption with its hashtags).
+2. Nicolás **corrects the text**. Slides are rendered **only after** he corrects it, never before.
+3. The rendered slides go to Nicolás as a preview. **Posting happens only after his "sí", at
+   19:00 GYE.** Only Nicolás approves.
+- **Default = exact translation** (the #92b/#92c test settled this: no rewrite). Keep the
+  original's order, claims and data.
+- **Caption:** a translation of the original caption, **minus any first-person claim by the
+  original author** (their experience, their courses, "in my practice…"). No added CTA.
+- **Hashtags: exactly 5 per post**, Spanish and on topic: 2–3 broad, 1–2 medium, 1 niche.
+  Example (#92c): `#saludmental #psicologia #terapiapsicologica #psicologosquito
+  #flexibilidadpsicologica`. They go in the copy Nicolás corrects.
+- **Color:** each post picks its pair with `nextPair(history)` (`colors.mjs`). **#93 stores the
+  history** of used pairs (one id per post, in posting order) so consecutive posts never repeat.
+- **Layout limits:** body text never below the sizes of #92b/#92c (body-only slides 56 px,
+  with a title 46 px, closing 43 px; the renderer's floors are lower, 30–32 px). If a slide
+  doesn't fit, **stop and tell Nicolás which one**; never split a slide or edit his text to
+  make it fit.

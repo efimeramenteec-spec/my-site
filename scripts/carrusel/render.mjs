@@ -11,9 +11,10 @@
 //       { "type": "portada",   "title": "…", "kicker": "…"? },
 //       { "type": "contenido", "title": "…"?, "body": "…" | ["…", "…"] },
 //       { "type": "cierre",    "title": "…", "body": "…"?, "credit": "…"? }  // body = CTA
-//   ] }
+//   ], "color": "<pair id>"? }   // colors.mjs PAIRS; default crema-tinta
 //
-// Design (#92b, Nicolás): flat cream #FEF8E9 + black, no gradients, NO logos.
+// Design (#92b/#92c, Nicolás): ONE flat color pair per post (background + one ink
+// for all text, colors.mjs — WCAG AA checked), no gradients, NO logos.
 // Content titles are pinned to the top (same height on every slide). The handle
 // (HANDLE, @efimeramente.ec) appears ONLY on the closing slide.
 //
@@ -28,12 +29,14 @@
 // Without them the renderer falls back to Google Fonts (Playfair Display /
 // Inter Tight) and says so.
 //
-// Also importable: `renderCarousel(spec, outDir)` → { files, fonts } (used by #93).
+// Also importable: `renderCarousel(spec, outDir)` → { files, fonts, color, sizes } (used by #93);
+// sizes = the final font sizes per slide, in [data-max] order (title, then body).
 
 import { chromium } from 'playwright'
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { getPair, AA_BODY } from './colors.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const BRAND = join(HERE, '..', '..', 'assets', 'brand')
@@ -41,14 +44,10 @@ const BRAND = join(HERE, '..', '..', 'assets', 'brand')
 export const W = 1080
 export const H = 1350
 
-// Manual p.13–20 has the full palette (see BRAND.md); carousels use only the
-// flat cream ground + black ink (Nicolás, #92b: no gradients, no logos).
-const C = { crema: '#FEF8E9', tinta: '#000000' }
-
 // The ONLY place the Instagram handle lives. Shown on the closing slide only.
 export const HANDLE = '@efimeramente.ec'
 
-const SPARK = (size, fill = C.tinta) =>
+const SPARK = (size, fill = 'currentColor') =>
   `<svg width="${size}" height="${size}" viewBox="0 0 100 100" aria-hidden="true"><path d="M50 0 C53 34 66 47 100 50 C66 53 53 66 50 100 C47 66 34 53 0 50 C34 47 47 34 50 0Z" fill="${fill}"/></svg>`
 
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -77,15 +76,15 @@ function fontSetup() {
   }
 }
 
-const CSS = `
+const css = (C) => `
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:${W}px;height:${H}px;overflow:hidden}
-body{background:${C.crema};color:${C.tinta};-webkit-font-smoothing:antialiased;
+body{background:${C.bg};color:${C.ink};-webkit-font-smoothing:antialiased;
   font-family:'Helvetica Now Display','Inter Tight',Helvetica,Arial,sans-serif}
 .serif{font-family:'Chetta Vissto','Playfair Display',Georgia,serif;font-weight:400;
   font-feature-settings:"liga" 1;letter-spacing:-0.01em}
 .em{font-family:'Helvetica Now Display','Inter Tight',Helvetica,Arial,sans-serif;font-weight:700;letter-spacing:-0.035em}
-.slide{position:absolute;inset:0;overflow:hidden;background:${C.crema}}
+.slide{position:absolute;inset:0;overflow:hidden;background:${C.bg}}
 .frame{position:absolute;left:96px;right:96px;top:104px;bottom:104px;display:flex;flex-direction:column}
 .top,.bottom{display:flex;align-items:center;justify-content:space-between;flex:none}
 .top{margin-bottom:48px}
@@ -98,7 +97,7 @@ body{background:${C.crema};color:${C.tinta};-webkit-font-smoothing:antialiased;
 .body p+p{margin-top:.7em}
 .label{font-size:30px;font-weight:500;letter-spacing:.01em}
 .num{font-size:30px;font-weight:700;letter-spacing:.02em}
-.num span{font-weight:400;opacity:.5}
+.num span{font-weight:400;opacity:.6}
 `
 
 function slideHtml(s, i, n) {
@@ -124,7 +123,7 @@ function slideHtml(s, i, n) {
       <div class="bottom" style="align-items:flex-end">
         <div style="display:flex;flex-direction:column;gap:10px">
           <div class="label" style="font-weight:700">${HANDLE}</div>
-          ${s.credit ? `<div class="label" style="font-size:24px;font-weight:400;opacity:.6">${esc(s.credit)}</div>` : ''}
+          ${s.credit ? `<div class="label" style="font-size:24px;font-weight:400">${esc(s.credit)}</div>` : ''}
         </div>
         <div class="label serif" style="font-size:34px">pensar con luz</div>
       </div>
@@ -178,10 +177,14 @@ export async function renderCarousel(spec, outDir) {
     if (!['portada', 'contenido', 'cierre'].includes(s.type)) throw new Error(`slide ${i + 1}: type inválido "${s.type}"`)
     if (!s.title && !(s.type === 'contenido' && s.body)) throw new Error(`slide ${i + 1}: falta title`)
   }
+  const pair = getPair(spec.color || 'crema-tinta')
+  if (pair.contrast < AA_BODY) throw new Error(`color ${pair.id}: contraste ${pair.contrast}:1 < ${AA_BODY}:1`)
   mkdirSync(outDir, { recursive: true })
   const fonts = fontSetup()
+  const CSS = css(pair)
   const browser = await chromium.launch()
   const files = []
+  const sizes = []
   try {
     const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 })
     for (const [i, s] of slides.entries()) {
@@ -195,11 +198,12 @@ export async function renderCarousel(spec, outDir) {
       const { w, h } = pngSize(file)
       if (w !== W || h !== H) throw new Error(`${file}: ${w}×${h}, se esperaba ${W}×${H}`)
       files.push(file)
+      sizes.push(fit.sizes)
     }
   } finally {
     await browser.close()
   }
-  return { files, fonts: fonts.mode }
+  return { files, fonts: fonts.mode, color: pair, sizes }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -209,8 +213,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     process.exit(1)
   }
   const spec = JSON.parse(readFileSync(specPath, 'utf8'))
-  const { files, fonts } = await renderCarousel(spec, outDir)
+  const { files, fonts, color, sizes } = await renderCarousel(spec, outDir)
   if (fonts !== 'brand') console.warn('⚠ fuentes de marca ausentes → Playfair Display / Inter Tight (corre fetch-fonts.mjs)')
-  writeFileSync(join(outDir, 'render.json'), JSON.stringify({ fonts, slides: files.length }, null, 2))
-  console.log(`${files.length} PNG ${W}×${H} → ${outDir} (fuentes: ${fonts})`)
+  writeFileSync(join(outDir, 'render.json'), JSON.stringify({ fonts, slides: files.length, color, sizes }, null, 2))
+  console.log(`${files.length} PNG ${W}×${H} → ${outDir} (fuentes: ${fonts}; color ${color.id} ${color.bg}/${color.ink}, contraste ${color.contrast}:1)`)
 }
