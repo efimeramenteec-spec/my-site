@@ -5,6 +5,24 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-27 (#92b) -->
+
+### 2026-10-22 (pm) — #84 A Mariana's rules = public link only · B 6 Mariana sessions created (executor, 2024472)
+- **A:** rules (11:00–20:00 starts, ≥2h, 3/day, en línea) now bind ONLY public booking (public-booking / lead bot =
+  service_role). Panel: `therapistRules.js#panelBypassesRules({fullAccess,terapeutaId}, session.terapeuta_id)` → drawer
+  skips `forcedModalidad` + `ruleError`, `Sesiones#handleSubmit` skips `violatesRules`. DB: `enforce_therapist_rules`
+  returns early on `is_owner() or my_terapeuta_id() = mariana` (`supabase/therapist-rules-public-only-84.sql`, applied as
+  migration `therapist_rules_public_only_84`). Room cap untouched; `excepcion_reglas` still honoured. Tested in a
+  rollback DO block (Sat 31 Oct 09:00 presencial): owner SAVED, Mariana SAVED, service_role → MARIANA_RULE. Deployed via
+  connector (deploy 6ada7cced7c89aee898e91d3). Gotcha: service-role scripts writing Mariana sessions outside her rules
+  must either set `excepcion_reglas` or write with owner JWT claims (`set local role authenticated` + request.jwt.claims).
+- **B:** 6 sessions created AS OWNER (jwt claims, born programada → confirmada), 1 h, monto = tarifa, Calendar events
+  via the `calendar` fn + google_event_id stamped. 20 Oct 17:00 Buitrón $39 e149caab · 17 Oct 09:00 presencial Baquero $36
+  545b122b · 15 Oct 19:00 Merizalde $39 d24f4f32 · 11 Oct 09:00 Kathy $10 PAID 3761a0b2 · 27 Oct 13:00 presencial Diana
+  $45 fd3464c3 · 27 Oct 18:00 Grace $36 2379c51a. No saldo draws (their lotes are unapproved). Kathy's duplicate record
+  c1d2422c → inactivo (it had 1 CANCELLED 25 Aug session, not zero). María Emilia's telefono had invisible U+202A/U+202C
+  → normalizePhone returned null → cleaned to +593982697856.
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-27 (#92) -->
 
 ### 2026-10-22 — #83 Held receipts resolved (A) + repeated receipts closed automatically (B) (executor, aefce83)

@@ -103,6 +103,18 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-27 (night) — #92b Carousel design fixes + exact-translation test (executor, d209039)
+- **Design in force (Nicolás):** flat cream `#FEF8E9` + black, NO gradients/orbs, NO logos on any slide; ✦ + NN/NN numbers +
+  "desliza →" (cover) + "pensar con luz" (closing) kept. Content titles pinned to the top (`.fit.top-align`), so the same
+  height on every content slide; body right below. `contenido.title` is optional (a body-only slide starts at the same spot,
+  body max 56px); `cierre.credit` = optional small line under the handle.
+- **Handle = `@efimeramente.ec`** (single const `HANDLE` in `scripts/carrusel/render.mjs`), shown ONLY on the closing slide.
+  The old handle is gone from the repo (grep → 0 outside CHANGELOG). The manual's p.32 mockup shows the old one; don't copy it.
+- Drive `IG · Listos/`: `TEST-2026-10-27-traduccion` (9 PNG, faithful translation incl. slide 6 statistic, caption translated +
+  "Traducido de @drdianahill", no CTA added) · `TEST-2026-10-27-reescritura-v2` (same 7-slide text, new design) ·
+  `COMPARACION-2026-10-27.png` (A top row, B bottom). The first folder `TEST-2026-10-27-terapia-que-se-queda` was left as is.
+- `assets/brand/logos/` stays in the repo as brand assets, but carousels no longer use them.
+
 ### 2026-10-27 (eve) — #92 /carrusel piece 1: Instagram brand templates + test carousel (executor, 065f59d)
 - **Brand manual → code:** `assets/brand/BRAND.md` (8 HEX from manual p.13–20, fonts p.11–12, área de respeto p.29,
   usos incorrectos p.30). Cream `#FEF8E9` (sampled p.26) + black ink approved by Nicolás. Logos trimmed in `assets/brand/logos/`.
@@ -213,28 +225,12 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - Follow-up (Nicolás): the 3 Mariana-forwarded leftovers applied — $30 = Paola Ibarra 8 Oct; $36 = Daniela Santillan 17 Oct
   (monto 39→36, then tarifa 39→36 too); $35 = Karo 15 Oct. David Betancourt tarifa + 3 Oct monto 39→35. Final: `remaining>0 and aprobado_at is null` = **0**.
 
-### 2026-10-22 (pm) — #84 A Mariana's rules = public link only · B 6 Mariana sessions created (executor, 2024472)
-- **A:** rules (11:00–20:00 starts, ≥2h, 3/day, en línea) now bind ONLY public booking (public-booking / lead bot =
-  service_role). Panel: `therapistRules.js#panelBypassesRules({fullAccess,terapeutaId}, session.terapeuta_id)` → drawer
-  skips `forcedModalidad` + `ruleError`, `Sesiones#handleSubmit` skips `violatesRules`. DB: `enforce_therapist_rules`
-  returns early on `is_owner() or my_terapeuta_id() = mariana` (`supabase/therapist-rules-public-only-84.sql`, applied as
-  migration `therapist_rules_public_only_84`). Room cap untouched; `excepcion_reglas` still honoured. Tested in a
-  rollback DO block (Sat 31 Oct 09:00 presencial): owner SAVED, Mariana SAVED, service_role → MARIANA_RULE. Deployed via
-  connector (deploy 6ada7cced7c89aee898e91d3). Gotcha: service-role scripts writing Mariana sessions outside her rules
-  must either set `excepcion_reglas` or write with owner JWT claims (`set local role authenticated` + request.jwt.claims).
-- **B:** 6 sessions created AS OWNER (jwt claims, born programada → confirmada), 1 h, monto = tarifa, Calendar events
-  via the `calendar` fn + google_event_id stamped. 20 Oct 17:00 Buitrón $39 e149caab · 17 Oct 09:00 presencial Baquero $36
-  545b122b · 15 Oct 19:00 Merizalde $39 d24f4f32 · 11 Oct 09:00 Kathy $10 PAID 3761a0b2 · 27 Oct 13:00 presencial Diana
-  $45 fd3464c3 · 27 Oct 18:00 Grace $36 2379c51a. No saldo draws (their lotes are unapproved). Kathy's duplicate record
-  c1d2422c → inactivo (it had 1 CANCELLED 25 Aug session, not zero). María Emilia's telefono had invisible U+202A/U+202C
-  → normalizePhone returned null → cleaned to +593982697856.
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
 - [ ] **/carrusel #93–#95** (#92 done 27 Oct): #93 queue (Nicolás sends IG links to 9933 → queued) + `/carrusel` command
       (rewrite + `renderCarousel`), #94 WhatsApp preview to Nicolás → post to @efimeramente.ec ONLY after he replies "sí"
-      (Instagram posting), #95 Mon/Wed/Fri 19:00 GYE schedule. Test carousel waiting for Nicolás's verdict in Drive.
+      (Instagram posting), #95 Mon/Wed/Fri 19:00 GYE schedule. Waiting on Nicolás: exact translation vs rewrite (COMPARACION-2026-10-27.png in IG · Listos) — his pick sets #93's mode.
 - [ ] Ask blnk estudio whether Helvetica Now Display + Chetta Vissto can be used on the web (needed before the website).
 - [ ] **Zara Basantez 26 Oct $32 receipt** (e3d66145) held — waiting on Nicolás (what it pays). (#89)
 - [ ] **#90 duplicate patients:** Kathy, Melania, Romesvary, Cecilia Reascos lead record → merge; Luna/Domenica/Nikole wait on Nicolás.
