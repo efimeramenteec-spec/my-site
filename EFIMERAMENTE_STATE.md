@@ -103,6 +103,27 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-27 (eve) — #92 /carrusel piece 1: Instagram brand templates + test carousel (executor, 065f59d)
+- **Brand manual → code:** `assets/brand/BRAND.md` (8 HEX from manual p.13–20, fonts p.11–12, área de respeto p.29,
+  usos incorrectos p.30). Cream `#FEF8E9` (sampled p.26) + black ink approved by Nicolás. Logos trimmed in `assets/brand/logos/`.
+- **Renderer:** `scripts/carrusel/render.mjs` — `renderCarousel(spec, outDir)` (importable, for #93) + CLI
+  `node scripts/carrusel/render.mjs <spec.json> <outDir>`. Spec `{slides:[{type:portada|contenido|cierre,title,body?,kicker?}]}`;
+  `**x**` in a title = Helvetica bold (manual's headline pattern). Playwright (devDependency 1.64.1) → 1080×1350 PNG, size
+  checked from the PNG header. Auto-fit shrinks all type together; still overflowing at min → THROWS (no clipped slides).
+  Gotcha fixed: measure `.inner` height, not `scrollHeight` (centered blocks overflow upward invisibly).
+- **Fonts NOT in git** (repo is public; Helvetica Now = Monotype "may not copy or distribute"; Chetta Vissto has no license
+  info): `node scripts/carrusel/fetch-fonts.mjs` pulls them from Drive TIPOGRAFIA (link-shared) into gitignored
+  `assets/brand/fonts/`. Without them → Playfair Display / Inter Tight (`CARRUSEL_FALLBACK_FONTS=1` to preview).
+  Chetta lacks ¿ ¡ — “ ” … → those glyphs come from Playfair. Nicolás: fine for IG images; web use needs blnk's OK.
+- **Test carousel** from @drdianahill DesKKVGErca (9 slides, ACT "therapist avoidance") → 7 slides, rewritten for patients
+  ("Una buena terapia no corre a quitarte el malestar"), caption 94 words + 8 hashtags. Drive: `Efimeramente · Claude/IG ·
+  Listos/TEST-2026-10-27-terapia-que-se-queda` (folder id `1wa-rnf6k5HAwcEqYwfSgViYk0ZccqUsH`; IG · Listos =
+  `1cNOTjtAOx3d3c-yLiCF9-ql_yuCVqF2b`) with 01–07.png + caption.txt + source.txt. Nothing posted, no WhatsApp sent.
+- **Drive PNG upload gotcha:** the Drive connector only takes base64 (too heavy for PNGs). Worked: Chrome on the folder →
+  inject `<input type=file>` → `file_upload` → dispatch synthetic dragenter/dragover/drop with a DataTransfer. #93 should
+  deliver previews by WhatsApp media instead and keep Drive optional.
+- Approver = **Nicolás only** (not Mariana).
+
 ### 2026-10-27 (pm) — #90 Backup tables locked down (Supabase critical alert) (executor)
 - Supabase flagged `patients_/sessions_/saldo_lotes_backup_20261022` as "RLS Disabled in Public". anon already had no
   grants on them but **`authenticated` had SELECT** (any therapist login could read). Also `*_backup_20261023` (4 tables) had RLS off, no grants.
@@ -208,40 +229,13 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   c1d2422c → inactivo (it had 1 CANCELLED 25 Aug session, not zero). María Emilia's telefono had invisible U+202A/U+202C
   → normalizePhone returned null → cleaned to +593982697856.
 
-### 2026-10-22 — #83 Held receipts resolved (A) + repeated receipts closed automatically (B) (executor, aefce83)
-- **A (data, Nicolás's decisions):** 11 held receipts closed. Applied once (approve-path equivalent, reconciled_by =
-  Nicolás 92ebe5c0): ref 5076515 → Camila Mena 15 Oct (proof 92d43ef6); ref 289142206 → Kathy 14 Sep (4998a0af); Luis
-  Vaca c0cd37ec $50 → 20 Oct session monto 35→50 (it was ALREADY tipo pareja, so Carolina's payroll was already $30 —
-  no payroll change, +$15 income). Closed `duplicado`: 55fa5107, afc84632, c5911b17, e6319647, 434e7d2a, a11981c9.
-  Closed `ignorado`: 138b0f8a (Cecília/Dorian $39), 27030cd6 (Mariana $7.25). No lote created.
-- **B:** new columns `whatsapp_messages.cierre` (`duplicado|copia|ignorado`) + `cierre_nota` (migration
-  `comprobantes_cierre_83` = `supabase/comprobantes-cierre-83.sql`). **Applied = reconciled_at set AND cierre null.**
-  Shared pure helpers `src/lib/proofRef.js` (`normalizeReference`, `sameReceipt` = ref+amount+bank, `isApplied`,
-  `referenceAppliedIn`) used by `proofReconcile.mjs` AND `queries.js#confirmProofPayment` (manual "Marcar pagado").
-- `proofReconcile.mjs`: `loadRefRows` (throws → fail closed), `repeatVerdict` (before the gate in `runProofAutomation`;
-  applied twin → `duplicado de <fecha>`; ignorado twin → ignorado; pending copies → first stays, rest `copia`),
-  `closeAsRepeat`, `closeCopiesOf` (called by `approveProof` after applying), `referenceReused` → 'reused'|'ok'|'error'
-  vs APPLIED only; error → withhold `ref_check_failed` / approve refused. `samePersonActive` + inactive-record redirect
-  of the PROPOSAL only (Karina old record → Camila). Panel "Descartar" now sets `cierre='ignorado'`; processed list shows
-  `cierre_nota`. Harness `scripts/harness-comprobantes-83.mjs` 21/21; #77 harness 61/61. Prod dry check: 0 pending
-  receipts with a reference at deploy. Deployed via connector (deploy 6ada7a55) — push still doesn't auto-deploy.
-- Gotcha: historic panel dismissals (reconciled, no sessions, cierre null) still count as "applied" (conservative).
-
-### 2026-10-21 (pm) — #82 package-bug damage corrected (executor)
-- Backups `saldo_lotes_backup_20261021` (37) + `sessions_backup_20261021` (78, all package patients), owner RLS + GRANTs.
-- Lotes corrected (amount − $35 × non-cancelled sessions covered) + approved (aprobado_por = Nicolás 92ebe5c0, note
-  "aprobado nicolas-82"): Andrea 23→70, Catalina 101→105, Emily (2nd) 136→140, Juan Carlos 62→70, Ramesvary 31→35;
-  also approved as verified-correct: Daniel 35, Samantha 48 @24. Unchanged at 0: Emily 1st, Gabriela Páliz, Isabel, Shyam.
-- 9 package sessions monto 39→35 (Andrea 23 Sep + 1 Oct, Catalina 8 Oct, Emily 15 Aug + 14 Sep + 10 Oct, Juan Carlos
-  1 + 15 Oct, Ramesvary 17 Oct). None invoiced; none paid out of pocket by a patient because of the bug.
-- **Fátima Tubón NOT touched (unclear):** lote 120 @30, 60 left; 8 + 16 Oct both marked paid by hand 13 Oct (payphone) but
-  only one $30 left the lote → either 30 or 60 is right. Her 22 Oct session won't auto-pay until Nicolás decides/approves.
-- Going forward: trigger sets monto = package price on a package draw; `allocate` $140 → `sessionMonto` 35 (harness 61/61).
-  Migration `paquetes_correccion_82` = `supabase/paquetes-correccion-82.sql` (data block guarded on current values).
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **/carrusel #93–#95** (#92 done 27 Oct): #93 queue (Nicolás sends IG links to 9933 → queued) + `/carrusel` command
+      (rewrite + `renderCarousel`), #94 WhatsApp preview to Nicolás → post to @efimera.mente ONLY after he replies "sí"
+      (Instagram posting), #95 Mon/Wed/Fri 19:00 GYE schedule. Test carousel waiting for Nicolás's verdict in Drive.
+- [ ] Ask blnk estudio whether Helvetica Now Display + Chetta Vissto can be used on the web (needed before the website).
 - [ ] **Zara Basantez 26 Oct $32 receipt** (e3d66145) held — waiting on Nicolás (what it pays). (#89)
 - [ ] **#90 duplicate patients:** Kathy, Melania, Romesvary, Cecilia Reascos lead record → merge; Luna/Domenica/Nikole wait on Nicolás.
 - [ ] Unreadable receipt 762ee117 (26 Oct 12:28, needs_review, no patient) still open in Comprobantes.

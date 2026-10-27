@@ -5,6 +5,39 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-27 (#92) -->
+
+### 2026-10-22 — #83 Held receipts resolved (A) + repeated receipts closed automatically (B) (executor, aefce83)
+- **A (data, Nicolás's decisions):** 11 held receipts closed. Applied once (approve-path equivalent, reconciled_by =
+  Nicolás 92ebe5c0): ref 5076515 → Camila Mena 15 Oct (proof 92d43ef6); ref 289142206 → Kathy 14 Sep (4998a0af); Luis
+  Vaca c0cd37ec $50 → 20 Oct session monto 35→50 (it was ALREADY tipo pareja, so Carolina's payroll was already $30 —
+  no payroll change, +$15 income). Closed `duplicado`: 55fa5107, afc84632, c5911b17, e6319647, 434e7d2a, a11981c9.
+  Closed `ignorado`: 138b0f8a (Cecília/Dorian $39), 27030cd6 (Mariana $7.25). No lote created.
+- **B:** new columns `whatsapp_messages.cierre` (`duplicado|copia|ignorado`) + `cierre_nota` (migration
+  `comprobantes_cierre_83` = `supabase/comprobantes-cierre-83.sql`). **Applied = reconciled_at set AND cierre null.**
+  Shared pure helpers `src/lib/proofRef.js` (`normalizeReference`, `sameReceipt` = ref+amount+bank, `isApplied`,
+  `referenceAppliedIn`) used by `proofReconcile.mjs` AND `queries.js#confirmProofPayment` (manual "Marcar pagado").
+- `proofReconcile.mjs`: `loadRefRows` (throws → fail closed), `repeatVerdict` (before the gate in `runProofAutomation`;
+  applied twin → `duplicado de <fecha>`; ignorado twin → ignorado; pending copies → first stays, rest `copia`),
+  `closeAsRepeat`, `closeCopiesOf` (called by `approveProof` after applying), `referenceReused` → 'reused'|'ok'|'error'
+  vs APPLIED only; error → withhold `ref_check_failed` / approve refused. `samePersonActive` + inactive-record redirect
+  of the PROPOSAL only (Karina old record → Camila). Panel "Descartar" now sets `cierre='ignorado'`; processed list shows
+  `cierre_nota`. Harness `scripts/harness-comprobantes-83.mjs` 21/21; #77 harness 61/61. Prod dry check: 0 pending
+  receipts with a reference at deploy. Deployed via connector (deploy 6ada7a55) — push still doesn't auto-deploy.
+- Gotcha: historic panel dismissals (reconciled, no sessions, cierre null) still count as "applied" (conservative).
+
+### 2026-10-21 (pm) — #82 package-bug damage corrected (executor)
+- Backups `saldo_lotes_backup_20261021` (37) + `sessions_backup_20261021` (78, all package patients), owner RLS + GRANTs.
+- Lotes corrected (amount − $35 × non-cancelled sessions covered) + approved (aprobado_por = Nicolás 92ebe5c0, note
+  "aprobado nicolas-82"): Andrea 23→70, Catalina 101→105, Emily (2nd) 136→140, Juan Carlos 62→70, Ramesvary 31→35;
+  also approved as verified-correct: Daniel 35, Samantha 48 @24. Unchanged at 0: Emily 1st, Gabriela Páliz, Isabel, Shyam.
+- 9 package sessions monto 39→35 (Andrea 23 Sep + 1 Oct, Catalina 8 Oct, Emily 15 Aug + 14 Sep + 10 Oct, Juan Carlos
+  1 + 15 Oct, Ramesvary 17 Oct). None invoiced; none paid out of pocket by a patient because of the bug.
+- **Fátima Tubón NOT touched (unclear):** lote 120 @30, 60 left; 8 + 16 Oct both marked paid by hand 13 Oct (payphone) but
+  only one $30 left the lote → either 30 or 60 is right. Her 22 Oct session won't auto-pay until Nicolás decides/approves.
+- Going forward: trigger sets monto = package price on a package draw; `allocate` $140 → `sessionMonto` 35 (harness 61/61).
+  Migration `paquetes_correccion_82` = `supabase/paquetes-correccion-82.sql` (data block guarded on current values).
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-27 (#89) -->
 
 ### 2026-10-21 — #81 A/B/C: Mariana's receipts held · package credit at package price · only approved credit spent (executor, 23bc4f2, 3d2cd78)
