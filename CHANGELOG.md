@@ -7,6 +7,24 @@ Newest first.
 
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-27 (#92b) -->
 
+### 2026-10-22 (night) — #85 Credit cleanup, line by line by Nicolás (executor, data only)
+- One migration `credit_cleanup_85` = `supabase/credit-cleanup-85.sql`. Backups first: `saldo_lotes_backup_20261022` (all
+  38 lotes), `sessions_backup_20261022` (7 touched + all of Martín Torres', 17 rows), `patients_backup_20261022` (Karo,
+  Martín) — GRANTs per #62. Notes appended to each lote as `| #85 22 Oct: …`. No messages sent.
+- **Zeroed (duplicates):** Ericka Rosero $35, Karina Almache old record $35, Nantu $4, Raguel 03-Oct $36, Shariam A. $76,
+  Gabriela Acosta $70, Mariana-fwd $35 (ref 199192280 = David Betancourt's receipt already applied 7 Oct to his 3 Oct).
+- **Zero + session:** Luis Vaca 2 Oct pareja monto 35→50 (payroll unchanged: pareja = $30 by tipo, `provision.js`; revenue
+  +$15). Raguel 16-Oct lote $72 → Emilie 17 Oct paid ($36 `saldo_consumos` row) + rest 0. Zara $32 → 22 Oct paid
+  (`saldo_consumos` row). Consumos rows written so a later cancel refunds the lote via the trigger.
+- **Approved** (aprobado_por = owner uuid 92ebe5c0 — the column is uuid, "nicolas-85" lives in the note): Diana $90,
+  Fátima/Valentina package (then corrected 60→30 by Nicolás: 1/8/16 Oct already paid → 1 session left), Natalie $25. Settle trigger drew nothing (no confirmada+unpaid sessions).
+- **Forgiven:** Luna $1, Valentina Andrade $1, Shariam/Marthin $1 (her 14+16 Oct already pagado → nothing owed).
+- **Karo Merizalde:** tarifa 39→35; 16 Sep monto 39→35 (paid); 15 Oct 39→35 still UNPAID; her $35 lote → 0.
+- **Payer:** new `payers` row Gabriela Acosta (+593998179787, 53d623a4) → `patients.payer_id` of Martín Torres. The payer has NO
+  cédula — irrelevant here (Martín isn't `facturacion_obligatoria`), but it WOULD block invoices for an obligatoria patient.
+- Follow-up (Nicolás): the 3 Mariana-forwarded leftovers applied — $30 = Paola Ibarra 8 Oct; $36 = Daniela Santillan 17 Oct
+  (monto 39→36, then tarifa 39→36 too); $35 = Karo 15 Oct. David Betancourt tarifa + 3 Oct monto 39→35. Final: `remaining>0 and aprobado_at is null` = **0**.
+
 ### 2026-10-22 (pm) — #84 A Mariana's rules = public link only · B 6 Mariana sessions created (executor, 2024472)
 - **A:** rules (11:00–20:00 starts, ≥2h, 3/day, en línea) now bind ONLY public booking (public-booking / lead bot =
   service_role). Panel: `therapistRules.js#panelBypassesRules({fullAccess,terapeutaId}, session.terapeuta_id)` → drawer

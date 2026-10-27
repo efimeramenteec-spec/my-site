@@ -103,6 +103,23 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-27 (late night) — #92c Carousel color pairs + Nicolás's corrected translation in 3 colors (executor, 59183b6)
+- **Color system** `scripts/carrusel/colors.mjs`: `PAIRS` (11 ids), each a flat bg + ONE ink for all text, same on every slide.
+  Light = manual pastel + black; deep = `deep(hex, L)` (same HSL hue, sat ≤ 80%, lightness L%), because mixing with black turned
+  warm hues brown. `contrast()` (WCAG), `checkPairs()` throws if any < 4.5:1 (`node scripts/carrusel/colors.mjs` prints the table;
+  lowest terracota-crema 5.44). `nextPair(history)` = next id after the last used (never repeats). **#93 must store the history.**
+- `render.mjs`: spec `"color": "<id>"` (default `crema-tinta`), refuses < 4.5; `renderCarousel` returns `{files, fonts, color, sizes}`;
+  `render.json` logs color + contrast + final font sizes per slide. The credit line is no longer faded (full ink).
+- Test (Nicolás's corrected text, verbatim, checked by script; S4/S5 now body-only, no credit line) in Drive IG · Listos:
+  `TEST-2026-10-27-final-colorA` terracota `#A54C12`/crema, `-colorB` deep blue `#1263A5`/crema, `-colorC` violet `#4E1F85`/yellow
+  `#FFD84A` (9 PNG + caption.txt + render.json each, byte-checked) + `COLORES-2026-10-27.png` (cover + slides 04, 08 per color).
+  Body sizes = #92b (56 body-only, 46 with title, 43 closing); everything fit.
+- **#93 decisions** (BRAND.md "/carrusel flow"): Mon/Wed/Fri the morning brief gives Nicolás the full translated copy → he corrects
+  → only then render → preview → his "sí" → post 19:00 GYE. Default = exact translation; caption drops the author's first-person
+  claims; exactly 5 Spanish hashtags (2–3 broad, 1–2 medium, 1 niche) inside the copy; color via `nextPair`. Slide doesn't fit → stop, report.
+- Gotcha: Drive upload = Chrome injected `<input type=file>` + synthetic drop (connector can't upload binaries); in a folder with
+  subfolders, drop at ~66% width / 80% height of the viewport, not on a tile.
+
 ### 2026-10-27 (night) — #92b Carousel design fixes + exact-translation test (executor, d209039)
 - **Design in force (Nicolás):** flat cream `#FEF8E9` + black, NO gradients/orbs, NO logos on any slide; ✦ + NN/NN numbers +
   "desliza →" (cover) + "pensar con luz" (closing) kept. Content titles pinned to the top (`.fit.top-align`), so the same
@@ -207,30 +224,13 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   8 Oct was reminded and unpaid until 22 Oct (#85 follow-up) → en mora skip; the +1 number is fine (delivered 10 Oct).
 - Push to main DID auto-deploy this time (0ab636f live within minutes).
 
-### 2026-10-22 (night) — #85 Credit cleanup, line by line by Nicolás (executor, data only)
-- One migration `credit_cleanup_85` = `supabase/credit-cleanup-85.sql`. Backups first: `saldo_lotes_backup_20261022` (all
-  38 lotes), `sessions_backup_20261022` (7 touched + all of Martín Torres', 17 rows), `patients_backup_20261022` (Karo,
-  Martín) — GRANTs per #62. Notes appended to each lote as `| #85 22 Oct: …`. No messages sent.
-- **Zeroed (duplicates):** Ericka Rosero $35, Karina Almache old record $35, Nantu $4, Raguel 03-Oct $36, Shariam A. $76,
-  Gabriela Acosta $70, Mariana-fwd $35 (ref 199192280 = David Betancourt's receipt already applied 7 Oct to his 3 Oct).
-- **Zero + session:** Luis Vaca 2 Oct pareja monto 35→50 (payroll unchanged: pareja = $30 by tipo, `provision.js`; revenue
-  +$15). Raguel 16-Oct lote $72 → Emilie 17 Oct paid ($36 `saldo_consumos` row) + rest 0. Zara $32 → 22 Oct paid
-  (`saldo_consumos` row). Consumos rows written so a later cancel refunds the lote via the trigger.
-- **Approved** (aprobado_por = owner uuid 92ebe5c0 — the column is uuid, "nicolas-85" lives in the note): Diana $90,
-  Fátima/Valentina package (then corrected 60→30 by Nicolás: 1/8/16 Oct already paid → 1 session left), Natalie $25. Settle trigger drew nothing (no confirmada+unpaid sessions).
-- **Forgiven:** Luna $1, Valentina Andrade $1, Shariam/Marthin $1 (her 14+16 Oct already pagado → nothing owed).
-- **Karo Merizalde:** tarifa 39→35; 16 Sep monto 39→35 (paid); 15 Oct 39→35 still UNPAID; her $35 lote → 0.
-- **Payer:** new `payers` row Gabriela Acosta (+593998179787, 53d623a4) → `patients.payer_id` of Martín Torres. The payer has NO
-  cédula — irrelevant here (Martín isn't `facturacion_obligatoria`), but it WOULD block invoices for an obligatoria patient.
-- Follow-up (Nicolás): the 3 Mariana-forwarded leftovers applied — $30 = Paola Ibarra 8 Oct; $36 = Daniela Santillan 17 Oct
-  (monto 39→36, then tarifa 39→36 too); $35 = Karo 15 Oct. David Betancourt tarifa + 3 Oct monto 39→35. Final: `remaining>0 and aprobado_at is null` = **0**.
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
 - [ ] **/carrusel #93–#95** (#92 done 27 Oct): #93 queue (Nicolás sends IG links to 9933 → queued) + `/carrusel` command
-      (rewrite + `renderCarousel`), #94 WhatsApp preview to Nicolás → post to @efimeramente.ec ONLY after he replies "sí"
-      (Instagram posting), #95 Mon/Wed/Fri 19:00 GYE schedule. Waiting on Nicolás: exact translation vs rewrite (COMPARACION-2026-10-27.png in IG · Listos) — his pick sets #93's mode.
+      (translation + `renderCarousel`), #94 WhatsApp preview to Nicolás → post to @efimeramente.ec ONLY after he replies "sí"
+      (Instagram posting), #95 Mon/Wed/Fri 19:00 GYE schedule. **Mode decided (#92c): exact translation**, flow + hashtags + color
+      rotation in `assets/brand/BRAND.md` "/carrusel flow". Waiting on Nicolás: pick a color direction (COLORES-2026-10-27.png in IG · Listos).
 - [ ] Ask blnk estudio whether Helvetica Now Display + Chetta Vissto can be used on the web (needed before the website).
 - [ ] **Zara Basantez 26 Oct $32 receipt** (e3d66145) held — waiting on Nicolás (what it pays). (#89)
 - [ ] **#90 duplicate patients:** Kathy, Melania, Romesvary, Cecilia Reascos lead record → merge; Luna/Domenica/Nikole wait on Nicolás.
