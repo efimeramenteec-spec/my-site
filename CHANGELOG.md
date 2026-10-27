@@ -5,6 +5,24 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-26 (#87, #88) -->
+
+### 2026-10-19 (pm) — #80 payment rule v2 + #78 /cierre (executor, 6fcca4d, cc4f847)
+- **#80:** `proofReconcile.mjs#decideAutoReconcile` now also auto-applies **exactly 4 × tarifa** for ONE group patient →
+  marks the unpaid sessions it covers (oldest first, ≤4, each must cost the tarifa) + the rest as a `package` lote @tarifa
+  stamped `aprobado_at` (no `aprobado_por`, note "Paquete 4 × tarifa (regla #80)") — the only automatic lote. Two group
+  patients matching 4×tarifa → held `payer_ambiguous`. Exact tarifa path unchanged. Harness 42/42.
+- **Not done on purpose:** `consume_saldo_on_confirm` NOT switched to approved-only (#80 step 3) — Nicolás reviews every
+  existing credit by hand first (his call, 19 Oct); switching now would freeze in-progress packages (all lotes aprobado_at null).
+- **#79 cancelled by Nicolás** (he reviews the credits himself). Nothing changed; backup table `saldo_lotes_backup_20261019`
+  (35 rows, $1,195) left in place. Observations for him: package lotes are @35 but sessions are $39 → the trigger draws $39
+  per session (a 4-pack lasts ~3.6 sessions); Andrea Torres' lote lost $39 to a cancelled session (shows $23, 2 sessions left).
+- **#78:** cause = session launched from `~` instead of `~/my-site` (project commands only load from the launch folder);
+  files fine. cierre.md step 5 now requires reflecting decisions/live-state in the Drive TO-DO.
+- **Brief gap (07:51 routine trig_014bnWaSpPv3quC8YPHZWqGS):** its credit list filters `proof_id is not null` → misses the 4
+  open hand-made/backfill lotes (Daniel Granja $35, Fátima Tubon $60, Ramesvary $31, Samantha Aldaz $48) and caps at ~15 lines.
+  Not edited from here (112 KB job_config, partial update could drop its tools) → director to fix.
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-22 (#85, #86) -->
 ### 2026-10-19 — #77 Comprobantes: auto only at exact tarifa · #76 Shariam 2 facturas (executor, a1214ef)
 - **#76 data:** patient b2135479 "Sharian Narvaez" → Shariam Alexandra Narváez Celi, cédula 1722319439, +593995879307,

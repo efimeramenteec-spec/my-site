@@ -103,6 +103,25 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-23 — #87 Mila/Sébastien invoice 329 · #88 Julián package + Laura prepay (date-limited credit) (executor, d415bb6)
+- **#87:** session fe2f0b02 (Mila 20 Oct, $32) → `facturar?mode=emit-one` → **001-001-000000329**, customer SÉBASTIEN PAQUE /
+  1004438295, Observaciones "Sesión Psicológica Individual | Sesión 20 de Octubre" (factura_concepto_general, same as #315).
+  facturada=true at once. SRI authorization took **~3.5 h** (emitted ~19:50 UTC, sent 23:30) — the sweep (`factura-rides-sweep`)
+  delivered it on its own: factura_sesion_link to +593985506258 (same as #315), delivered 00:52 UTC 24 Oct. Gotcha: SRI delays
+  of 1–4 h happen (#325 = 1 h); don't re-PUT /sri/, just let the sweep send. The 22 Oct auto-run had missed it (paid 10:10,
+  after the 09:00 run); next auto-run Mon 26 Oct 09:00 would have caught it.
+- **#88 backups:** `patients_/sessions_/saldo_lotes_/saldo_consumos_backup_20261023` (Julián + Laura only).
+- **New column `saldo_lotes.valido_desde`** (date, null = any session) — migration `saldo_valido_desde_88` =
+  `supabase/saldo-valido-desde-88.sql` (also CREATE OR REPLACE `consume_saldo_on_confirm`: both the unit and the fragment
+  branch skip lotes with `valido_desde > new.fecha`). JS mirror `saldo.mjs#loteValidoPara(l, fecha)`, used in
+  `owedAfterCredit` (per row; leftover-fragment netting ignores date-limited lotes), `paymentReminders.mjs` (selects
+  valido_desde) and `proofReconcile.mjs` (fifoConsumeLotes + proposal credit, against GYE today). Needed because ANY update
+  to an old confirmada+unpaid session (e.g. a reminder stamp) fires the trigger.
+- **Julián Velasco:** lote package 140/35, remaining 70, approved (owner uuid 92ebe5c0), 2 `saldo_consumos` ($35: 20 + 30 Oct),
+  those sessions monto 39→35 (paid_at kept), tarifa 39→35. 13 Oct llamada untouched.
+- **Laura Galindo:** lote prepay 60/30, remaining 60, approved, **valido_desde 2026-10-24**. Insert's settle touched 9 Oct →
+  stayed unpaid. Rollback test: next 2 confirmed sessions draw (Julián $35 ×2, Laura $30 ×2), 3rd not, 9 Oct not.
+
 ### 2026-10-22 (late night) — #86 A Emily merge · B 4 payment reminders resent · C failed reminders ≠ sent · D Marthina package (executor, 0ab636f)
 - Backups first: `patients_backup_20261022b`, `sessions_backup_20261022b`, `saldo_lotes_backup_20261022b` (Emily ×2 records, Marthina; RLS on, GRANT service_role).
 - **A Emily Rivera:** kept 9a8013b6 → telefono `+61433182326` (was `+593433182326` = AU number with an EC prefix → 131026 every time), tarifa 35.
@@ -218,25 +237,11 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - **B3:** Felipe y Mafer 20 Oct 19:00 pareja → Calendar event 2pf561pilv97oe4qad8aehbdg8 on Mariana's calendar, saved to
   sessions.google_event_id (af8fd900).
 
-### 2026-10-19 (pm) — #80 payment rule v2 + #78 /cierre (executor, 6fcca4d, cc4f847)
-- **#80:** `proofReconcile.mjs#decideAutoReconcile` now also auto-applies **exactly 4 × tarifa** for ONE group patient →
-  marks the unpaid sessions it covers (oldest first, ≤4, each must cost the tarifa) + the rest as a `package` lote @tarifa
-  stamped `aprobado_at` (no `aprobado_por`, note "Paquete 4 × tarifa (regla #80)") — the only automatic lote. Two group
-  patients matching 4×tarifa → held `payer_ambiguous`. Exact tarifa path unchanged. Harness 42/42.
-- **Not done on purpose:** `consume_saldo_on_confirm` NOT switched to approved-only (#80 step 3) — Nicolás reviews every
-  existing credit by hand first (his call, 19 Oct); switching now would freeze in-progress packages (all lotes aprobado_at null).
-- **#79 cancelled by Nicolás** (he reviews the credits himself). Nothing changed; backup table `saldo_lotes_backup_20261019`
-  (35 rows, $1,195) left in place. Observations for him: package lotes are @35 but sessions are $39 → the trigger draws $39
-  per session (a 4-pack lasts ~3.6 sessions); Andrea Torres' lote lost $39 to a cancelled session (shows $23, 2 sessions left).
-- **#78:** cause = session launched from `~` instead of `~/my-site` (project commands only load from the launch folder);
-  files fine. cierre.md step 5 now requires reflecting decisions/live-state in the Drive TO-DO.
-- **Brief gap (07:51 routine trig_014bnWaSpPv3quC8YPHZWqGS):** its credit list filters `proof_id is not null` → misses the 4
-  open hand-made/backfill lotes (Daniel Granja $35, Fátima Tubon $60, Ramesvary $31, Samantha Aldaz $48) and caps at ~15 lines.
-  Not edited from here (112 KB job_config, partial update could drop its tools) → director to fix.
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **#88 watch:** Laura Galindo's 9 Oct ($30) must stay owed and keep getting payment reminders; her first two sessions
+      from 24 Oct onward should draw $30 each from lote (valido_desde 2026-10-24). Julián's next 2 confirmed → $35 each.
 - [ ] **#86 follow-ups:** confirm Gabriela Abril's 22 Oct wamid reaches delivered (`reminder_sends`). First real
       `recordatorio_fallido` owner message → check it names patient/number/error and the stamp got cleared. Dead numbers
       still to fix: Fátima Tubon +59398067281 (one digit short), Wolfgang Armas +59363158790 (→ +593963158790).
