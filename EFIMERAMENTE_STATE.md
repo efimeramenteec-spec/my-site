@@ -103,6 +103,18 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-27 (pm) — #90 Backup tables locked down (Supabase critical alert) (executor)
+- Supabase flagged `patients_/sessions_/saldo_lotes_backup_20261022` as "RLS Disabled in Public". anon already had no
+  grants on them but **`authenticated` had SELECT** (any therapist login could read). Also `*_backup_20261023` (4 tables) had RLS off, no grants.
+- Migration `backup_tables_lockdown_90` = `supabase/backup-tables-lockdown-90.sql`: DO-loop over every `public.*_backup_*`
+  (17 tables) → `enable row level security` + `revoke all … from anon, authenticated`. Idempotent; re-run after new backups.
+  Nothing dropped, no non-backup table/function touched. service_role still reads them (verified via REST).
+- **Gotcha:** `saldo_lotes_backup_20261019/21` + `sessions_backup_20261021` had owner RLS policies + GRANTs to authenticated;
+  the REVOKE makes those policies inert — backups are now service_role/SQL-editor only, by design.
+- Verified: advisor 0 `rls_disabled_in_public`; anon read of a backup → 401; live site 200; build OK.
+- Standing rule added to CLAUDE.md (DDL section): every backup gets RLS + REVOKE in the same batch that creates it.
+- Numbering clash: the director also used "#90" for the duplicate-patients item in the backlog — renumber in the TO-DO.
+
 ### 2026-10-27 — #89 3 held receipts applied by hand + Raguel 24 Oct invoice 331 (executor, data only)
 - **Backups:** `sessions_backup_20261027`, `whatsapp_messages_backup_20261027`, `saldo_lotes_backup_20261027` (RLS on).
 - **A Pamela Iturralde** receipt f12d0556 ($90, PayPal): 16 Sep aadcad0b (marked paid by mistake on 24 Sep, never paid) keeps
@@ -233,6 +245,9 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [ ] **Zara Basantez 26 Oct $32 receipt** (e3d66145) held — waiting on Nicolás (what it pays). (#89)
 - [ ] **#90 duplicate patients:** Kathy, Melania, Romesvary, Cecilia Reascos lead record → merge; Luna/Domenica/Nikole wait on Nicolás.
 - [ ] Unreadable receipt 762ee117 (26 Oct 12:28, needs_review, no patient) still open in Comprobantes.
+- [ ] **Supabase advisor WARNs left (#90 follow-up, not urgent):** 8 SECURITY DEFINER fns executable by anon via /rpc
+      (trigger fns + is_owner/my_terapeuta_id — revoke EXECUTE from anon after checking callers), 6 fns with mutable
+      search_path, Auth leaked-password protection off (dashboard toggle). Old backups could eventually be dropped (Nicolás's call).
 - [ ] Meta campaign is OFF since 27 Oct (Nicolás) — no new ad leads expected.
 - [ ] **#88 watch:** Laura Galindo's 9 Oct ($30) must stay owed and keep getting payment reminders; her first two sessions
       from 24 Oct onward should draw $30 each from lote (valido_desde 2026-10-24). Julián's next 2 confirmed → $35 each.

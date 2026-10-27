@@ -79,6 +79,11 @@ and, for behavior, checking the running app. Always build before committing.
 - **New tables need explicit GRANTs** (#62): this project does NOT auto-grant new tables to `service_role`.
   Every `CREATE TABLE` must add `grant select, insert, update, delete on table public.<t> to service_role,
   authenticated;` — `lead_inbox` shipped without it and the lead bot was silent for a day ("permission denied").
+- **Backup tables are locked at birth** (#90): every `*_backup_*` table gets, in the SAME statement batch
+  that creates it, `alter table public.<t> enable row level security; revoke all on table public.<t> from
+  anon, authenticated;` (no policies ⇒ service_role only). Do NOT grant backups to `authenticated` (the
+  #62 rule is for live tables). Three Oct-22 backups of real patient data shipped readable and tripped
+  Supabase's critical alert. Re-runnable sweep: `supabase/backup-tables-lockdown-90.sql`.
 - **DDL approval (hard rule):** additive migrations (`CREATE TABLE`, `ADD COLUMN`, `CREATE INDEX`,
   new RLS policies) run **without asking** — just announce them. **DESTRUCTIVE DDL requires explicit
   approval from Nicolás in chat before running, every time, with no exception:** `DROP TABLE`,
