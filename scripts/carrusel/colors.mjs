@@ -1,14 +1,14 @@
-// scripts/carrusel/colors.mjs — carousel color pairs (#92c, Nicolás 27 Oct)
+// scripts/carrusel/colors.mjs: carousel color pairs (#92c, rule #92d by Nicolás 27 Oct)
 //
-// Each post gets ONE pair: a flat background + one ink for ALL its text, used on
-// every slide of that post. Colors come from the manual (p.13–20, BRAND.md);
-// a "profundo" shade is the same manual hue made deep (`deep()`, HSL) so a post
-// can be a deep color with light text, like an editorial feed.
-// No gradients, no textures, no logos.
+// ONLY the brand manual's colors (p.13–20, BRAND.md), exactly as printed. The one
+// allowed adjustment is transparency over cream (`tint`). Never darken, never
+// create a color. Each post gets ONE pair: a flat background + one ink for all its
+// text, on every slide. No gradients, textures or logos.
 //
-// Every pair must pass WCAG AA for body text (≥ 4.5:1) — the same ink is used
-// for titles and body, so 4.5 covers the 3:1 large-title rule too. `checkPairs()`
-// fails loudly otherwise. Consecutive posts never repeat a pair (`nextPair`).
+// Every pair must reach WCAG AA for body text (≥ 4.5:1); the same ink is used for
+// titles and body, so this also covers the 3:1 large-title rule. `getPair()` refuses
+// a pair whose background isn't a manual color (or a transparency of one) or whose
+// ink isn't black / cream / a manual color. Consecutive posts never repeat (`nextPair`).
 
 export const MANUAL = {
   amarillo: '#FFD84A', // amarillo bruma, p.13
@@ -20,26 +20,24 @@ export const MANUAL = {
   menta: '#B7F5D8',    // verde menta, p.19
   durazno: '#FCD1B5',  // durazno pastel, p.20
 }
-export const CREMA = '#FEF8E9'
+export const CREMA = '#FEF8E9' // the ground transparency sits on (BRAND.md)
 export const TINTA = '#000000'
+const INKS = new Set([TINTA, CREMA, ...Object.values(MANUAL)])
 
-// A manual color made deep: same hue, saturation capped at 80%, lightness set
-// to L% (HSL). Mixing with black instead turns every warm hue brown; this keeps
-// the color alive (durazno → terracota, azul cielo → editorial blue).
-export function deep(hex, L) {
-  const n = parseInt(hex.slice(1), 16)
-  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => c / 255)
-  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l0 = (mx + mn) / 2
-  const h = !d ? 0 : mx === r ? 60 * (((g - b) / d) % 6) : mx === g ? 60 * ((b - r) / d + 2) : 60 * ((r - g) / d + 4)
-  const s = Math.min(d ? d / (1 - Math.abs(2 * l0 - 1)) : 0, 0.8), l = L / 100
-  const k = (m) => (m + ((h + 360) % 360) / 30) % 12, a = s * Math.min(l, 1 - l)
-  const f = (m) => l - a * Math.max(-1, Math.min(k(m) - 3, Math.min(9 - k(m), 1)))
-  return '#' + [f(0), f(8), f(4)].map((x) => Math.round(x * 255).toString(16).padStart(2, '0')).join('').toUpperCase()
+const rgb = (hex) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255] }
+const hex = (c) => '#' + c.map((x) => Math.round(x).toString(16).padStart(2, '0')).join('').toUpperCase()
+
+// A manual color at `alpha` (0–1) over cream. alpha 1 = the manual color itself.
+// This is the ONLY adjustment allowed.
+export function tint(base, alpha = 1) {
+  if (!(base in MANUAL)) throw new Error(`"${base}" no es un color del manual`)
+  if (!(alpha > 0 && alpha <= 1)) throw new Error(`transparencia inválida ${alpha}`)
+  const [c, g] = [rgb(MANUAL[base]), rgb(CREMA)]
+  return hex(c.map((v, i) => v * alpha + g[i] * (1 - alpha)))
 }
 
-function luminance(hex) {
-  const n = parseInt(hex.slice(1), 16)
-  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
+function luminance(h) {
+  const [r, g, b] = rgb(h).map((c) => {
     c /= 255
     return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
   })
@@ -50,42 +48,39 @@ export function contrast(a, b) {
   return Math.round(((x + 0.05) / (y + 0.05)) * 100) / 100
 }
 
-// Rotation order: light and deep alternate so neighbouring posts look different.
+// base = a MANUAL key (alpha 1 unless a transparency is wanted), or 'crema' = the
+// plain cream ground (#92, approved by Nicolás). Rotation order alternates warm/cool.
 export const PAIRS = [
-  { id: 'crema-tinta', nombre: 'crema + negro', bg: CREMA, ink: TINTA },
-  { id: 'terracota-crema', nombre: 'terracota (durazno pastel profundo) + crema', bg: deep(MANUAL.durazno, 36), ink: CREMA },
-  { id: 'rosa-tinta', nombre: 'rosa melón + negro', bg: MANUAL.rosa, ink: TINTA },
-  { id: 'azul-profundo-crema', nombre: 'azul cielo profundo + crema', bg: deep(MANUAL.azul, 36), ink: CREMA },
-  { id: 'amarillo-tinta', nombre: 'amarillo bruma + negro', bg: MANUAL.amarillo, ink: TINTA },
-  { id: 'violeta-profundo-amarillo', nombre: 'violeta neblina profundo + amarillo bruma', bg: deep(MANUAL.violeta, 32), ink: MANUAL.amarillo },
-  { id: 'azul-tinta', nombre: 'azul cielo + negro', bg: MANUAL.azul, ink: TINTA },
-  { id: 'ladrillo-crema', nombre: 'rosa melón profundo (ladrillo) + crema', bg: deep(MANUAL.rosa, 36), ink: CREMA },
-  { id: 'lavanda-tinta', nombre: 'lavanda humo + negro', bg: MANUAL.lavanda, ink: TINTA },
-  { id: 'naranja-profundo-crema', nombre: 'naranja aura profundo + crema', bg: deep(MANUAL.naranja, 28), ink: CREMA },
-  { id: 'menta-tinta', nombre: 'verde menta + negro', bg: MANUAL.menta, ink: TINTA },
+  { id: 'crema-tinta', nombre: 'crema + negro', base: 'crema', ink: TINTA },
+  { id: 'azul-tinta', nombre: 'azul cielo + negro', base: 'azul', ink: TINTA },
+  { id: 'rosa-tinta', nombre: 'rosa melón + negro', base: 'rosa', ink: TINTA },
+  { id: 'menta-tinta', nombre: 'verde menta + negro', base: 'menta', ink: TINTA },
+  { id: 'amarillo-tinta', nombre: 'amarillo bruma + negro', base: 'amarillo', ink: TINTA },
+  { id: 'lavanda-tinta', nombre: 'lavanda humo + negro', base: 'lavanda', ink: TINTA },
+  { id: 'naranja-tinta', nombre: 'naranja aura + negro', base: 'naranja', ink: TINTA },
+  { id: 'violeta-tinta', nombre: 'violeta neblina + negro', base: 'violeta', ink: TINTA },
+  { id: 'durazno-tinta', nombre: 'durazno pastel + negro', base: 'durazno', ink: TINTA },
 ]
 
 export const AA_BODY = 4.5
 
+// Resolves a pair and enforces the #92d rule + contrast. Throws otherwise.
 export function getPair(id) {
   const p = PAIRS.find((x) => x.id === id)
   if (!p) throw new Error(`par de color desconocido "${id}" (opciones: ${PAIRS.map((x) => x.id).join(', ')})`)
-  return { ...p, contrast: contrast(p.bg, p.ink) }
+  const bg = p.base === 'crema' ? CREMA : tint(p.base, p.alpha ?? 1)
+  if (!INKS.has(p.ink)) throw new Error(`par ${id}: la tinta ${p.ink} no es negro, crema ni un color del manual`)
+  const c = contrast(bg, p.ink)
+  if (c < AA_BODY) throw new Error(`par ${id}: contraste ${c}:1 < ${AA_BODY}:1`)
+  return { id: p.id, nombre: p.nombre, base: p.base, alpha: p.alpha ?? 1, bg, ink: p.ink, contrast: c }
 }
 
-// Throws if any pair is below AA for body text.
-export function checkPairs() {
-  const rows = PAIRS.map((p) => ({ ...p, contrast: contrast(p.bg, p.ink) }))
-  const bad = rows.filter((r) => r.contrast < AA_BODY)
-  if (bad.length) throw new Error(`pares bajo AA ${AA_BODY}:1 → ${bad.map((r) => `${r.id} ${r.contrast}`).join(', ')}`)
-  return rows
-}
+export const checkPairs = () => PAIRS.map((p) => getPair(p.id))
 
-// history = ids of past posts' pairs, oldest first. Next pair in rotation after
-// the last one used; never the same as the previous post.
+// history = ids of past posts' pairs, oldest first. Returns the pair after the last
+// one used; never the same as the previous post.
 export function nextPair(history = []) {
-  const last = history[history.length - 1]
-  const i = PAIRS.findIndex((p) => p.id === last)
+  const i = PAIRS.findIndex((p) => p.id === history[history.length - 1])
   return getPair(PAIRS[(i + 1) % PAIRS.length].id)
 }
 

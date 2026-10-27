@@ -13,8 +13,9 @@
 //       { "type": "cierre",    "title": "…", "body": "…"?, "credit": "…"? }  // body = CTA
 //   ], "color": "<pair id>"? }   // colors.mjs PAIRS; default crema-tinta
 //
-// Design (#92b/#92c, Nicolás): ONE flat color pair per post (background + one ink
-// for all text, colors.mjs — WCAG AA checked), no gradients, NO logos.
+// Design (#92b/#92c/#92d, Nicolás): ONE flat color pair per post, ONLY the manual's
+// colors (or a transparency of one over cream), one ink for all text — colors.mjs
+// enforces it + WCAG AA. No gradients, NO logos.
 // Content titles are pinned to the top (same height on every slide). The handle
 // (HANDLE, @efimeramente.ec) appears ONLY on the closing slide.
 //

@@ -26,8 +26,8 @@ which are a separate system.
 - **Ink `#000000`**: the logo PNGs are pure black (sampled), and the manual's text is black.
 
 In the manual, colors appear as soft blurred orbs/gradients (p.21 "gradientes: transiciones
-suaves", p.24 "órbita", p.26–28 variations). Carousels don't use that: since #92c they use flat
-color pairs (see below).
+suaves", p.24 "órbita", p.26–28 variations). Carousels don't use that: they use flat pairs of the
+manual's exact colors (see below).
 
 ## Tipografía (p.11–12)
 
@@ -77,37 +77,34 @@ isotipo; always scale proportionally (no stretching); no outline-only logo. Logo
   clarity), **órbita** (soft circle = continuity).
 - Tagline **"pensar con luz"** (p.34–35). Instagram handle **@efimeramente.ec**. The handle on the manual's p.32 business-card mockup is outdated: don't copy it.
 
-## Carrusel (Instagram): design in force (#92b + #92c, Nicolás 27 Oct)
-- **One color pair per post (#92c):** a flat background + ONE ink for all the text, the same on
-  every slide of that post. No gradients, orbs, textures or anything else in the background (the
-  manual's gradient language, p.21–28, is NOT used on carousels). Pairs live in
-  `scripts/carrusel/colors.mjs` (`PAIRS`); a spec picks one with `"color": "<id>"` (default
-  `crema-tinta`). Light pairs = a manual pastel + black. Deep pairs = a manual hue made deep with
-  `deep(hex, L)` (same HSL hue, saturation ≤ 80%, lightness L%), which gives terracota from
-  durazno pastel and an editorial blue from azul cielo. Mixing with black turns warm hues brown,
-  so we don't do that. The ink is black, crema, or another manual color.
-- **Contrast:** every pair must reach WCAG AA for body text, **≥ 4.5:1** (one ink for titles and
-  body, so this also covers the 3:1 large-title rule). `node scripts/carrusel/colors.mjs` prints
-  the table; the renderer refuses a pair below 4.5 and logs the ratio in `render.json`. Lowest
-  today: terracota + crema at 5.44:1. Secondary text (credit line) is drawn at full ink, never
-  faded; only the "/ NN" in the page number is at 60%.
-- **Rotation:** `nextPair(history)` returns the pair after the last one used, so consecutive posts
-  never repeat. Light and deep pairs alternate in `PAIRS`. #93 keeps the history of used pairs.
+## Carrusel (Instagram): design in force (#92b + #92c + #92d, Nicolás 27 Oct)
+- **Only the manual's colors (#92d, Nicolás 27 Oct): "Only the manual's colors. Adjustment = transparency
+  over cream only. Never darken or create colors."** Backgrounds are the p.13–20 hexes exactly as printed,
+  or one of them with transparency over cream `#FEF8E9` (`tint(base, alpha)` in `scripts/carrusel/colors.mjs`),
+  or plain cream. Text is black, cream or a manual color. `getPair()` refuses anything else, so the renderer
+  can't use it. (The deep shades tried in #92c, terracota, deep blue and so on, were removed.)
+- **One color pair per post (#92c):** a flat background + ONE ink for all the text, the same on every slide
+  of that post. No gradients, orbs, textures or anything else in the background. A spec picks its pair with
+  `"color": "<id>"` (default `crema-tinta`).
+- **Contrast:** every pair must reach WCAG AA for body text, **≥ 4.5:1** (one ink for titles and body, so
+  this also covers 3:1 for large titles). `node scripts/carrusel/colors.mjs` prints the table; the renderer
+  refuses a pair below 4.5 and logs the ratio in `render.json`. No manual color reaches 4.5:1 as text on
+  another manual color, so every pair uses black text today. Secondary text is drawn at full ink; only the
+  "/ NN" in the page number is at 60%.
+- **Rotation:** `nextPair(history)` returns the pair after the last one used (real pairs only), so
+  consecutive posts never repeat. #93 keeps the history.
 
-| id | fondo | tinta | contraste |
+| id | fondo (manual, exacto) | tinta | contraste |
 |---|---|---|---|
 | crema-tinta | `#FEF8E9` crema | `#000000` | 19.82 |
-| terracota-crema | `#A54C12` durazno profundo | `#FEF8E9` | 5.44 |
-| rosa-tinta | `#F5A8A0` rosa melón | `#000000` | 10.99 |
-| azul-profundo-crema | `#1263A5` azul cielo profundo | `#FEF8E9` | 5.91 |
-| amarillo-tinta | `#FFD84A` amarillo bruma | `#000000` | 15.17 |
-| violeta-profundo-amarillo | `#4E1F85` violeta profundo | `#FFD84A` amarillo bruma | 8.16 |
-| azul-tinta | `#A9D8FF` azul cielo | `#000000` | 13.95 |
-| ladrillo-crema | `#A52012` rosa melón profundo | `#FEF8E9` | 7.04 |
-| lavanda-tinta | `#C3C4FF` lavanda humo | `#000000` | 12.66 |
-| naranja-profundo-crema | `#814A0E` naranja aura profundo | `#FEF8E9` | 6.79 |
-| menta-tinta | `#B7F5D8` verde menta | `#000000` | 17.07 |
-
+| azul-tinta | `#A9D8FF` azul cielo, p.17 | `#000000` | 13.95 |
+| rosa-tinta | `#F5A8A0` rosa melón, p.15 | `#000000` | 10.99 |
+| menta-tinta | `#B7F5D8` verde menta, p.19 | `#000000` | 17.07 |
+| amarillo-tinta | `#FFD84A` amarillo bruma, p.13 | `#000000` | 15.17 |
+| lavanda-tinta | `#C3C4FF` lavanda humo, p.18 | `#000000` | 12.66 |
+| naranja-tinta | `#FAAB55` naranja aura, p.14 | `#000000` | 11.02 |
+| violeta-tinta | `#B48AE4` violeta neblina, p.16 | `#000000` | 7.70 |
+| durazno-tinta | `#FCD1B5` durazno pastel, p.20 | `#000000` | 14.93 |
 - **No logos on any slide** (no isotipo, no logotipo, cover and closing included). The ✦ ornament
   stays (top-right of every slide).
 - **Handle `@efimeramente.ec` ONLY on the last slide** (`HANDLE` in `scripts/carrusel/render.mjs`
