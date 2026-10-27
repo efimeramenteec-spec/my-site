@@ -5,6 +5,35 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-27 (#89) -->
+
+### 2026-10-21 — #81 A/B/C: Mariana's receipts held · package credit at package price · only approved credit spent (executor, 23bc4f2, 3d2cd78)
+- **#81 A:** `proofReconcile.mjs` — sender last-9 = a therapist named Mariana (+593994342657) or her Mariana Villegas patient
+  record → ALWAYS `withhold` (`remitente_mariana`), even exact tarifa / 4×tarifa. `nameCandidates` (nombre+apellido in OCR
+  `sender_name`/`bank_description`) + `pickRealPatient` (tie-break tarifa = amount, then unpaid session on `transfer_date`) →
+  the proposal targets the real patient with what #77/#80 would do for them; none → "elige a mano". Owner msg "enviado por
+  Mariana". approveProof re-derives the same patient (proof gets filed under them).
+- **#81 B+C (migration `saldo_precio_paquete_81`, `supabase/saldo-precio-paquete-81.sql`):** `consume_saldo_on_confirm` draws
+  ONE unit = `price_per_session` from the oldest lote with `aprobado_at` set and a full unit left; fallback = approved
+  non-package fragments pooled for the monto. New table **`saldo_consumos`** (owner RLS + GRANTs) logs every draw; session →
+  `cancelada` refunds its live draws (`revertido_at`). `settle_saldo_for_patient()` + triggers `apply_new_saldo_lote` (insert,
+  approved, no proof_id) and NEW `apply_approved_saldo_lote` (aprobado_at null→set) settle confirmada+unpaid sessions by
+  touching them (`set estado = estado`; room-cap/therapist-rule triggers skip no-op updates). JS: `saldo.mjs#loteGastable`,
+  `owedAfterCredit` (reminders), proposals never pool package credit, $140 proposal = 4 sessions @35 marked + rest as lote.
+  Harnesses: `node scripts/harness-comprobantes-77.mjs` (60/60) + `scripts/harness-saldo-81.sql` (13/13 on live, rolled back).
+- **Pre-#81 draws were never logged** → not refundable automatically. Wrong-price/cancelled report (NOT corrected — Nicolás):
+  Andrea Torres −$47 (3 draws of $39 = 23 Sep, 1 Oct + one cancelled session 7 or 8 Oct; should be 2×35 → remaining 70 not 23),
+  Juan Carlos Carrera −$8 (should be 70 not 62), Catalina Fernandez −$4 (105 not 101), Emily Rivera −$4 (new lote 140 not 136;
+  her 10 Oct session took 35+4), Ramesvary Henao −$4 (35 not 31). Total $67. Correct already: Isabel, Gabriela Páliz, Shyam,
+  Daniel, Samantha, Fátima.
+- **C freeze — every lote except Connie Ayala $35 and Felipe y Mafer $50 is now paused** (all had aprobado_at null): packages
+  Catalina $101 (next 22 Oct), Fátima $60 @30 (next 22 Oct), Emily $136, Juan Carlos $62, Samantha $48 @24, Daniel $35,
+  Andrea $23 + Ramesvary $31 (both < 1 unit — stuck until corrected); plus 19 non-package lotes. Approve = `update saldo_lotes
+  set aprobado_at = now() where id = …` → pending confirmed sessions settle instantly. Check non-package `price_per_session`
+  before approving (e.g. Ericka $35 @30, Karo $35 @39).
+- **B3:** Felipe y Mafer 20 Oct 19:00 pareja → Calendar event 2pf561pilv97oe4qad8aehbdg8 on Mariana's calendar, saved to
+  sessions.google_event_id (af8fd900).
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-26 (#87, #88) -->
 
 ### 2026-10-19 (pm) — #80 payment rule v2 + #78 /cierre (executor, 6fcca4d, cc4f847)

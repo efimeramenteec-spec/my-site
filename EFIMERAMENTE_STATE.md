@@ -103,6 +103,23 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-27 — #89 3 held receipts applied by hand + Raguel 24 Oct invoice 331 (executor, data only)
+- **Backups:** `sessions_backup_20261027`, `whatsapp_messages_backup_20261027`, `saldo_lotes_backup_20261027` (RLS on).
+- **A Pamela Iturralde** receipt f12d0556 ($90, PayPal): 16 Sep aadcad0b (marked paid by mistake on 24 Sep, never paid) keeps
+  pagado, paid_at → receipt time; 10 Oct d8521525 + 24 Oct 4da18d17 → pagado, metodo `paypal`, paid_at = receipt time.
+  Receipt reconciled_at=now, reconciled_session_ids = those 3, auto_reconciled=false; propuesta left as-is (ignored).
+- **B Cristina Fueres** split $9 (a594be1f) + $30 (c293f85d) → 21 Oct e4470822 pagado (transferencia); both receipts closed on it.
+- **C Cecilia Reascos / Amelia Sofía** $38 (5425ce21, PayPhone) → 21 Oct 76c89fe4: monto 39→38, pagado, metodo `payphone`,
+  notas "acepta $38, $1 condonado (dueño 27 Oct)". Tarifa stays 39. 12 Aug $0 llamada untouched.
+- No saldo_lotes created (Cecilia's only lote is the 9 Oct $17 overpayment, remaining 0). metodo_pago follows the receipt's
+  `extracted.destination` (same as `proofReconcile.mjs#metodoFromDestination`).
+- **D Raguel 24 Oct** c7cd68b0 → `facturar?mode=emit-one` → **001-001-000000331** ($36, LAURA VÁSQUEZ 1718240995, descripcion
+  `Paciente Raguel Conforme Vasquez | F88 … | Sesión 24 de Octubre`, same as #322). factura-rides-sweep sent it 14:15 UTC to …3019
+  (delivered). **Gotcha:** the director's premise "facturacion_manual skips it" is wrong — no code reads `facturacion_manual`; it was
+  missed because it was paid Mon 26 Oct 10:10 GYE, after that day's 09:00 auto run.
+- **E** Drive TO-DO: #87/#88 were already in it (written 26 Oct 19:21 GYE by the #87/#88 /cierre — step 5 DID run; the director read
+  a stale copy). Added #89 + Zara $32 held + #90 duplicates + campaign OFF; added a "take the newest modifiedTime" rule to the file.
+
 ### 2026-10-23 — #87 Mila/Sébastien invoice 329 · #88 Julián package + Laura prepay (date-limited credit) (executor, d415bb6)
 - **#87:** session fe2f0b02 (Mila 20 Oct, $32) → `facturar?mode=emit-one` → **001-001-000000329**, customer SÉBASTIEN PAQUE /
   1004438295, Observaciones "Sesión Psicológica Individual | Sesión 20 de Octubre" (factura_concepto_general, same as #315).
@@ -210,36 +227,13 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - Going forward: trigger sets monto = package price on a package draw; `allocate` $140 → `sessionMonto` 35 (harness 61/61).
   Migration `paquetes_correccion_82` = `supabase/paquetes-correccion-82.sql` (data block guarded on current values).
 
-### 2026-10-21 — #81 A/B/C: Mariana's receipts held · package credit at package price · only approved credit spent (executor, 23bc4f2, 3d2cd78)
-- **#81 A:** `proofReconcile.mjs` — sender last-9 = a therapist named Mariana (+593994342657) or her Mariana Villegas patient
-  record → ALWAYS `withhold` (`remitente_mariana`), even exact tarifa / 4×tarifa. `nameCandidates` (nombre+apellido in OCR
-  `sender_name`/`bank_description`) + `pickRealPatient` (tie-break tarifa = amount, then unpaid session on `transfer_date`) →
-  the proposal targets the real patient with what #77/#80 would do for them; none → "elige a mano". Owner msg "enviado por
-  Mariana". approveProof re-derives the same patient (proof gets filed under them).
-- **#81 B+C (migration `saldo_precio_paquete_81`, `supabase/saldo-precio-paquete-81.sql`):** `consume_saldo_on_confirm` draws
-  ONE unit = `price_per_session` from the oldest lote with `aprobado_at` set and a full unit left; fallback = approved
-  non-package fragments pooled for the monto. New table **`saldo_consumos`** (owner RLS + GRANTs) logs every draw; session →
-  `cancelada` refunds its live draws (`revertido_at`). `settle_saldo_for_patient()` + triggers `apply_new_saldo_lote` (insert,
-  approved, no proof_id) and NEW `apply_approved_saldo_lote` (aprobado_at null→set) settle confirmada+unpaid sessions by
-  touching them (`set estado = estado`; room-cap/therapist-rule triggers skip no-op updates). JS: `saldo.mjs#loteGastable`,
-  `owedAfterCredit` (reminders), proposals never pool package credit, $140 proposal = 4 sessions @35 marked + rest as lote.
-  Harnesses: `node scripts/harness-comprobantes-77.mjs` (60/60) + `scripts/harness-saldo-81.sql` (13/13 on live, rolled back).
-- **Pre-#81 draws were never logged** → not refundable automatically. Wrong-price/cancelled report (NOT corrected — Nicolás):
-  Andrea Torres −$47 (3 draws of $39 = 23 Sep, 1 Oct + one cancelled session 7 or 8 Oct; should be 2×35 → remaining 70 not 23),
-  Juan Carlos Carrera −$8 (should be 70 not 62), Catalina Fernandez −$4 (105 not 101), Emily Rivera −$4 (new lote 140 not 136;
-  her 10 Oct session took 35+4), Ramesvary Henao −$4 (35 not 31). Total $67. Correct already: Isabel, Gabriela Páliz, Shyam,
-  Daniel, Samantha, Fátima.
-- **C freeze — every lote except Connie Ayala $35 and Felipe y Mafer $50 is now paused** (all had aprobado_at null): packages
-  Catalina $101 (next 22 Oct), Fátima $60 @30 (next 22 Oct), Emily $136, Juan Carlos $62, Samantha $48 @24, Daniel $35,
-  Andrea $23 + Ramesvary $31 (both < 1 unit — stuck until corrected); plus 19 non-package lotes. Approve = `update saldo_lotes
-  set aprobado_at = now() where id = …` → pending confirmed sessions settle instantly. Check non-package `price_per_session`
-  before approving (e.g. Ericka $35 @30, Karo $35 @39).
-- **B3:** Felipe y Mafer 20 Oct 19:00 pareja → Calendar event 2pf561pilv97oe4qad8aehbdg8 on Mariana's calendar, saved to
-  sessions.google_event_id (af8fd900).
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
+- [ ] **Zara Basantez 26 Oct $32 receipt** (e3d66145) held — waiting on Nicolás (what it pays). (#89)
+- [ ] **#90 duplicate patients:** Kathy, Melania, Romesvary, Cecilia Reascos lead record → merge; Luna/Domenica/Nikole wait on Nicolás.
+- [ ] Unreadable receipt 762ee117 (26 Oct 12:28, needs_review, no patient) still open in Comprobantes.
+- [ ] Meta campaign is OFF since 27 Oct (Nicolás) — no new ad leads expected.
 - [ ] **#88 watch:** Laura Galindo's 9 Oct ($30) must stay owed and keep getting payment reminders; her first two sessions
       from 24 Oct onward should draw $30 each from lote (valido_desde 2026-10-24). Julián's next 2 confirmed → $35 each.
 - [ ] **#86 follow-ups:** confirm Gabriela Abril's 22 Oct wamid reaches delivered (`reminder_sends`). First real
