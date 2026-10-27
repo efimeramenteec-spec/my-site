@@ -1,0 +1,10 @@
+{
+  "_nota": "Muestra de plantillas (#92) — texto de prueba para revisar diseño, tildes y ajuste. No es un post.",
+  "slides": [
+    { "type": "portada", "title": "No todo lo que sientes **necesita una solución inmediata**" },
+    { "type": "contenido", "title": "A veces **solo hay que nombrarlo**", "body": ["Ponerle palabras a una emoción baja su intensidad.", "No es debilidad: es información."] },
+    { "type": "contenido", "title": "¿Y si **pruebas pausar**?", "body": "Tres respiraciones lentas antes de responder pueden cambiar la conversación — y cómo te sientes después." },
+    { "type": "contenido", "title": "Señales de que **estás exigiéndote demasiado** y no te das cuenta porque ya se volvió costumbre en tu día a día", "body": ["Te cuesta descansar sin sentir culpa, incluso los fines de semana o en vacaciones.", "Sientes que nada de lo que haces es suficiente, aunque los demás reconozcan tu esfuerzo.", "Pospones lo que necesitas tú para atender lo que necesitan todos los demás, una y otra vez."] },
+    { "type": "cierre", "title": "Sentir no es un problema. **Es el comienzo.**", "body": "Si te resonó, escríbenos por WhatsApp. Estamos para acompañarte." }
+  ]
+}

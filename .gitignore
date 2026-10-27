@@ -27,3 +27,8 @@ sync-estados.js
 
 # Local Netlify folder
 .netlify
+
+# Brand fonts (#92) — Helvetica Now is Monotype-licensed (no redistribution) and this
+# repo is public. Fetch locally with: node scripts/carrusel/fetch-fonts.mjs
+assets/brand/fonts/*.ttf
+assets/brand/fonts/*.otf
