@@ -103,6 +103,17 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-27 (late night) — #92d Carousel colors = only the manual's real colors (executor, 673e548)
+- **Rule (Nicolás): "Only the manual's colors. Adjustment = transparency over cream only. Never darken or create colors."**
+  `scripts/carrusel/colors.mjs` rewritten: the #92c `deep()` shades (terracota, deep blue, violet, ladrillo, naranja profundo) are GONE.
+  `PAIRS` = 9 pairs: crema + the 8 manual hexes (p.13–20), all with black text (no manual color reaches 4.5:1 as text on
+  another). Pair = `{base: <MANUAL key>|'crema', alpha?, ink}`; `tint(base, alpha)` = the only allowed adjustment
+  (transparency over `#FEF8E9`). `getPair()` throws for an unknown base, a non-manual ink or contrast < 4.5 → the renderer
+  can't use anything else. Lowest: violeta-tinta 7.70:1. `nextPair` rotates the 9 real pairs only.
+- Test (same #92c text and caption, unchanged): Drive IG · Listos `TEST-2026-10-27-marca-A` azul cielo, `-B` rosa melón,
+  `-C` verde menta (9 PNG + caption.txt + render.json each; bg pixel sampled = exact hex) + `COLORES-MARCA-2026-10-27.png`
+  (cover + slides 04, 08). The #92c `final-colorA/B/C` folders + `COLORES-2026-10-27.png` stay in Drive (superseded, not deleted).
+
 ### 2026-10-27 (late night) — #92c Carousel color pairs + Nicolás's corrected translation in 3 colors (executor, 59183b6)
 - **Color system** `scripts/carrusel/colors.mjs`: `PAIRS` (11 ids), each a flat bg + ONE ink for all text, same on every slide.
   Light = manual pastel + black; deep = `deep(hex, L)` (same HSL hue, sat ≤ 80%, lightness L%), because mixing with black turned
@@ -230,7 +241,7 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [ ] **/carrusel #93–#95** (#92 done 27 Oct): #93 queue (Nicolás sends IG links to 9933 → queued) + `/carrusel` command
       (translation + `renderCarousel`), #94 WhatsApp preview to Nicolás → post to @efimeramente.ec ONLY after he replies "sí"
       (Instagram posting), #95 Mon/Wed/Fri 19:00 GYE schedule. **Mode decided (#92c): exact translation**, flow + hashtags + color
-      rotation in `assets/brand/BRAND.md` "/carrusel flow". Waiting on Nicolás: pick a color direction (COLORES-2026-10-27.png in IG · Listos).
+      rotation in `assets/brand/BRAND.md` "/carrusel flow". Colors: manual only (#92d); waiting on Nicolás's reaction to COLORES-MARCA-2026-10-27.png.
 - [ ] Ask blnk estudio whether Helvetica Now Display + Chetta Vissto can be used on the web (needed before the website).
 - [ ] **Zara Basantez 26 Oct $32 receipt** (e3d66145) held — waiting on Nicolás (what it pays). (#89)
 - [ ] **#90 duplicate patients:** Kathy, Melania, Romesvary, Cecilia Reascos lead record → merge; Luna/Domenica/Nikole wait on Nicolás.
