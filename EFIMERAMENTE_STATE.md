@@ -103,6 +103,28 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-28 — #92g Chetta titles, no "pensar con luz", POST-01 re-rendered + sent to Nicolás on WhatsApp (executor, 807b343)
+- **Rules (Nicolás, 28 Oct):** carousel titles (cover, content, closing) in **Chetta Vissto** Regular, font stack
+  `'Chetta Vissto','Helvetica Now Display','Inter Tight',…` so Helvetica Now fills glyphs Chetta lacks (¿ ¡ — ” …) per
+  character; body/labels unchanged (Helvetica Now Medium/Bold). **"pensar con luz" is on no slide** (closing template + BRAND.md).
+  ✦ stays top-right everywhere. Auto-fit + split rule unchanged.
+- `scripts/carrusel/render.mjs`: Playfair link removed; `renderCarousel` THROWS when the brand fonts are missing (unless
+  `CARRUSEL_FALLBACK_FONTS=1`, preview only) and per slide when a `.title` exists but `document.fonts.load("100px 'Chetta Vissto'")`
+  returns nothing (gotcha: `document.fonts.check` fails on title-less slides because the face is never requested).
+  POST-01 final sizes: cover 144 px, content titles 101/109, body 60/50/49; no split.
+- **Owner outbox gains media (#92g):** `waSend.mjs#sendStaffImage(to,{link,caption})` (as-is, returns wamid);
+  `ownerOutbox.mjs` messages now also `{type:'image', link, caption?}` and `{type:'texto_exacto', body}` (no cleanBotText, keeps ¿ and
+  emoji); `deliverRow` (exported) stores `owner_outbox.wamids` (migration `supabase/owner-outbox-wamids-92g.sql`, additive, applied).
+  **New fn `owner-outbox-send?id=<uuid>`**: delivers ONE `pendiente` row now, only to last-9 968029896 (refuses otherwise), 409
+  `window_closed` with NO ping/template when his 24h window is shut, 403 for unknown/non-pending ids. Pattern for #94: insert the row
+  (SQL/service role) with image links + caption, call the fn, read statuses by joining `unnest(wamids)` to `whatsapp_delivery_status`.
+- **Sent 28 Oct 01:52 UTC** (row `6221f24b-1b90-4f44-9800-31aded32bc1a`, kind `carrusel_preview`): 9 images + 1 caption text, all
+  `delivered`, pricing `free_customer_service`. Images were served from `public/carrusel/post-01/` for the send and removed from the
+  repo afterwards (WhatsApp keeps its own copy). Gotcha: WA image links must be public HTTPS; Supabase storage uploads need the
+  service key, which this executor can't read (`.env` reads are denied in this harness, LEAD_TOOLS_TOKEN not readable via the
+  Netlify connector), hence the uuid-gated fn + temporary public files.
+- Drive `IG · Listos/POST-01-evitacion-experiencial/`: new 01–09.png + render.json (old ones trashed), caption.txt kept.
+
 ### 2026-10-27 (late night) — #92f FINAL carousel color rule = 8 violet combos + POST-01 + Drive cleanup (executor, 5f594f5)
 - **Rule (Nicolás, final): violet `#B48AE4` (violeta neblina p.16) is ALWAYS one of the two colors; only 8 combos, one per post,
   rotating:** 1 violet/cream `#FEF8E9` (2.57:1) · 2 cream/violet · 3 violet/yellow `#FFD84A` (1.97) · 4 yellow/violet · 5 violet/menta
@@ -206,42 +228,13 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   deliver previews by WhatsApp media instead and keep Drive optional.
 - Approver = **Nicolás only** (not Mariana).
 
-### 2026-10-27 (pm) — #90 Backup tables locked down (Supabase critical alert) (executor)
-- Supabase flagged `patients_/sessions_/saldo_lotes_backup_20261022` as "RLS Disabled in Public". anon already had no
-  grants on them but **`authenticated` had SELECT** (any therapist login could read). Also `*_backup_20261023` (4 tables) had RLS off, no grants.
-- Migration `backup_tables_lockdown_90` = `supabase/backup-tables-lockdown-90.sql`: DO-loop over every `public.*_backup_*`
-  (17 tables) → `enable row level security` + `revoke all … from anon, authenticated`. Idempotent; re-run after new backups.
-  Nothing dropped, no non-backup table/function touched. service_role still reads them (verified via REST).
-- **Gotcha:** `saldo_lotes_backup_20261019/21` + `sessions_backup_20261021` had owner RLS policies + GRANTs to authenticated;
-  the REVOKE makes those policies inert — backups are now service_role/SQL-editor only, by design.
-- Verified: advisor 0 `rls_disabled_in_public`; anon read of a backup → 401; live site 200; build OK.
-- Standing rule added to CLAUDE.md (DDL section): every backup gets RLS + REVOKE in the same batch that creates it.
-- Numbering clash: the director also used "#90" for the duplicate-patients item in the backlog — renumber in the TO-DO.
-
-### 2026-10-27 — #89 3 held receipts applied by hand + Raguel 24 Oct invoice 331 (executor, data only)
-- **Backups:** `sessions_backup_20261027`, `whatsapp_messages_backup_20261027`, `saldo_lotes_backup_20261027` (RLS on).
-- **A Pamela Iturralde** receipt f12d0556 ($90, PayPal): 16 Sep aadcad0b (marked paid by mistake on 24 Sep, never paid) keeps
-  pagado, paid_at → receipt time; 10 Oct d8521525 + 24 Oct 4da18d17 → pagado, metodo `paypal`, paid_at = receipt time.
-  Receipt reconciled_at=now, reconciled_session_ids = those 3, auto_reconciled=false; propuesta left as-is (ignored).
-- **B Cristina Fueres** split $9 (a594be1f) + $30 (c293f85d) → 21 Oct e4470822 pagado (transferencia); both receipts closed on it.
-- **C Cecilia Reascos / Amelia Sofía** $38 (5425ce21, PayPhone) → 21 Oct 76c89fe4: monto 39→38, pagado, metodo `payphone`,
-  notas "acepta $38, $1 condonado (dueño 27 Oct)". Tarifa stays 39. 12 Aug $0 llamada untouched.
-- No saldo_lotes created (Cecilia's only lote is the 9 Oct $17 overpayment, remaining 0). metodo_pago follows the receipt's
-  `extracted.destination` (same as `proofReconcile.mjs#metodoFromDestination`).
-- **D Raguel 24 Oct** c7cd68b0 → `facturar?mode=emit-one` → **001-001-000000331** ($36, LAURA VÁSQUEZ 1718240995, descripcion
-  `Paciente Raguel Conforme Vasquez | F88 … | Sesión 24 de Octubre`, same as #322). factura-rides-sweep sent it 14:15 UTC to …3019
-  (delivered). **Gotcha:** the director's premise "facturacion_manual skips it" is wrong — no code reads `facturacion_manual`; it was
-  missed because it was paid Mon 26 Oct 10:10 GYE, after that day's 09:00 auto run.
-- **E** Drive TO-DO: #87/#88 were already in it (written 26 Oct 19:21 GYE by the #87/#88 /cierre — step 5 DID run; the director read
-  a stale copy). Added #89 + Zara $32 held + #90 duplicates + campaign OFF; added a "take the newest modifiedTime" rule to the file.
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
 - [ ] **/carrusel #93–#95** (#92 done 27 Oct): #93 queue (Nicolás sends IG links to 9933 → queued) + `/carrusel` command
       (translation + `renderCarousel`), #94 WhatsApp preview to Nicolás → post to @efimeramente.ec ONLY after he replies "sí"
       (Instagram posting), #95 Mon/Wed/Fri 19:00 GYE schedule. **Mode decided (#92c): exact translation**, flow + hashtags + color
-      rotation in `assets/brand/BRAND.md` "/carrusel flow". Colors: FINAL rule #92f = 8 violet combos rotating via `nextPair` (POST-01 used combo 1, so #93's history starts with `violeta-sobre-crema`). POST-01 (rendered, not posted) is in Drive IG · Listos.
+      rotation in `assets/brand/BRAND.md` "/carrusel flow". Colors: FINAL rule #92f = 8 violet combos rotating via `nextPair` (POST-01 used combo 1, so #93's history starts with `violeta-sobre-crema`). POST-01 (#92g: Chetta titles) is in Drive IG · Listos and was WhatsApp'd to Nicolás 28 Oct to post by hand. #94 preview = `owner-outbox-send` (image messages + texto_exacto); images need public HTTPS links (a hosting path for #94 is still to decide: Supabase storage signed URLs from a function).
 - [ ] Ask blnk estudio whether Helvetica Now Display + Chetta Vissto can be used on the web (needed before the website).
 - [ ] **Zara Basantez 26 Oct $32 receipt** (e3d66145) held — waiting on Nicolás (what it pays). (#89)
 - [ ] **#90 duplicate patients:** Kathy, Melania, Romesvary, Cecilia Reascos lead record → merge; Luna/Domenica/Nikole wait on Nicolás.

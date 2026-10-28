@@ -5,6 +5,37 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-28 (#92g) -->
+
+### 2026-10-27 (pm) — #90 Backup tables locked down (Supabase critical alert) (executor)
+- Supabase flagged `patients_/sessions_/saldo_lotes_backup_20261022` as "RLS Disabled in Public". anon already had no
+  grants on them but **`authenticated` had SELECT** (any therapist login could read). Also `*_backup_20261023` (4 tables) had RLS off, no grants.
+- Migration `backup_tables_lockdown_90` = `supabase/backup-tables-lockdown-90.sql`: DO-loop over every `public.*_backup_*`
+  (17 tables) → `enable row level security` + `revoke all … from anon, authenticated`. Idempotent; re-run after new backups.
+  Nothing dropped, no non-backup table/function touched. service_role still reads them (verified via REST).
+- **Gotcha:** `saldo_lotes_backup_20261019/21` + `sessions_backup_20261021` had owner RLS policies + GRANTs to authenticated;
+  the REVOKE makes those policies inert — backups are now service_role/SQL-editor only, by design.
+- Verified: advisor 0 `rls_disabled_in_public`; anon read of a backup → 401; live site 200; build OK.
+- Standing rule added to CLAUDE.md (DDL section): every backup gets RLS + REVOKE in the same batch that creates it.
+- Numbering clash: the director also used "#90" for the duplicate-patients item in the backlog — renumber in the TO-DO.
+
+### 2026-10-27 — #89 3 held receipts applied by hand + Raguel 24 Oct invoice 331 (executor, data only)
+- **Backups:** `sessions_backup_20261027`, `whatsapp_messages_backup_20261027`, `saldo_lotes_backup_20261027` (RLS on).
+- **A Pamela Iturralde** receipt f12d0556 ($90, PayPal): 16 Sep aadcad0b (marked paid by mistake on 24 Sep, never paid) keeps
+  pagado, paid_at → receipt time; 10 Oct d8521525 + 24 Oct 4da18d17 → pagado, metodo `paypal`, paid_at = receipt time.
+  Receipt reconciled_at=now, reconciled_session_ids = those 3, auto_reconciled=false; propuesta left as-is (ignored).
+- **B Cristina Fueres** split $9 (a594be1f) + $30 (c293f85d) → 21 Oct e4470822 pagado (transferencia); both receipts closed on it.
+- **C Cecilia Reascos / Amelia Sofía** $38 (5425ce21, PayPhone) → 21 Oct 76c89fe4: monto 39→38, pagado, metodo `payphone`,
+  notas "acepta $38, $1 condonado (dueño 27 Oct)". Tarifa stays 39. 12 Aug $0 llamada untouched.
+- No saldo_lotes created (Cecilia's only lote is the 9 Oct $17 overpayment, remaining 0). metodo_pago follows the receipt's
+  `extracted.destination` (same as `proofReconcile.mjs#metodoFromDestination`).
+- **D Raguel 24 Oct** c7cd68b0 → `facturar?mode=emit-one` → **001-001-000000331** ($36, LAURA VÁSQUEZ 1718240995, descripcion
+  `Paciente Raguel Conforme Vasquez | F88 … | Sesión 24 de Octubre`, same as #322). factura-rides-sweep sent it 14:15 UTC to …3019
+  (delivered). **Gotcha:** the director's premise "facturacion_manual skips it" is wrong — no code reads `facturacion_manual`; it was
+  missed because it was paid Mon 26 Oct 10:10 GYE, after that day's 09:00 auto run.
+- **E** Drive TO-DO: #87/#88 were already in it (written 26 Oct 19:21 GYE by the #87/#88 /cierre — step 5 DID run; the director read
+  a stale copy). Added #89 + Zara $32 held + #90 duplicates + campaign OFF; added a "take the newest modifiedTime" rule to the file.
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-27 (#92f) -->
 
 ### 2026-10-23 — #87 Mila/Sébastien invoice 329 · #88 Julián package + Laura prepay (date-limited credit) (executor, d415bb6)
