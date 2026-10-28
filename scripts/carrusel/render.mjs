@@ -11,11 +11,11 @@
 //       { "type": "portada",   "title": "…", "kicker": "…"? },
 //       { "type": "contenido", "title": "…"?, "body": "…" | ["…", "…"] },
 //       { "type": "cierre",    "title": "…", "body": "…"?, "credit": "…"? }  // body = CTA
-//   ], "color": "<scheme id>"? }   // colors.mjs PAIRS; default amarillo-violeta
+//   ], "color": "<combo id or 1-8>"? }   // colors.mjs PAIRS; default 1 violeta-sobre-crema
 //
-// Design (#92b to #92e, Nicolás): ONE flat scheme per post, ONLY yellow on violet or
-// violet on yellow (colors.mjs, rule #92e), one ink for all text. No gradients, NO
-// logos, no black text. The two colors are low contrast (~2.2:1), so readability
+// Design (#92b to #92f, Nicolás): ONE flat combo per post, one of the 8 violet combos
+// (colors.mjs, final rule #92f), one ink for all text. No gradients, NO logos, no
+// black text. The combos are low contrast (about 1.8 to 2.6:1), so readability
 // comes from size and weight: every word is the bold/medium sans, body never below
 // 40 px, titles much bigger. Contrast is logged in render.json, never blocking.
 // Content titles are pinned to the top (same height on every slide). The handle
@@ -188,7 +188,7 @@ export async function renderCarousel(spec, outDir) {
     if (!['portada', 'contenido', 'cierre'].includes(s.type)) throw new Error(`slide ${i + 1}: type inválido "${s.type}"`)
     if (!s.title && !(s.type === 'contenido' && s.body)) throw new Error(`slide ${i + 1}: falta title`)
   }
-  const pair = getPair(spec.color || 'amarillo-violeta')
+  const pair = getPair(spec.color || 'violeta-sobre-crema')
   mkdirSync(outDir, { recursive: true })
   const fonts = fontSetup()
   const CSS = css(pair)

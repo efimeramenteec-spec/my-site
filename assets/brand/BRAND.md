@@ -77,28 +77,35 @@ isotipo; always scale proportionally (no stretching); no outline-only logo. Logo
   clarity), **órbita** (soft circle = continuity).
 - Tagline **"pensar con luz"** (p.34–35). Instagram handle **@efimeramente.ec**. The handle on the manual's p.32 business-card mockup is outdated: don't copy it.
 
-## Carrusel (Instagram): design in force (#92b to #92e, Nicolás 27 Oct)
-- **Colors (#92e, Nicolás 27 Oct): ONLY violet and yellow, two schemes, alternating post by post:**
-  A) `amarillo-violeta` = yellow background + violet text; B) `violeta-amarillo` = violet background +
-  yellow text. Every other pair (pastels with black, cream, etc.) is gone. **No black text anywhere.**
-  The colors are the manual's yellow and violet, matched to the ones Nicolás already uses in his feed
-  (sampled: yellow about `#FDE689`, violet about `#B586E4`). Never darken or create a color; the only
-  allowed adjustment is transparency over cream `#FEF8E9` (`tint(base, alpha)` in
-  `scripts/carrusel/colors.mjs`). `getPair()` refuses any other scheme.
-- **One scheme per post:** a flat background + ONE ink for all the text, the same on every slide. No
-  gradients, orbs or textures. A spec picks it with `"color": "<id>"` (default `amarillo-violeta`).
-- **Contrast is low (2.19:1) by decision.** Readability comes from SIZE and WEIGHT, not color: the
-  4.5:1 check no longer applies to these two schemes. The ratio is logged in `render.json`, never blocking.
-- **Rotation:** `nextPair(history)` alternates A/B (empty history starts with A). #93 keeps the history.
+## Carrusel (Instagram): design in force (#92b to #92f, Nicolás 27 Oct)
+- **Colors (#92f, FINAL, Nicolás 27 Oct): violet `#B48AE4` (violeta neblina, p.16) is ALWAYS one of
+  the two colors.** Only these 8 combos exist, one per post, rotating in this order:
 
-| id | fondo | texto | contraste |
-|---|---|---|---|
-| amarillo-violeta | `#FFE58A` = amarillo bruma `#FFD84A` p.13 at 60% over cream (the printed hex is far more saturated than the feed; 60% lands about 2 RGB units from the feed's `#FDE689`) | `#B48AE4` violeta neblina p.16, exact (feed `#B586E4`) | 2.19 |
-| violeta-amarillo | `#B48AE4` violeta neblina | `#FFE58A` amarillo | 2.19 |
+| n | id | fondo | texto | contraste |
+|---|---|---|---|---|
+| 1 | violeta-sobre-crema | crema `#FEF8E9` | violeta `#B48AE4` | 2.57 |
+| 2 | crema-sobre-violeta | violeta `#B48AE4` | crema `#FEF8E9` | 2.57 |
+| 3 | violeta-sobre-amarillo | amarillo bruma `#FFD84A` p.13 | violeta | 1.97 |
+| 4 | amarillo-sobre-violeta | violeta | amarillo bruma `#FFD84A` | 1.97 |
+| 5 | violeta-sobre-menta | verde menta `#B7F5D8` p.19 | violeta | 2.22 |
+| 6 | menta-sobre-violeta | violeta | verde menta `#B7F5D8` | 2.22 |
+| 7 | violeta-sobre-durazno | durazno pastel `#FCD1B5` p.20 | violeta | 1.94 |
+| 8 | violeta-sobre-azul | azul cielo `#A9D8FF` p.17 | violeta | 1.81 |
+
+- **Never black text. Never darken or invent a color.** Every combo uses the manual's exact hex; the
+  only allowed adjustment is transparency over cream (`tint(base, alpha)` in `scripts/carrusel/colors.mjs`),
+  and no combo uses it today. `getPair()` refuses anything outside the 8 (and any combo without violet).
+  The #92e yellow at 60% is gone: yellow is the printed `#FFD84A`.
+- **One combo per post:** a flat background + ONE ink for all the text, the same on every slide. No
+  gradients, orbs or textures. A spec picks it with `"color": "<id>"` or its number 1 to 8 (default 1).
+- **Contrast is low (1.8 to 2.6:1) by design.** Readability comes from SIZE and WEIGHT, not color: the
+  4.5:1 check doesn't apply. The ratio is logged in `render.json`, never blocking.
+- **Rotation:** `nextPair(history)` cycles 1, 2, ... 8, 1 (never the same as the previous post; empty
+  history or a pre-#92f id starts at 1). #93 keeps the history. POST-01 used combo 1.
 
 - **Type (#92e):** every word in Helvetica Now Display sans. Titles Bold (700); body Medium (500) with
   `**...**` = Bold; labels Bold. The Chetta serif accent was tried on the #92e test and dropped: its thin
-  strokes don't read at 2.19:1, so `**...**` in a title is plain bold and "pensar con luz" is bold sans too.
+  strokes don't read at this contrast, so `**...**` in a title is plain bold and "pensar con luz" is bold sans too.
 - **Sizes at 1080 wide:** body never below **40 px** (body-only up to 60, with a title up to 52, closing
   up to 50); titles much bigger (cover 150 to 80, content 104 to 72, closing 112 to 72); labels 34 px.
 - **Dense slides are split (#92e):** if a content slide doesn't fit at the minimum size, the renderer
@@ -133,9 +140,8 @@ isotipo; always scale proportionally (no stretching); no outline-only logo. Logo
 - **Hashtags: exactly 5 per post**, Spanish and on topic: 2–3 broad, 1–2 medium, 1 niche.
   Example (#92c): `#saludmental #psicologia #terapiapsicologica #psicologosquito
   #flexibilidadpsicologica`. They go in the copy Nicolás corrects.
-- **Color:** each post takes the next scheme with `nextPair(history)` (`colors.mjs`), so posts
-  alternate violet-on-yellow / yellow-on-violet. **#93 stores the history** (one id per post, in
-  posting order).
+- **Color:** each post takes the next of the 8 violet combos with `nextPair(history)` (`colors.mjs`,
+  #92f). **#93 stores the history** (one id per post, in posting order; POST-01 = `violeta-sobre-crema`).
 - **Layout limits (#92e):** body never below 40 px. A slide that doesn't fit is split at a paragraph
   break and renumbered (words untouched); only a slide that can't be split (one paragraph, cover,
   closing) stops the render, and then Nicolás is told which one. Never edit his text to make it fit.
