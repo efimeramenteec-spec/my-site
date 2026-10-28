@@ -5,6 +5,31 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-27 (#92e) -->
+
+### 2026-10-22 (late night) — #86 A Emily merge · B 4 payment reminders resent · C failed reminders ≠ sent · D Marthina package (executor, 0ab636f)
+- Backups first: `patients_backup_20261022b`, `sessions_backup_20261022b`, `saldo_lotes_backup_20261022b` (Emily ×2 records, Marthina; RLS on, GRANT service_role).
+- **A Emily Rivera:** kept 9a8013b6 → telefono `+61433182326` (was `+593433182326` = AU number with an EC prefix → 131026 every time), tarifa 35.
+  Moved 18 Oct (confirmada, paid) + 17 Oct (cancelada) from 25fa01b0 → 9a8013b6; 25fa01b0 `inactivo` (not deleted). Its phone
+  +593996404279 belongs to NO other patient/therapist — also 131026 undeliverable (16 + 20 Oct). Lote fc6ce9f9 ($140 package,
+  approved) → 2 `saldo_consumos` rows (10 + 18 Oct, $35 each), remaining 140→70. Old 26 Sep lote untouched. Nothing sent.
+- **D Marthina Cortes:** Nicolás marked 14 + 22 Oct paid by hand mid-session → new lote `4ddbfa84` (package, 140/35, approved
+  now, aprobado_por = owner uuid 92ebe5c0 — column is uuid, "nicolas-86" in the note), 2 consumos rows, remaining **70**.
+  Her next 2 confirmed sessions are drawn automatically by `consume_saldo_on_confirm`. Nothing sent.
+- **B:** `payment-run?…&mode=live&only=<4 ids>&resend=1` (new params) → recordatorio_pago_v2 to Grace Atiencia ($108, 6/13/20 Oct),
+  Génesis Taco ($39, 8 Oct), Pamela Iturralde ($30, 10 Oct), Gabriela Abril ($30, 18 Oct); none has a payer. 4/4 accepted;
+  3 delivered, Gabriela "sent" at close. wamids in `reminder_sends`.
+- **C:** new `netlify/lib/reminderSends.mjs` + table `reminder_sends` (`supabase/reminder-sends-86.sql`). Accepted pago/cita
+  reminders logged by wamid (`logReminderSend` in `paymentReminders.mjs` and `whatsapp.mjs#deliverReminder`); webhook calls
+  `reconcileWithSupabase({wamids})` on any `failed` status, and both reminder runs reconcile at start (status may beat the
+  log insert). Failure → stamp cleared, `failed_at/error`, ONE `notifyOwner` kind `recordatorio_fallido` (atomic claim).
+  `failedBefore` blocks re-sending the same session to the same dead number (fix the phone → retries). Harness
+  `node scripts/harness-recordatorio-fallido-86.mjs` (9/9). Gotcha: whatsapp.mjs ↔ reminderSends.mjs ↔ ownerOutbox.mjs is an
+  import cycle — fine because everything is used at call time only.
+- **C2 (by design):** Grace's 13 Oct — her 6 Oct was reminded and still unpaid → "en mora" skip. Paola Ibarra's 15 Oct — her
+  8 Oct was reminded and unpaid until 22 Oct (#85 follow-up) → en mora skip; the +1 number is fine (delivered 10 Oct).
+- Push to main DID auto-deploy this time (0ab636f live within minutes).
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-27 (#92b) -->
 
 ### 2026-10-22 (night) — #85 Credit cleanup, line by line by Nicolás (executor, data only)

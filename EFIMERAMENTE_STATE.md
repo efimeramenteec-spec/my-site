@@ -103,6 +103,27 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-27 (late night) — #92e Carousel colors = ONLY violet/yellow + dense slides split (executor, c9f5b1d)
+- **Rule (Nicolás): two schemes only, alternating post by post:** `amarillo-violeta` (yellow bg + violet text) and
+  `violeta-amarillo` (violet bg + yellow text). No black text anywhere; every other #92d pair is gone.
+  `scripts/carrusel/colors.mjs`: `COLORES` = violet `#B48AE4` (manual p.16 exact; feed `#B586E4`) and yellow
+  `tint('amarillo', 0.6)` = `#FFE58A` (manual `#FFD84A` at 60% over cream; the printed hex is ~65 RGB units off the feed's
+  `#FDE689`, 60% lands ~2 off). `getPair()` refuses any other id; `nextPair(history)` alternates A/B (empty history = A).
+  Contrast 2.19:1 is logged in `render.json`, never blocking (`AA_BODY` export removed).
+- `scripts/carrusel/render.mjs`: all sans (Helvetica Now): titles Bold, body Medium with `**...**` = Bold, labels 34 px Bold,
+  body floor 40 px (body-only 60 max, with title 52, closing 50), titles content 104 to 72, cover 150 to 80, closing 112 to 72.
+  The Chetta serif accent was tried and dropped (thin strokes unreadable at 2.19:1): `**...**` in titles = plain bold,
+  "pensar con luz" = bold sans. Page-number "/ NN" no longer at 60% opacity. Cover says "desliza" (arrow removed).
+- **Split rule:** a `contenido` slide that doesn't fit at its minimum is split at a paragraph break (most balanced break whose
+  first part fits; rest split recursively), slides renumbered, words untouched; the continuation has no title (`_cont` keeps the
+  first part's body size range). `renderCarousel` returns `splits` (logged in `render.json`). Single paragraph / cover /
+  closing that doesn't fit still throws. Verified with a synthetic 8-paragraph slide (split 2+3 of 04).
+- Test (#92c text verbatim, diffed against the #92c spec; same caption): Drive IG · Listos `TEST-2026-10-27-violeta-sobre-amarillo`
+  and `TEST-2026-10-27-amarillo-sobre-violeta` (9 PNG + caption.txt + render.json each, bytes checked) +
+  `VIOLETA-AMARILLO-2026-10-27.png` (cover, 04, 08 per scheme). Slide 8 fit (103/51 px), so no split happened in the test.
+- BRAND.md carrusel section + "/carrusel flow" rewritten (old "never split a slide" removed). Gotcha: Drive navigation in the
+  same tab didn't kill the previous drop upload, but verify with the connector each time.
+
 ### 2026-10-27 (late night) — #92d Carousel colors = only the manual's real colors (executor, 673e548)
 - **Rule (Nicolás): "Only the manual's colors. Adjustment = transparency over cream only. Never darken or create colors."**
   `scripts/carrusel/colors.mjs` rewritten: the #92c `deep()` shades (terracota, deep blue, violet, ladrillo, naranja profundo) are GONE.
@@ -212,36 +233,13 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - **Laura Galindo:** lote prepay 60/30, remaining 60, approved, **valido_desde 2026-10-24**. Insert's settle touched 9 Oct →
   stayed unpaid. Rollback test: next 2 confirmed sessions draw (Julián $35 ×2, Laura $30 ×2), 3rd not, 9 Oct not.
 
-### 2026-10-22 (late night) — #86 A Emily merge · B 4 payment reminders resent · C failed reminders ≠ sent · D Marthina package (executor, 0ab636f)
-- Backups first: `patients_backup_20261022b`, `sessions_backup_20261022b`, `saldo_lotes_backup_20261022b` (Emily ×2 records, Marthina; RLS on, GRANT service_role).
-- **A Emily Rivera:** kept 9a8013b6 → telefono `+61433182326` (was `+593433182326` = AU number with an EC prefix → 131026 every time), tarifa 35.
-  Moved 18 Oct (confirmada, paid) + 17 Oct (cancelada) from 25fa01b0 → 9a8013b6; 25fa01b0 `inactivo` (not deleted). Its phone
-  +593996404279 belongs to NO other patient/therapist — also 131026 undeliverable (16 + 20 Oct). Lote fc6ce9f9 ($140 package,
-  approved) → 2 `saldo_consumos` rows (10 + 18 Oct, $35 each), remaining 140→70. Old 26 Sep lote untouched. Nothing sent.
-- **D Marthina Cortes:** Nicolás marked 14 + 22 Oct paid by hand mid-session → new lote `4ddbfa84` (package, 140/35, approved
-  now, aprobado_por = owner uuid 92ebe5c0 — column is uuid, "nicolas-86" in the note), 2 consumos rows, remaining **70**.
-  Her next 2 confirmed sessions are drawn automatically by `consume_saldo_on_confirm`. Nothing sent.
-- **B:** `payment-run?…&mode=live&only=<4 ids>&resend=1` (new params) → recordatorio_pago_v2 to Grace Atiencia ($108, 6/13/20 Oct),
-  Génesis Taco ($39, 8 Oct), Pamela Iturralde ($30, 10 Oct), Gabriela Abril ($30, 18 Oct); none has a payer. 4/4 accepted;
-  3 delivered, Gabriela "sent" at close. wamids in `reminder_sends`.
-- **C:** new `netlify/lib/reminderSends.mjs` + table `reminder_sends` (`supabase/reminder-sends-86.sql`). Accepted pago/cita
-  reminders logged by wamid (`logReminderSend` in `paymentReminders.mjs` and `whatsapp.mjs#deliverReminder`); webhook calls
-  `reconcileWithSupabase({wamids})` on any `failed` status, and both reminder runs reconcile at start (status may beat the
-  log insert). Failure → stamp cleared, `failed_at/error`, ONE `notifyOwner` kind `recordatorio_fallido` (atomic claim).
-  `failedBefore` blocks re-sending the same session to the same dead number (fix the phone → retries). Harness
-  `node scripts/harness-recordatorio-fallido-86.mjs` (9/9). Gotcha: whatsapp.mjs ↔ reminderSends.mjs ↔ ownerOutbox.mjs is an
-  import cycle — fine because everything is used at call time only.
-- **C2 (by design):** Grace's 13 Oct — her 6 Oct was reminded and still unpaid → "en mora" skip. Paola Ibarra's 15 Oct — her
-  8 Oct was reminded and unpaid until 22 Oct (#85 follow-up) → en mora skip; the +1 number is fine (delivered 10 Oct).
-- Push to main DID auto-deploy this time (0ab636f live within minutes).
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
 - [ ] **/carrusel #93–#95** (#92 done 27 Oct): #93 queue (Nicolás sends IG links to 9933 → queued) + `/carrusel` command
       (translation + `renderCarousel`), #94 WhatsApp preview to Nicolás → post to @efimeramente.ec ONLY after he replies "sí"
       (Instagram posting), #95 Mon/Wed/Fri 19:00 GYE schedule. **Mode decided (#92c): exact translation**, flow + hashtags + color
-      rotation in `assets/brand/BRAND.md` "/carrusel flow". Colors: manual only (#92d); waiting on Nicolás's reaction to COLORES-MARCA-2026-10-27.png.
+      rotation in `assets/brand/BRAND.md` "/carrusel flow". Colors: violet/yellow alternating (#92e); waiting on Nicolás's reaction to VIOLETA-AMARILLO-2026-10-27.png.
 - [ ] Ask blnk estudio whether Helvetica Now Display + Chetta Vissto can be used on the web (needed before the website).
 - [ ] **Zara Basantez 26 Oct $32 receipt** (e3d66145) held — waiting on Nicolás (what it pays). (#89)
 - [ ] **#90 duplicate patients:** Kathy, Melania, Romesvary, Cecilia Reascos lead record → merge; Luna/Domenica/Nikole wait on Nicolás.
