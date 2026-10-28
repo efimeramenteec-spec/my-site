@@ -16,17 +16,19 @@
 //     a text, a command): sends every 'pendiente' row oldest-first.
 //
 // messages: [{ type:'text', body }, { type:'buttons', body, buttons:[{ id, title }] },
-//            { type:'image', link, caption? }, { type:'texto_exacto', body }]
+//            { type:'image', link, caption? }, { type:'document', link, filename?, caption? },
+//            { type:'texto_exacto', body }]
 // — free-form session messages (waSend.mjs), valid only once his window is open.
 // 'image' and 'texto_exacto' go out as-is (no cleanBotText: e.g. an Instagram
 // caption with ¿ and emoji, #92g). The wamids of a delivered row are stored in
-// owner_outbox.wamids. owner-outbox-send (HTTP) delivers ONE pending row by id.
+// owner_outbox.wamids. 'document' arrives uncompressed ('image' is re-compressed
+// to JPEG by WhatsApp): use it for anything Nicolás will post. owner-outbox-send (HTTP) delivers ONE pending row by id.
 //
 // Every external effect goes through `deps` so the harness can stub WhatsApp,
 // Meta template status and push; production always uses the defaults below.
 
 import { ownerWhatsApp } from './whatsapp.mjs'
-import { sendText, sendButtons, sendStaffText, sendStaffImage } from './waSend.mjs'
+import { sendText, sendButtons, sendStaffText, sendStaffImage, sendStaffDocument } from './waSend.mjs'
 import { notifyTherapist } from './push.mjs'
 import { listTemplates, sendOwnerPing, PING_TEMPLATE, OWNER_TEMPLATES } from './leadTemplates.mjs'
 
@@ -46,7 +48,7 @@ async function pingTemplateApproved() {
 }
 
 const defaultDeps = {
-  sendText, sendButtons, sendStaffText, sendStaffImage, notifyTherapist, sendOwnerPing, pingTemplateApproved,
+  sendText, sendButtons, sendStaffText, sendStaffImage, sendStaffDocument, notifyTherapist, sendOwnerPing, pingTemplateApproved,
   owner: ownerWhatsApp, now: () => new Date(),
 }
 
@@ -85,6 +87,8 @@ async function sendMessages(to, messages, deps, sent = []) {
     if (m.type === 'buttons') r = await deps.sendButtons(to, m.body, m.buttons)
     // eslint-disable-next-line no-await-in-loop
     else if (m.type === 'image') r = await deps.sendStaffImage(to, { link: m.link, caption: m.caption })
+    // eslint-disable-next-line no-await-in-loop
+    else if (m.type === 'document') r = await deps.sendStaffDocument(to, { link: m.link, filename: m.filename, caption: m.caption })
     // eslint-disable-next-line no-await-in-loop
     else if (m.type === 'texto_exacto') r = await deps.sendStaffText(to, m.body, { previewUrl: false })
     // eslint-disable-next-line no-await-in-loop

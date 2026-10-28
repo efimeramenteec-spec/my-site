@@ -157,3 +157,14 @@ export async function sendStaffImage(to, { link, caption }) {
   const data = await sendCloud({ to: digits(to), type: 'image', image })
   return data?.messages?.[0]?.id || null
 }
+
+// STAFF / APPROVED-COPY document (#92g) — a file by public HTTPS link, delivered
+// byte for byte (an 'image' message is re-compressed to JPEG by WhatsApp). Used for
+// carousel slides Nicolás posts from his phone. Returns the wamid.
+export async function sendStaffDocument(to, { link, filename, caption }) {
+  const document = { link }
+  if (filename) document.filename = String(filename).slice(0, 240)
+  if (caption) document.caption = String(caption).slice(0, 1024)
+  const data = await sendCloud({ to: digits(to), type: 'document', document })
+  return data?.messages?.[0]?.id || null
+}
