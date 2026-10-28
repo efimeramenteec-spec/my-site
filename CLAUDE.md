@@ -350,6 +350,9 @@ in `owner_outbox` (owner-only RLS, `supabase/owner-outbox.sql`):
   quick-reply "Ver"; defined in `leadTemplates.mjs#OWNER_TEMPLATES`, submitted via
   `submit-lead-templates?name=ping_nico`); several pending → "{n} pendientes: …" (≤100 chars);
 - `ping_nico` not APPROVED as UTILITY, or the send fails → Web Push fallback, row stays `pendiente`.
+- Message types: `text`, `buttons`, plus (#92g) `image` `{link, caption?}` and `texto_exacto` `{body}` sent as-is
+  (no sanitizer). A delivered row stores its `wamids`. **`owner-outbox-send?id=<uuid>`** delivers ONE pending row now,
+  only to +593968029896, only if his window is open (else 409 `window_closed`, no ping) — used for carousel previews.
 - `whatsapp-cloud-webhook` calls `flushOwnerOutbox()` on ANY owner inbound (oldest first) before his
   command; the "Ver" tap does nothing else. Owner-phone messages never enter the lead bot (except in bot test mode, #56).
 First consumer: `facturar-report` (Mon+Thu 09:00 GYE). **Since #72 (Nicolás, 13 Oct) invoicing runs

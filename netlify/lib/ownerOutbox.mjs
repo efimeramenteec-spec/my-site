@@ -15,14 +15,18 @@
 //   flushOwnerOutbox() — the webhook calls it on ANY owner inbound (his "Ver" tap,
 //     a text, a command): sends every 'pendiente' row oldest-first.
 //
-// messages: [{ type:'text', body }, { type:'buttons', body, buttons:[{ id, title }] }]
+// messages: [{ type:'text', body }, { type:'buttons', body, buttons:[{ id, title }] },
+//            { type:'image', link, caption? }, { type:'texto_exacto', body }]
 // — free-form session messages (waSend.mjs), valid only once his window is open.
+// 'image' and 'texto_exacto' go out as-is (no cleanBotText: e.g. an Instagram
+// caption with ¿ and emoji, #92g). The wamids of a delivered row are stored in
+// owner_outbox.wamids. owner-outbox-send (HTTP) delivers ONE pending row by id.
 //
 // Every external effect goes through `deps` so the harness can stub WhatsApp,
 // Meta template status and push; production always uses the defaults below.
 
 import { ownerWhatsApp } from './whatsapp.mjs'
-import { sendText, sendButtons } from './waSend.mjs'
+import { sendText, sendButtons, sendStaffText, sendStaffImage } from './waSend.mjs'
 import { notifyTherapist } from './push.mjs'
 import { listTemplates, sendOwnerPing, PING_TEMPLATE, OWNER_TEMPLATES } from './leadTemplates.mjs'
 
@@ -42,12 +46,12 @@ async function pingTemplateApproved() {
 }
 
 const defaultDeps = {
-  sendText, sendButtons, notifyTherapist, sendOwnerPing, pingTemplateApproved,
+  sendText, sendButtons, sendStaffText, sendStaffImage, notifyTherapist, sendOwnerPing, pingTemplateApproved,
   owner: ownerWhatsApp, now: () => new Date(),
 }
 
 // Newest inbound from the owner phone (ISO string) or null.
-async function lastOwnerInbound(supabase, owner) {
+export async function lastOwnerInbound(supabase, owner) {
   const { data, error } = await supabase.from('whatsapp_messages')
     .select('received_at').eq('direccion', 'inbound')
     .like('raw_payload->message->>from', `%${last9(owner)}`)
@@ -70,28 +74,41 @@ export function buildResumen(pendientes) {
   return out
 }
 
-async function sendMessages(to, messages, deps) {
+const wamidOf = (r) => (typeof r === 'string' ? r : r?.messages?.[0]?.id) || null
+
+// Sends in order; returns the wamids. `sent` collects them as they go so a
+// mid-row failure still records what already went out.
+async function sendMessages(to, messages, deps, sent = []) {
   for (const m of messages || []) {
+    let r
     // eslint-disable-next-line no-await-in-loop
-    if (m.type === 'buttons') await deps.sendButtons(to, m.body, m.buttons)
+    if (m.type === 'buttons') r = await deps.sendButtons(to, m.body, m.buttons)
     // eslint-disable-next-line no-await-in-loop
-    else await deps.sendText(to, m.body)
+    else if (m.type === 'image') r = await deps.sendStaffImage(to, { link: m.link, caption: m.caption })
+    // eslint-disable-next-line no-await-in-loop
+    else if (m.type === 'texto_exacto') r = await deps.sendStaffText(to, m.body, { previewUrl: false })
+    // eslint-disable-next-line no-await-in-loop
+    else r = await deps.sendText(to, m.body)
+    sent.push(wamidOf(r))
   }
+  return sent
 }
 
 // Atomic claim (pendiente→enviado) so two concurrent webhooks never double-send;
 // a failed send reverts the row to 'pendiente' with the error.
-async function deliverRow(supabase, to, row, deps) {
+export async function deliverRow(supabase, to, row, deps = defaultDeps) {
   const { data: claimed } = await supabase.from(TABLE)
     .update({ estado: 'enviado', sent_at: deps.now().toISOString(), error: null })
     .eq('id', row.id).eq('estado', 'pendiente').select()
   if (!claimed?.length) return { id: row.id, sent: false, skipped: true }
+  const sent = []
   try {
-    await sendMessages(to, row.payload?.messages, deps)
-    return { id: row.id, sent: true }
+    await sendMessages(to, row.payload?.messages, deps, sent)
+    await supabase.from(TABLE).update({ wamids: sent }).eq('id', row.id)
+    return { id: row.id, sent: true, wamids: sent }
   } catch (e) {
-    await supabase.from(TABLE).update({ estado: 'pendiente', sent_at: null, error: String(e.message).slice(0, 500) }).eq('id', row.id)
-    return { id: row.id, sent: false, error: e.message }
+    await supabase.from(TABLE).update({ estado: 'pendiente', sent_at: null, wamids: sent, error: String(e.message).slice(0, 500) }).eq('id', row.id)
+    return { id: row.id, sent: false, wamids: sent, error: e.message }
   }
 }
 

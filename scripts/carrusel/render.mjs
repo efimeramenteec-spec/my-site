@@ -21,10 +21,13 @@
 // Content titles are pinned to the top (same height on every slide). The handle
 // (HANDLE, @efimeramente.ec) appears ONLY on the closing slide.
 //
-// Titles are bold sans. The Chetta serif accent (the manual's two-font headline,
-// p.10/25/31) was tried in #92e and dropped: its thin strokes don't read at this
-// contrast, so **...** in a title is plain bold like the rest of it. In body text
-// (medium weight) **...** = bold.
+// Titles (#92g, Nicolás 28 Oct): Chetta Vissto (the manual's display serif) on
+// cover, content and closing titles, with Helvetica Now Display as the
+// per-character fallback for glyphs Chetta lacks (¿ ¡ — ” … and any other).
+// **...** in a title only drops its markers. Body and labels stay Helvetica Now
+// (body Medium, **...** = Bold). renderCarousel refuses to render when the brand
+// fonts (Chetta included) are missing, unless CARRUSEL_FALLBACK_FONTS=1 (preview).
+// No "pensar con luz" on any slide (#92g).
 // Text auto-fits: each slide shrinks its type down to the minimum. A content slide
 // that still doesn't fit is SPLIT into consecutive slides at a paragraph break
 // (#92e): the words are never changed, cut or summarized, and the slides are
@@ -34,8 +37,7 @@
 // Fonts: the brand fonts are NOT in git (Helvetica Now is Monotype-licensed and
 // may not be redistributed; the repo is public). `node scripts/carrusel/fetch-fonts.mjs`
 // downloads them from the brand Drive into assets/brand/fonts/ (gitignored).
-// Without them the renderer falls back to Google Fonts (Playfair Display /
-// Inter Tight) and says so.
+// Without them the render stops (CARRUSEL_FALLBACK_FONTS=1 previews with Inter Tight).
 //
 // Also importable: `renderCarousel(spec, outDir)` returns { files, fonts, color, sizes, splits }
 // (used by #93); sizes = the final font sizes per rendered slide, in [data-max] order
@@ -70,14 +72,14 @@ function fontSetup() {
   // CARRUSEL_FALLBACK_FONTS=1 previews what a machine without the brand fonts renders.
   const local = process.env.CARRUSEL_FALLBACK_FONTS !== '1' && ['ChettaVissto.otf', 'HelveticaNowDisplay-Regular.ttf', 'HelveticaNowDisplay-Medium.ttf', 'HelveticaNowDisplay-Bold.ttf']
     .every((n) => existsSync(f(n)))
-  const google = `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;700&family=Playfair+Display:wght@400&display=block">`
+  const google = `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;700&display=block">`
   if (!local) return { mode: 'fallback', head: google }
   const face = (fam, file, w, mime, fmt) =>
     `@font-face{font-family:'${fam}';src:url(${dataUrl(f(file), mime)}) format('${fmt}');font-weight:${w};font-display:block}`
   return {
     mode: 'brand',
-    // Google fonts stay linked: Chetta Vissto has no ¿ ¡ — ” … glyphs, so the
-    // browser borrows them from Playfair per character.
+    // Chetta Vissto has no ¿ ¡ — ” … glyphs; the title stack borrows them from
+    // Helvetica Now Display per character (Inter Tight stays as a last resort).
     head: google + `<style>${[
       face('Chetta Vissto', 'ChettaVissto.otf', 400, 'font/otf', 'opentype'),
       face('Helvetica Now Display', 'HelveticaNowDisplay-Regular.ttf', 400, 'font/ttf', 'truetype'),
@@ -101,7 +103,7 @@ body{background:${C.bg};color:${C.ink};-webkit-font-smoothing:antialiased;font-w
 .fit{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;overflow-wrap:normal;word-break:normal;hyphens:manual}
 .inner{display:flex;flex-direction:column;flex:none;margin:auto 0}
 .fit.top-align .inner{margin:0 0 auto}
-.title{line-height:1.04;font-weight:700;letter-spacing:-0.03em}
+.title{line-height:1.04;font-weight:400;letter-spacing:-0.01em;font-family:'Chetta Vissto','Helvetica Now Display','Inter Tight',Helvetica,Arial,sans-serif}
 .body p{line-height:1.28;letter-spacing:-0.01em}
 .body p+p{margin-top:.7em}
 .label{font-size:34px;font-weight:700;letter-spacing:.01em}
@@ -134,7 +136,6 @@ function slideHtml(s, i, n) {
           <div class="label">${HANDLE}</div>
           ${s.credit ? `<div class="label" style="font-size:30px;font-weight:500">${esc(s.credit)}</div>` : ''}
         </div>
-        <div class="label">pensar con luz</div>
       </div>
     </div></div>`
   }
@@ -191,6 +192,9 @@ export async function renderCarousel(spec, outDir) {
   const pair = getPair(spec.color || 'violeta-sobre-crema')
   mkdirSync(outDir, { recursive: true })
   const fonts = fontSetup()
+  if (fonts.mode !== 'brand' && process.env.CARRUSEL_FALLBACK_FONTS !== '1') {
+    throw new Error('fuentes de marca ausentes (Chetta Vissto / Helvetica Now): corre node scripts/carrusel/fetch-fonts.mjs')
+  }
   const CSS = css(pair)
   const doc = (s, i, n) => `<!doctype html><html lang="es"><head><meta charset="utf-8">${fonts.head}<style>${CSS}</style></head><body>${slideHtml(s, i, n)}</body></html>`
   const browser = await chromium.launch()
@@ -232,6 +236,9 @@ export async function renderCarousel(spec, outDir) {
     for (const [i, s] of out.entries()) {
       await page.setContent(doc(s, i, out.length), { waitUntil: 'networkidle' })
       await page.evaluate(() => document.fonts.ready)
+      if (fonts.mode === 'brand' && !(await page.evaluate(async () => !document.querySelector('.title') || (await document.fonts.load("100px 'Chetta Vissto'")).length > 0))) {
+        throw new Error(`slide ${i + 1}: Chetta Vissto no cargó`)
+      }
       const fit = await page.evaluate(fitInPage)
       if (!fit.ok) throw new Error(`slide ${i + 1}: el texto no cabe ni al tamaño mínimo (${fit.sizes.join(', ')})`)
       const file = join(outDir, `${String(i + 1).padStart(2, '0')}.png`)
@@ -255,7 +262,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   }
   const spec = JSON.parse(readFileSync(specPath, 'utf8'))
   const { files, fonts, color, sizes, splits } = await renderCarousel(spec, outDir)
-  if (fonts !== 'brand') console.warn('⚠ fuentes de marca ausentes, se usan Playfair Display / Inter Tight (corre fetch-fonts.mjs)')
+  if (fonts !== 'brand') console.warn('vista previa con fuentes de respaldo (Inter Tight), no apta para publicar')
   writeFileSync(join(outDir, 'render.json'), JSON.stringify({ fonts, slides: files.length, color, sizes, splits }, null, 2))
   const parts = splits.map((x) => `slide ${x.slide} partida en ${x.en.join('+')}`).join('; ')
   console.log(`${files.length} PNG ${W}×${H} en ${outDir} (fuentes: ${fonts}; color ${color.id} ${color.bg}/${color.ink}, contraste ${color.contrast}:1${parts ? '; ' + parts : ''})`)

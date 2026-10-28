@@ -103,9 +103,11 @@ isotipo; always scale proportionally (no stretching); no outline-only logo. Logo
 - **Rotation:** `nextPair(history)` cycles 1, 2, ... 8, 1 (never the same as the previous post; empty
   history or a pre-#92f id starts at 1). #93 keeps the history. POST-01 used combo 1.
 
-- **Type (#92e):** every word in Helvetica Now Display sans. Titles Bold (700); body Medium (500) with
-  `**...**` = Bold; labels Bold. The Chetta serif accent was tried on the #92e test and dropped: its thin
-  strokes don't read at this contrast, so `**...**` in a title is plain bold and "pensar con luz" is bold sans too.
+- **Type (#92g, decided by Nicolás 28 Oct):** titles (cover, content and closing) in **Chetta Vissto**
+  Regular, with Helvetica Now Display as the per-character fallback for glyphs Chetta lacks (¿ ¡ — ” …
+  and any other); `**...**` in a title only drops its markers. Body Medium (500) and labels Bold in
+  Helvetica Now Display; `**...**` in body = Bold. The render stops if the brand fonts are missing or
+  Chetta doesn't load on a titled slide (`CARRUSEL_FALLBACK_FONTS=1` = preview only).
 - **Sizes at 1080 wide:** body never below **40 px** (body-only up to 60, with a title up to 52, closing
   up to 50); titles much bigger (cover 150 to 80, content 104 to 72, closing 112 to 72); labels 34 px.
 - **Dense slides are split (#92e):** if a content slide doesn't fit at the minimum size, the renderer
@@ -123,7 +125,7 @@ isotipo; always scale proportionally (no stretching); no outline-only logo. Logo
 - Templates: `portada` (optional kicker, hook title, "desliza"), `contenido` (NN / NN number +
   ✦; title **pinned to the top**, the same height on every content slide whatever its length; body
   right below; title optional, so a body-only slide starts at that same spot), `cierre` (number,
-  takeaway, optional CTA, handle, "pensar con luz").
+  takeaway, optional CTA, handle). **"pensar con luz" appears on no slide** (#92g, Nicolás 28 Oct).
 - Text auto-fits: all type in a slide shrinks together down to its minimum; then the split rule above
   applies (no clipped slides).
 

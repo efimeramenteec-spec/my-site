@@ -148,3 +148,12 @@ export async function sendStaffText(to, body, { previewUrl = true } = {}) {
   const data = await sendCloud({ to: digits(to), type: 'text', text: { body: String(body ?? '').slice(0, 4096), preview_url: previewUrl } })
   return data?.messages?.[0]?.id || null
 }
+
+// STAFF / APPROVED-COPY image (#92g) — image by public HTTPS link, optional caption
+// sent as-is (no cleanBotText). Owner/staff only, never lead-bot. Returns the wamid.
+export async function sendStaffImage(to, { link, caption }) {
+  const image = { link }
+  if (caption) image.caption = String(caption).slice(0, 1024)
+  const data = await sendCloud({ to: digits(to), type: 'image', image })
+  return data?.messages?.[0]?.id || null
+}
