@@ -124,6 +124,10 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   service key, which this executor can't read (`.env` reads are denied in this harness, LEAD_TOOLS_TOKEN not readable via the
   Netlify connector), hence the uuid-gated fn + temporary public files.
 - Drive `IG · Listos/POST-01-evitacion-experiencial/`: new 01–09.png + render.json (old ones trashed), caption.txt kept.
+- **Quality follow-up (989630b):** WhatsApp `image` messages are re-compressed to JPEG (Nicolás noticed softer slides), so
+  owner outbox gained `{type:'document', link, filename?, caption?}` (`waSend.mjs#sendStaffDocument`, byte-for-byte). POST-01
+  resent as 9 documents `POST-01-01.png`…`09.png` (row `7d46320b-a33f-40a3-8ce8-5fe44793a876`): all sent/delivered/read. Rule for
+  #94: anything Nicolás will post goes as `document`; `image` only for a quick look. Temporary public PNGs removed again.
 
 ### 2026-10-27 (late night) — #92f FINAL carousel color rule = 8 violet combos + POST-01 + Drive cleanup (executor, 5f594f5)
 - **Rule (Nicolás, final): violet `#B48AE4` (violeta neblina p.16) is ALWAYS one of the two colors; only 8 combos, one per post,
