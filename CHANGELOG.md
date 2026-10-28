@@ -5,6 +5,27 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-27 (#92f) -->
+
+### 2026-10-23 — #87 Mila/Sébastien invoice 329 · #88 Julián package + Laura prepay (date-limited credit) (executor, d415bb6)
+- **#87:** session fe2f0b02 (Mila 20 Oct, $32) → `facturar?mode=emit-one` → **001-001-000000329**, customer SÉBASTIEN PAQUE /
+  1004438295, Observaciones "Sesión Psicológica Individual | Sesión 20 de Octubre" (factura_concepto_general, same as #315).
+  facturada=true at once. SRI authorization took **~3.5 h** (emitted ~19:50 UTC, sent 23:30) — the sweep (`factura-rides-sweep`)
+  delivered it on its own: factura_sesion_link to +593985506258 (same as #315), delivered 00:52 UTC 24 Oct. Gotcha: SRI delays
+  of 1–4 h happen (#325 = 1 h); don't re-PUT /sri/, just let the sweep send. The 22 Oct auto-run had missed it (paid 10:10,
+  after the 09:00 run); next auto-run Mon 26 Oct 09:00 would have caught it.
+- **#88 backups:** `patients_/sessions_/saldo_lotes_/saldo_consumos_backup_20261023` (Julián + Laura only).
+- **New column `saldo_lotes.valido_desde`** (date, null = any session) — migration `saldo_valido_desde_88` =
+  `supabase/saldo-valido-desde-88.sql` (also CREATE OR REPLACE `consume_saldo_on_confirm`: both the unit and the fragment
+  branch skip lotes with `valido_desde > new.fecha`). JS mirror `saldo.mjs#loteValidoPara(l, fecha)`, used in
+  `owedAfterCredit` (per row; leftover-fragment netting ignores date-limited lotes), `paymentReminders.mjs` (selects
+  valido_desde) and `proofReconcile.mjs` (fifoConsumeLotes + proposal credit, against GYE today). Needed because ANY update
+  to an old confirmada+unpaid session (e.g. a reminder stamp) fires the trigger.
+- **Julián Velasco:** lote package 140/35, remaining 70, approved (owner uuid 92ebe5c0), 2 `saldo_consumos` ($35: 20 + 30 Oct),
+  those sessions monto 39→35 (paid_at kept), tarifa 39→35. 13 Oct llamada untouched.
+- **Laura Galindo:** lote prepay 60/30, remaining 60, approved, **valido_desde 2026-10-24**. Insert's settle touched 9 Oct →
+  stayed unpaid. Rollback test: next 2 confirmed sessions draw (Julián $35 ×2, Laura $30 ×2), 3rd not, 9 Oct not.
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-27 (#92e) -->
 
 ### 2026-10-22 (late night) — #86 A Emily merge · B 4 payment reminders resent · C failed reminders ≠ sent · D Marthina package (executor, 0ab636f)

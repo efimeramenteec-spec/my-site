@@ -103,6 +103,27 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-27 (late night) — #92f FINAL carousel color rule = 8 violet combos + POST-01 + Drive cleanup (executor, 5f594f5)
+- **Rule (Nicolás, final): violet `#B48AE4` (violeta neblina p.16) is ALWAYS one of the two colors; only 8 combos, one per post,
+  rotating:** 1 violet/cream `#FEF8E9` (2.57:1) · 2 cream/violet · 3 violet/yellow `#FFD84A` (1.97) · 4 yellow/violet · 5 violet/menta
+  `#B7F5D8` (2.22) · 6 menta/violet · 7 violet/durazno `#FCD1B5` (1.94) · 8 violet/azul cielo `#A9D8FF` (1.81). Exact manual hexes;
+  the #92e 60% yellow (`#FFE58A`) is gone. Never black text; transparency (`tint`) is the only allowed adjustment (unused today).
+- `scripts/carrusel/colors.mjs`: `PAIRS` = 8 entries `{n, id, nombre, bg, ink}`, ids `violeta-sobre-crema`, `crema-sobre-violeta`,
+  `violeta-sobre-amarillo`, `amarillo-sobre-violeta`, `violeta-sobre-menta`, `menta-sobre-violeta`, `violeta-sobre-durazno`,
+  `violeta-sobre-azul`. `getPair(idOrNumber)` accepts the id or 1–8, throws for anything else or a combo without violet; returns `n` too.
+  `nextPair(history)` cycles 1→8→1 (empty history or a pre-#92f id like `amarillo-violeta` starts at 1). `tint('crema')` = CREMA.
+- `render.mjs`: default color = `violeta-sobre-crema`; header comments updated. Typography/split rule unchanged from #92e (all sans,
+  body ≥ 40 px, serif accent stays dropped).
+- `assets/brand/BRAND.md`: carrusel color section replaced by the 8-combo table; "/carrusel flow" color line updated (POST-01 = combo 1).
+- **Drive IG · Listos now holds ONLY:** `POST-01-evitacion-experiencial/` (the #92c text verbatim, checked by script against the #92c
+  spec; 9 PNG + caption.txt + render.json, byte sizes verified via connector; no split needed) and `COMBOS-8.png` (cover + slide 04
+  in all 8 combos). **Trashed (recoverable 30 days):** 11 folders TEST-2026-10-27-{traduccion, reescritura-v2, terapia-que-se-queda,
+  final-colorA/B/C, marca-A/B/C, violeta-sobre-amarillo, amarillo-sobre-violeta} + COMPARACION-2026-10-27.png, COLORES-2026-10-27.png,
+  COLORES-MARCA-2026-10-27.png, VIOLETA-AMARILLO-2026-10-27.png.
+- Gotchas: the Drive connector's `search_files` returns ~5 items per page regardless of `pageSize` (paginate; after trashing, page 1
+  can come back empty with a token). Upload = injected `<input type=file>` + synthetic drop, then `file_upload` on its ref.
+  A scratch script importing playwright from the scratchpad must import `~/my-site/node_modules/playwright/index.mjs` by path.
+
 ### 2026-10-27 (late night) — #92e Carousel colors = ONLY violet/yellow + dense slides split (executor, c9f5b1d)
 - **Rule (Nicolás): two schemes only, alternating post by post:** `amarillo-violeta` (yellow bg + violet text) and
   `violeta-amarillo` (violet bg + yellow text). No black text anywhere; every other #92d pair is gone.
@@ -214,32 +235,13 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - **E** Drive TO-DO: #87/#88 were already in it (written 26 Oct 19:21 GYE by the #87/#88 /cierre — step 5 DID run; the director read
   a stale copy). Added #89 + Zara $32 held + #90 duplicates + campaign OFF; added a "take the newest modifiedTime" rule to the file.
 
-### 2026-10-23 — #87 Mila/Sébastien invoice 329 · #88 Julián package + Laura prepay (date-limited credit) (executor, d415bb6)
-- **#87:** session fe2f0b02 (Mila 20 Oct, $32) → `facturar?mode=emit-one` → **001-001-000000329**, customer SÉBASTIEN PAQUE /
-  1004438295, Observaciones "Sesión Psicológica Individual | Sesión 20 de Octubre" (factura_concepto_general, same as #315).
-  facturada=true at once. SRI authorization took **~3.5 h** (emitted ~19:50 UTC, sent 23:30) — the sweep (`factura-rides-sweep`)
-  delivered it on its own: factura_sesion_link to +593985506258 (same as #315), delivered 00:52 UTC 24 Oct. Gotcha: SRI delays
-  of 1–4 h happen (#325 = 1 h); don't re-PUT /sri/, just let the sweep send. The 22 Oct auto-run had missed it (paid 10:10,
-  after the 09:00 run); next auto-run Mon 26 Oct 09:00 would have caught it.
-- **#88 backups:** `patients_/sessions_/saldo_lotes_/saldo_consumos_backup_20261023` (Julián + Laura only).
-- **New column `saldo_lotes.valido_desde`** (date, null = any session) — migration `saldo_valido_desde_88` =
-  `supabase/saldo-valido-desde-88.sql` (also CREATE OR REPLACE `consume_saldo_on_confirm`: both the unit and the fragment
-  branch skip lotes with `valido_desde > new.fecha`). JS mirror `saldo.mjs#loteValidoPara(l, fecha)`, used in
-  `owedAfterCredit` (per row; leftover-fragment netting ignores date-limited lotes), `paymentReminders.mjs` (selects
-  valido_desde) and `proofReconcile.mjs` (fifoConsumeLotes + proposal credit, against GYE today). Needed because ANY update
-  to an old confirmada+unpaid session (e.g. a reminder stamp) fires the trigger.
-- **Julián Velasco:** lote package 140/35, remaining 70, approved (owner uuid 92ebe5c0), 2 `saldo_consumos` ($35: 20 + 30 Oct),
-  those sessions monto 39→35 (paid_at kept), tarifa 39→35. 13 Oct llamada untouched.
-- **Laura Galindo:** lote prepay 60/30, remaining 60, approved, **valido_desde 2026-10-24**. Insert's settle touched 9 Oct →
-  stayed unpaid. Rollback test: next 2 confirmed sessions draw (Julián $35 ×2, Laura $30 ×2), 3rd not, 9 Oct not.
-
 ## Pending / Backlog
 
 ### 🔥 Next (director picks up) — surfaced 2026-10-04
 - [ ] **/carrusel #93–#95** (#92 done 27 Oct): #93 queue (Nicolás sends IG links to 9933 → queued) + `/carrusel` command
       (translation + `renderCarousel`), #94 WhatsApp preview to Nicolás → post to @efimeramente.ec ONLY after he replies "sí"
       (Instagram posting), #95 Mon/Wed/Fri 19:00 GYE schedule. **Mode decided (#92c): exact translation**, flow + hashtags + color
-      rotation in `assets/brand/BRAND.md` "/carrusel flow". Colors: violet/yellow alternating (#92e); waiting on Nicolás's reaction to VIOLETA-AMARILLO-2026-10-27.png.
+      rotation in `assets/brand/BRAND.md` "/carrusel flow". Colors: FINAL rule #92f = 8 violet combos rotating via `nextPair` (POST-01 used combo 1, so #93's history starts with `violeta-sobre-crema`). POST-01 (rendered, not posted) is in Drive IG · Listos.
 - [ ] Ask blnk estudio whether Helvetica Now Display + Chetta Vissto can be used on the web (needed before the website).
 - [ ] **Zara Basantez 26 Oct $32 receipt** (e3d66145) held — waiting on Nicolás (what it pays). (#89)
 - [ ] **#90 duplicate patients:** Kathy, Melania, Romesvary, Cecilia Reascos lead record → merge; Luna/Domenica/Nikole wait on Nicolás.
