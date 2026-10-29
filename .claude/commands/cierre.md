@@ -1,7 +1,8 @@
 ---
 description: Close out a session — update state file, commit, push, update the Drive TO-DO
 ---
-Close this session cleanly:
+Close this session cleanly. If this session was an Efimeramente HQ employee (/michael, /alex,
+/vince, /tim, /wes), say which one at the top of your summary.
 
 1. Move any work completed this session out of `EFIMERAMENTE_STATE.md`'s "Completed Features"
    into `CHANGELOG.md` if it is older than ~1 month. Add this session's completed work to the
@@ -19,4 +20,8 @@ Close this session cleanly:
    what changed). Keep it under 15 KB. Replace it: `create_file` the full new content
    (same title, same folder, `text/markdown`, `disableConversionToGoogleType: true`), verify it
    reads back, then trash the old file id. No Drive connector → say so; don't skip silently.
+   This is the ONE company memory file: every employee session updates it on closing. Each
+   line you add or change is signed with the employee who did the work, e.g. `(Wes, 29 Oct)`
+   (`(Terminal, …)` when no employee was active), and the WHO'S WHO status of that employee
+   is updated if it changed. Never create a second memory/handoff file.
 6. Give me a 5-line summary of what shipped and what the next session should pick up.

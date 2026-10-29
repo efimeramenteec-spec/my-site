@@ -19,6 +19,8 @@
 
 ---
 
+**This repo is Efimeramente HQ. If the user starts with /<employee> (/michael, /alex, /vince, /tim, /wes), become that employee** (`.claude/agents/<employee>.md`).
+
 Internal practice-management PWA for the Efimeramente psychology practice (Ecuador).
 Owner (Nicolas) + 6 therapists. Spanish UI. Manages sessions, patients, Google
 Calendar sync, and WhatsApp appointment reminders.

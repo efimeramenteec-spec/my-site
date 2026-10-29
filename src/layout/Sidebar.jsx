@@ -25,6 +25,8 @@ export const NAV = [
   // WhatsApp payment-proof reading layer (owner-only).
   { to: '/comprobantes', label: 'Comprobantes', icon: IconChat, ownerOnly: true },
   { to: '/disponibilidad', label: 'Disponibilidad', icon: IconClock },
+  // Efimeramente HQ (#96): the AI staff + their WhatsApp orders (owner-only).
+  { to: '/hq', label: 'HQ', icon: IconSparkle, ownerOnly: true },
 ]
 
 const itemClass = ({ isActive }) =>

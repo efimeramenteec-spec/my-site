@@ -434,3 +434,33 @@ async function callTool({ apiKey, system, user, tool }) {
     clearTimeout(timer)
   }
 }
+
+// #96: the same Anthropic client for the Efimeramente HQ WhatsApp desk (hq-desk-background).
+// Forced tool call like callTool, but returns token usage too (cost is logged per order) and
+// takes its own budget (a background function, so it can wait longer than the lead bot's 8 s).
+export const HQ_MODEL = MODEL
+export async function callClaudeHQ({ system, user, tool, maxTokens = 700, timeoutMs = 30000 }) {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing')
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(ANTHROPIC_URL, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: MODEL, max_tokens: maxTokens, system,
+        messages: [{ role: 'user', content: user }],
+        tools: [tool], tool_choice: { type: 'tool', name: tool.name },
+      }),
+    })
+    if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`)
+    const data = await res.json()
+    const block = (data?.content || []).find((b) => b.type === 'tool_use')
+    if (!block?.input) throw new Error('no tool_use block')
+    return { input: block.input, usage: data.usage || {}, model: data.model || MODEL }
+  } finally {
+    clearTimeout(timer)
+  }
+}

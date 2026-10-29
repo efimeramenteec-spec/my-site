@@ -35,6 +35,7 @@ import { reconcileWithSupabase } from '../lib/reminderSends.mjs'
 import { handleEstadoTap } from '../lib/sesionesPendientes.mjs'
 import { routeOwnerMessage } from '../lib/botTestMode.mjs'
 import { enqueueInbound, logInboxError } from '../lib/leadTurns.mjs'
+import { hqOrderFor } from '../lib/hqDesk.mjs'
 
 // Wake the reply background function for a lead's queued free text (#59: it waits
 // for 4 s of quiet and answers everything queued as one turn). Returns fast (Netlify 202s a background invocation). The
@@ -61,6 +62,19 @@ async function invokeFacturarAprobar(body) {
     headers: { 'Content-Type': 'application/json', 'x-lead-verify': process.env.WA_CLOUD_VERIFY_TOKEN || '' },
     body: JSON.stringify(body),
   })
+}
+
+// Efimeramente HQ desk (#96): wake hq-desk-background for an owner "Michael: ..." order.
+// Same shared-secret gate as lead-reply-background. Never blocks the 200 to Meta.
+async function invokeHqDesk(payload) {
+  const base = process.env.URL || 'https://efimeramente-panel.netlify.app'
+  try {
+    await fetch(`${base}/.netlify/functions/hq-desk-background`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-lead-verify': process.env.WA_CLOUD_VERIFY_TOKEN || '' },
+      body: JSON.stringify(payload),
+    })
+  } catch (e) { console.warn('[wa-cloud] hq-desk invoke failed (non-blocking):', e.message) }
 }
 
 // Owner invoicing commands (#16, #72), consumed BEFORE estado/lead handling: "facturas"
@@ -268,6 +282,15 @@ export default async (req) => {
           if (isOwnerPing(msg)) continue
         }
         if (await handleOwnerFacturar(supabase, msg)) continue
+
+        // ── Efimeramente HQ desk (#96) — an owner TEXT that starts with an employee name
+        // and ":" or "," ("Michael: ¿qué está pendiente?") goes to hq-desk-background and
+        // nowhere else. Every other owner message keeps the routing below, unchanged.
+        const hqOrder = hqOrderFor(msg)
+        if (hqOrder) {
+          await invokeHqDesk({ ...hqOrder, wamid: msg.id || null, from: msg.from, ts: msg.timestamp || null })
+          continue
+        }
 
         // ── Bot test mode (#56) — "modo prueba" / "reiniciar" / "fin prueba".
         // While active (2h, renewed per message) the owner's other messages go

@@ -14,6 +14,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/hq-agents-sync.mjs",
     "build": "vite build",
     "build:lib": "vite build --mode lib",
     "preview": "vite preview"

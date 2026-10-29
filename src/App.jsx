@@ -11,6 +11,7 @@ import DesignSystem from './pages/DesignSystem.jsx'
 import Disponibilidad from './pages/Disponibilidad.jsx'
 import Marketing from './pages/Marketing.jsx'
 import Comprobantes from './pages/Comprobantes.jsx'
+import HQ from './pages/HQ.jsx'
 import PublicBooking from './pages/PublicBooking.jsx'
 
 function Splash() {
@@ -39,6 +40,7 @@ function Gate() {
             <Route path="seguimiento" element={<Seguimiento />} />
             <Route path="marketing" element={<Marketing />} />
             <Route path="comprobantes" element={<Comprobantes />} />
+            <Route path="hq" element={<HQ />} />
             <Route path="disponibilidad" element={<Disponibilidad />} />
             <Route path="ds" element={<DesignSystem />} />
           </>
