@@ -130,10 +130,13 @@ isotipo; always scale proportionally (no stretching); no outline-only logo. Logo
   applies (no clipped slides).
 
 ## /carrusel flow (#93, decided by Nicolás 27 Oct, #92c)
-1. **Mon / Wed / Fri:** the morning brief gives Nicolás the **full translated copy** (every slide
-   plus the caption with its hashtags).
-2. Nicolás **corrects the text**. Slides are rendered **only after** he corrects it, never before.
-3. The rendered slides go to Nicolás as a preview. **Posting happens only after his "sí", at
+1. **Mon / Wed / Fri:** Nicolás gets the **full translated copy** (every slide plus the caption with
+   its hashtags) **on the computer**: in the Mac terminal (Claude Code) or the director chat.
+2. Nicolás **corrects the text there, on the computer — never on WhatsApp** (standing rule, #93,
+   29 Oct). His corrected text is saved to the post spec exactly as he writes it. Slides are rendered
+   **only after** he corrects it, never before.
+3. The rendered slides go to Nicolás on WhatsApp as `document` messages (owner outbox, uncompressed).
+   **WhatsApp only ever receives the finished slides** — no drafts, no copy for review. **Posting happens only after his "sí", at
    19:00 GYE.** Only Nicolás approves.
 - **Default = exact translation** (the #92b/#92c test settled this: no rewrite). Keep the
   original's order, claims and data.
@@ -143,7 +146,9 @@ isotipo; always scale proportionally (no stretching); no outline-only logo. Logo
   Example (#92c): `#saludmental #psicologia #terapiapsicologica #psicologosquito
   #flexibilidadpsicologica`. They go in the copy Nicolás corrects.
 - **Color:** each post takes the next of the 8 violet combos with `nextPair(history)` (`colors.mjs`,
-  #92f). **#93 stores the history** (one id per post, in posting order; POST-01 = `violeta-sobre-crema`).
+  #92f). The history lives in Supabase **`carrusel_posts`** (#93: one row per source link; `numero`,
+  `estado`, `color_id`, `publicado_at`; discarded links stay as `descartado`). POST-01 = `violeta-sobre-crema`.
+  Specs: `scripts/carrusel/posts/POST-NN-<slug>.json`.
 - **Layout limits (#92e):** body never below 40 px. A slide that doesn't fit is split at a paragraph
   break and renumbered (words untouched); only a slide that can't be split (one paragraph, cover,
   closing) stops the render, and then Nicolás is told which one. Never edit his text to make it fit.

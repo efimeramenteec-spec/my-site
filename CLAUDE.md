@@ -230,6 +230,12 @@ semanal 14d / quincenal 28d / sin frecuencia 21d; alta/baja excluded), **activos
 actives who returned), and a lifetime sessions-per-patient distribution. Therapists see the
 same page auto-scoped by RLS to their own patients/sessions — no role logic in the page.
 
+### Instagram carousels — /carrusel (#92–#93; full rules in `assets/brand/BRAND.md` "/carrusel flow")
+Renderer `scripts/carrusel/render.mjs` + `colors.mjs`; specs `scripts/carrusel/posts/POST-NN-<slug>.json`; history/queue
+in Supabase `carrusel_posts` (owner-only; color via `nextPair` over it). **Standing rule (Nicolás, 29 Oct): carousel copy
+is corrected on the computer (Mac terminal or the director chat), NEVER on WhatsApp.** His corrected text goes into the
+spec exactly as written. WhatsApp receives only the finished slides (owner outbox `document` messages, his number only).
+
 ### Marketing module v2 (owner-only, `src/pages/Marketing.jsx`)
 **Fully documented in `MARKETING-CONSULTORIO-2026.md` — read that for ANY marketing work**
 (protocol, flag thresholds, Meta report template, backfill). One-paragraph orientation:
