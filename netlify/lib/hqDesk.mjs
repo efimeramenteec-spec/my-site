@@ -1,6 +1,6 @@
 // netlify/lib/hqDesk.mjs
 //
-// Efimeramente HQ WhatsApp desk (#96). Nicolás writes "Michael: ¿qué está pendiente?" to the
+// Efimeramente HQ desk (#96 WhatsApp, #97 office game). Nicolás writes "Michael: ¿qué está pendiente?" to the
 // 9933 and the named employee answers in their own voice. The webhook only RECOGNISES the
 // order (parseHqOrder) and wakes hq-desk-background; everything else lives here.
 //
@@ -104,33 +104,41 @@ export async function buildSnapshot(supabase) {
 
 const REPLY_TOOL = {
   name: 'responder',
-  description: 'La respuesta por WhatsApp a Nicolás y si la orden necesita trabajo de Terminal.',
+  description: 'La respuesta a Nicolás y si la orden necesita trabajo de Terminal.',
   input_schema: {
     type: 'object',
     properties: {
-      respuesta: { type: 'string', description: `Español, máximo ${MAX_REPLY} caracteres, en tu voz.` },
+      respuesta: { type: 'string', description: `Máximo ${MAX_REPLY} caracteres, en tu voz, en el idioma de la orden.` },
       necesita_trabajo: { type: 'boolean', description: 'true si la orden pide hacer/cambiar/enviar/construir algo (no solo informar).' },
     },
     required: ['respuesta', 'necesita_trabajo'],
   },
 }
 
-export function buildSystem(agentKey) {
+const CHANNEL_LINE = {
+  whatsapp: 'You are answering Nicolás on WhatsApp',
+  panel: 'You are answering Nicolás inside the HQ office game: he just walked up to your desk and talked to you',
+}
+
+export function buildSystem(agentKey, canal = 'whatsapp') {
   const a = AGENTS[agentKey]
   return `${a.body}
 
 ---
-WHATSAPP DESK MODE (#96). You are answering Nicolás on WhatsApp, as ${a.name[0].toUpperCase() + a.name.slice(1)}.
-- Reply in Spanish, in your own voice, max ${MAX_REPLY} characters, plain text (no markdown, no tables).
+HQ DESK MODE (#96/#97). ${CHANNEL_LINE[canal] || CHANNEL_LINE.whatsapp}, as ${a.name[0].toUpperCase() + a.name.slice(1)}.
+- Reply in the language of his order (Spanish by default), in your own voice, max ${MAX_REPLY}
+  characters, plain text (no markdown, no tables).
 - You can ONLY read: the snapshot below is everything you know about live data. Never claim you did,
   changed, sent, approved or posted anything. Never invent numbers that aren't in the snapshot.
 - If the order needs real work (build, change, send, approve, post, pay, contact a patient), set
   necesita_trabajo=true and say it is noted for Terminal (e.g. "Anotado. Lo ejecuto con Terminal.").
   Money, patient messages and anything public always wait for Nicolás's "sí".
 - If the order belongs to another employee, say who and keep it short.
+- The recent conversation is context: continue it naturally, don't repeat yourself.
 - Standing facts (company memory): Meta Ads are OFF since 27 Oct by Nicolás's decision, so 0 new
-  ad leads is expected, not a problem. Say only what the snapshot shows about a receipt; don't
-  guess who forwarded it or why. For the full backlog, point to Michael's /michael session.`
+  ad leads is expected, not a problem. The first call is free (confirmed 29 Oct). Say only what
+  the snapshot shows about a receipt; don't guess who forwarded it or why. For the full backlog,
+  point to Michael's /michael session.`
 }
 
 export function costUsd(usage) {
@@ -145,34 +153,57 @@ export const clip = (s, n = MAX_REPLY) => {
 
 const defaultDeps = { callClaude: callClaudeHQ, deliverRow, lastOwnerInbound, owner: ownerWhatsApp, now: () => new Date() }
 
-// The whole desk turn for one order. Returns the hq_orders row id + what happened.
+// Last few answered exchanges with this employee (both channels), oldest first.
+async function recentHistory(supabase, agent, excludeId) {
+  try {
+    const { data } = await supabase.from('hq_orders').select('id, created_at, texto, respuesta')
+      .eq('agent', agent).not('respuesta', 'is', null).order('created_at', { ascending: false }).limit(5)
+    return (data || []).filter((r) => r.id !== excludeId).slice(0, 4).reverse()
+      .map((r) => ({ cuando: String(r.created_at).slice(0, 16), nicolas: String(r.texto).slice(0, 300), tu: String(r.respuesta).slice(0, 400) }))
+  } catch { return [] }
+}
+
+// The shared step of both channels: snapshot + history + Claude → the hq_orders patch.
+// Never throws: a failed call becomes an en_cola order with a short "noted" reply.
+export async function answerOrder(supabase, row, canal, deps = defaultDeps) {
+  try {
+    const [snapshot, historial] = await Promise.all([buildSnapshot(supabase), recentHistory(supabase, row.agent, row.id)])
+    const user = `${historial.length ? `Conversación reciente contigo:\n${JSON.stringify(historial, null, 1)}\n\n` : ''}Orden de Nicolás para ti: "${row.texto || '(vacía)'}"\n\nSnapshot de solo lectura (${snapshot.fecha_gye}, hora Ecuador):\n${JSON.stringify(snapshot, null, 1)}`
+    const out = await deps.callClaude({ system: buildSystem(row.agent, canal), user, tool: REPLY_TOOL })
+    let respuesta = clip(out.input.respuesta)
+    const estado = out.input.necesita_trabajo ? 'en_cola' : 'respondido'
+    if (estado === 'en_cola' && !/terminal/i.test(respuesta)) respuesta = clip(`${respuesta} Anotado. Lo ejecuto con Terminal.`)
+    const u = out.usage || {}
+    return {
+      respuesta, estado, model: out.model || null, error: null,
+      input_tokens: u.input_tokens ?? null, output_tokens: u.output_tokens ?? null,
+      cost_usd: u.input_tokens != null ? costUsd(u) : null,
+      updated_at: deps.now().toISOString(),
+    }
+  } catch (e) {
+    return {
+      respuesta: 'Anotado. No pude revisar los datos ahora; lo vemos con Terminal.', estado: 'en_cola',
+      error: String(e.message).slice(0, 500), updated_at: deps.now().toISOString(),
+    }
+  }
+}
+
+// WhatsApp channel (#96). Returns the hq_orders row id + what happened.
 export async function handleHqOrder(supabase, { agent, texto, wamid, from, msgTs }, deps = defaultDeps) {
   if (!HQ_AGENTS.includes(agent)) throw new Error('unknown agent ' + agent)
   if (!isHqOwner(from)) throw new Error('not the owner phone')
 
   // 1. Store the order first (wamid unique: a retried webhook can't create a second row).
   const { data: row, error: insErr } = await supabase.from('hq_orders')
-    .insert({ agent, texto: texto || '', wamid: wamid || null, estado: 'nuevo' }).select().single()
+    .insert({ agent, texto: texto || '', wamid: wamid || null, estado: 'nuevo', canal: 'whatsapp' }).select().single()
   if (insErr) {
     if (/duplicate|unique/i.test(insErr.message)) return { duplicate: true }
     throw new Error('hq_orders insert failed: ' + insErr.message)
   }
 
-  // 2. Snapshot + Claude.
-  let respuesta, estado, usage = {}, model = null
-  try {
-    const snapshot = await buildSnapshot(supabase)
-    const user = `Orden de Nicolás para ti: "${texto || '(vacía)'}"\n\nSnapshot de solo lectura (${snapshot.fecha_gye}, hora Ecuador):\n${JSON.stringify(snapshot, null, 1)}`
-    const out = await deps.callClaude({ system: buildSystem(agent), user, tool: REPLY_TOOL })
-    usage = out.usage; model = out.model
-    respuesta = clip(out.input.respuesta)
-    estado = out.input.necesita_trabajo ? 'en_cola' : 'respondido'
-    if (estado === 'en_cola' && !/terminal/i.test(respuesta)) respuesta = clip(`${respuesta} Anotado. Lo ejecuto con Terminal.`)
-  } catch (e) {
-    await supabase.from('hq_orders').update({ estado: 'en_cola', error: String(e.message).slice(0, 500), updated_at: deps.now().toISOString() }).eq('id', row.id)
-    respuesta = 'Anotado. No pude revisar los datos ahora; lo vemos con Terminal.'
-    estado = 'en_cola'
-  }
+  // 2. Snapshot + history + Claude.
+  const ans = await answerOrder(supabase, row, 'whatsapp', deps)
+  const { respuesta, estado } = ans
 
   // 3. Queue the reply for Nicolás only; send now only if his 24 h window is open.
   const name = agent[0].toUpperCase() + agent.slice(1)
@@ -180,12 +211,7 @@ export async function handleHqOrder(supabase, { agent, texto, wamid, from, msgTs
   const { data: ob, error: obErr } = await supabase.from('owner_outbox')
     .insert({ kind: 'hq_reply', resumen: `${name} respondió`, payload: { messages: [{ type: 'texto_exacto', body }] }, estado: 'pendiente' })
     .select().single()
-  const patch = {
-    respuesta, estado, model,
-    input_tokens: usage.input_tokens ?? null, output_tokens: usage.output_tokens ?? null,
-    cost_usd: usage.input_tokens != null ? costUsd(usage) : null,
-    outbox_id: ob?.id || null, updated_at: deps.now().toISOString(),
-  }
+  const patch = { ...ans, outbox_id: ob?.id || null }
   if (obErr || !ob) {
     await supabase.from('hq_orders').update({ ...patch, error: 'outbox insert: ' + (obErr?.message || 'no row') }).eq('id', row.id)
     return { id: row.id, estado, sent: false }
@@ -202,9 +228,20 @@ export async function handleHqOrder(supabase, { agent, texto, wamid, from, msgTs
   }
   const r = await deps.deliverRow(supabase, to, ob)
   await supabase.from('hq_orders').update({
-    ...patch, reply_wamid: r.wamids?.[0] || null, error: r.sent ? null : String(r.error || 'no enviado').slice(0, 500),
+    ...patch, reply_wamid: r.wamids?.[0] || null, error: r.sent ? patch.error : String(r.error || 'no enviado').slice(0, 500),
   }).eq('id', row.id)
   return { id: row.id, estado, sent: !!r.sent, reply_wamid: r.wamids?.[0] || null }
+}
+
+// Office-game channel (#97): the row was created by hq-chat (owner-gated); answer it in place.
+// Nothing is sent anywhere: the game polls hq-chat?id= for the reply.
+export async function handlePanelOrder(supabase, orderId, deps = defaultDeps) {
+  const { data: row, error } = await supabase.from('hq_orders').select('*').eq('id', orderId).single()
+  if (error || !row) throw new Error('order not found')
+  if (row.canal !== 'panel' || row.estado !== 'nuevo' || row.respuesta) return { id: row.id, skipped: true }
+  const ans = await answerOrder(supabase, row, 'panel', deps)
+  await supabase.from('hq_orders').update(ans).eq('id', row.id)
+  return { id: row.id, estado: ans.estado }
 }
 
 // The webhook's single routing question: is this inbound an HQ order? Owner phone only

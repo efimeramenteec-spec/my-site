@@ -4,12 +4,13 @@
 // right away and this answers Nicolás's "Michael: ..." order (Claude + read-only snapshot,
 // reply via the owner outbox). All logic in netlify/lib/hqDesk.mjs — read-only by design.
 //
-// Invoked by whatsapp-cloud-webhook.mjs with { agent, texto, wamid, from, ts } and the shared
+// Invoked by whatsapp-cloud-webhook.mjs with { agent, texto, wamid, from, ts }, or by hq-chat
+// with { orderId } (#97 office game), and the shared
 // verify token in `x-lead-verify` (same gate as lead-reply-background).
 // Env: SUPABASE_SERVICE_KEY, WA_CLOUD_VERIFY_TOKEN, WA_DUALHOOK_API_KEY, ANTHROPIC_API_KEY.
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
-import { handleHqOrder } from '../lib/hqDesk.mjs'
+import { handleHqOrder, handlePanelOrder } from '../lib/hqDesk.mjs'
 
 export default async (req) => {
   if (req.method !== 'POST') return new Response('method not allowed', { status: 405 })
@@ -20,9 +21,12 @@ export default async (req) => {
   }
   let body
   try { body = await req.json() } catch { return new Response('bad body', { status: 400 }) }
-  const { agent, texto, wamid, from, ts } = body || {}
+  const { agent, texto, wamid, from, ts, orderId } = body || {}
   try {
-    const r = await handleHqOrder(getSupabaseAdmin(), { agent, texto, wamid, from, msgTs: ts })
+    // #97: { orderId } = an office-game order already stored by hq-chat (owner-gated).
+    const r = orderId
+      ? await handlePanelOrder(getSupabaseAdmin(), orderId)
+      : await handleHqOrder(getSupabaseAdmin(), { agent, texto, wamid, from, msgTs: ts })
     console.log('[hq-desk]', JSON.stringify(r))
     return new Response(JSON.stringify(r), { status: 200 })
   } catch (e) {

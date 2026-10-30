@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs'
 import { memSupabase } from '../netlify/lib/leadBotSim.mjs'
 import { routeOwnerMessage } from '../netlify/lib/botTestMode.mjs'
 import { isOwnerPhone, isFacturasCommand, facturaTap } from '../netlify/lib/facturarAprobacion.mjs'
-import { hqOrderFor, handleHqOrder, MAX_REPLY } from '../netlify/lib/hqDesk.mjs'
+import { hqOrderFor, handleHqOrder, handlePanelOrder, MAX_REPLY } from '../netlify/lib/hqDesk.mjs'
 
 const OWNER = '593968029896'
 const clock = new Date('2026-10-29T15:00:00Z')
@@ -99,7 +99,7 @@ const rowA = desk.db.hq_orders[0]
 assert.equal(rowA.input_tokens, 2100); assert.equal(rowA.output_tokens, 180); assert.equal(rowA.cost_usd, 0.0090)
 assert.equal(rowA.reply_wamid, 'wamid.OUT1'); assert.ok(sent[0].body.startsWith('Michael: '))
 assert.equal(sent[0].to, '+' + OWNER)
-assert.match(lastSystem, /Michael · CEO/); assert.match(lastSystem, /WHATSAPP DESK MODE/)
+assert.match(lastSystem, /Michael · CEO/); assert.match(lastSystem, /HQ DESK MODE/); assert.match(lastSystem, /on WhatsApp/)
 console.log(`✓ Michael answered (${rowA.input_tokens}+${rowA.output_tokens} tokens, $${rowA.cost_usd}) → ${sent[0].to}: "${sent[0].body}"`)
 
 const b = await handleHqOrder(desk, { agent: 'wes', texto: 'publica el post 2', wamid: 'wamid.T2', from: OWNER }, mkDeps({ necesita: true, respuesta: 'El post 2 aún no está renderizado.', }))
@@ -121,4 +121,19 @@ await assert.rejects(handleHqOrder(desk, { agent: 'michael', texto: 'x', wamid: 
 const touched = Object.entries(desk.db).filter(([t, rows]) => rows.length && !['hq_orders', 'owner_outbox'].includes(t))
 assert.deepEqual(touched, [])
 console.log('✓ read-only: the desk wrote only hq_orders + owner_outbox')
-console.log('\nALL #96 CHECKS PASSED')
+// ── Part 3 (#97): the office-game channel ────────────────────────────────────────
+let lastUser = ''
+const panelDeps = { ...mkDeps({ respuesta: 'Hey Nicolás. Two things today.' }), deliverRow: async () => { throw new Error('panel must never send') } }
+const origCall = panelDeps.callClaude
+panelDeps.callClaude = async (args) => { lastUser = args.user; return origCall(args) }
+desk.db.hq_orders.push({ id: 'p1', agent: 'michael', texto: 'what now?', estado: 'nuevo', canal: 'panel', created_at: clock.toISOString() })
+const nOut = desk.db.owner_outbox.length, nSent2 = sent.length
+const p = await handlePanelOrder(desk, 'p1', panelDeps)
+const p1 = desk.db.hq_orders.find((o) => o.id === 'p1')
+assert.equal(p.estado, 'respondido'); assert.equal(p1.respuesta, 'Hey Nicolás. Two things today.')
+assert.match(lastSystem, /office game/); assert.match(lastUser, /Conversación reciente contigo/); assert.match(lastUser, /qué está pendiente/)
+assert.equal(desk.db.owner_outbox.length, nOut); assert.equal(sent.length, nSent2)
+assert.deepEqual(await handlePanelOrder(desk, 'p1', panelDeps), { id: 'p1', skipped: true })
+console.log('✓ office game: answered in place with the recent conversation as context, nothing sent, no double answer')
+
+console.log('\nALL #96/#97 CHECKS PASSED')

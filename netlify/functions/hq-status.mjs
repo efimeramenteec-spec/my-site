@@ -10,32 +10,18 @@
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
 import AGENTS from '../lib/hqAgents.json' with { type: 'json' }
-
-const ALLOWED_ORIGINS = [
-  'https://efimeramente-panel.netlify.app',
-  'https://genuine-praline-0f8e70.netlify.app',
-  'http://localhost:5173',
-]
-const cors = (origin) => ({
-  'Access-Control-Allow-Origin': ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-})
+import { corsFor, ownerGateStatus } from '../lib/ownerGate.mjs'
 
 export default async (req) => {
-  const headers = cors(req.headers.get('origin') || '')
+  const headers = corsFor(req)
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers })
   const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers } })
   if (req.method !== 'GET') return json({ error: 'method_not_allowed' }, 405)
 
   const supabase = getSupabaseAdmin()
   if (!supabase) return json({ error: 'server_misconfigured' }, 500)
-  const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
-  if (!token) return json({ error: 'unauthorized' }, 401)
-  const { data: userData, error: authErr } = await supabase.auth.getUser(token)
-  if (authErr || !userData?.user) return json({ error: 'unauthorized' }, 401)
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', userData.user.id).single()
-  if (profile?.role !== 'owner') return json({ error: 'forbidden' }, 403)
+  const denied = await ownerGateStatus(supabase, req)
+  if (denied) return json({ error: denied === 401 ? 'unauthorized' : 'forbidden' }, denied)
 
   const { data: orders, error } = await supabase.from('hq_orders')
     .select('id, created_at, agent, texto, estado, respuesta, cost_usd')
@@ -53,5 +39,11 @@ export default async (req) => {
   })
   const costoMes = (orders || []).filter((o) => o.created_at >= new Date(Date.now() - 30 * 864e5).toISOString())
     .reduce((s, o) => s + Number(o.cost_usd || 0), 0)
-  return json({ empleados, costo_30d: Math.round(costoMes * 100) / 100 })
+  // #97: the office whiteboard (the primary metric's inputs).
+  const today = new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10)
+  const [{ count: sesionesHoy }, { count: leads24h }] = await Promise.all([
+    supabase.from('sessions').select('id', { count: 'exact', head: true }).eq('fecha', today).neq('estado', 'cancelada').neq('tipo', 'llamada'),
+    supabase.from('leads').select('id', { count: 'exact', head: true }).gte('created_at', new Date(Date.now() - 864e5).toISOString()).eq('es_prueba', false),
+  ])
+  return json({ empleados, costo_30d: Math.round(costoMes * 100) / 100, pizarra: { sesiones_hoy: sesionesHoy ?? null, leads_24h: leads24h ?? null } })
 }
