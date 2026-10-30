@@ -7,6 +7,27 @@ Newest first.
 
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-28 (#92g) -->
 
+### 2026-10-27 (eve) — #92 /carrusel piece 1: Instagram brand templates + test carousel (executor, 065f59d)
+- **Brand manual → code:** `assets/brand/BRAND.md` (8 HEX from manual p.13–20, fonts p.11–12, área de respeto p.29,
+  usos incorrectos p.30). Cream `#FEF8E9` (sampled p.26) + black ink approved by Nicolás. Logos trimmed in `assets/brand/logos/`.
+- **Renderer:** `scripts/carrusel/render.mjs` — `renderCarousel(spec, outDir)` (importable, for #93) + CLI
+  `node scripts/carrusel/render.mjs <spec.json> <outDir>`. Spec `{slides:[{type:portada|contenido|cierre,title,body?,kicker?}]}`;
+  `**x**` in a title = Helvetica bold (manual's headline pattern). Playwright (devDependency 1.64.1) → 1080×1350 PNG, size
+  checked from the PNG header. Auto-fit shrinks all type together; still overflowing at min → THROWS (no clipped slides).
+  Gotcha fixed: measure `.inner` height, not `scrollHeight` (centered blocks overflow upward invisibly).
+- **Fonts NOT in git** (repo is public; Helvetica Now = Monotype "may not copy or distribute"; Chetta Vissto has no license
+  info): `node scripts/carrusel/fetch-fonts.mjs` pulls them from Drive TIPOGRAFIA (link-shared) into gitignored
+  `assets/brand/fonts/`. Without them → Playfair Display / Inter Tight (`CARRUSEL_FALLBACK_FONTS=1` to preview).
+  Chetta lacks ¿ ¡ — “ ” … → those glyphs come from Playfair. Nicolás: fine for IG images; web use needs blnk's OK.
+- **Test carousel** from @drdianahill DesKKVGErca (9 slides, ACT "therapist avoidance") → 7 slides, rewritten for patients
+  ("Una buena terapia no corre a quitarte el malestar"), caption 94 words + 8 hashtags. Drive: `Efimeramente · Claude/IG ·
+  Listos/TEST-2026-10-27-terapia-que-se-queda` (folder id `1wa-rnf6k5HAwcEqYwfSgViYk0ZccqUsH`; IG · Listos =
+  `1cNOTjtAOx3d3c-yLiCF9-ql_yuCVqF2b`) with 01–07.png + caption.txt + source.txt. Nothing posted, no WhatsApp sent.
+- **Drive PNG upload gotcha:** the Drive connector only takes base64 (too heavy for PNGs). Worked: Chrome on the folder →
+  inject `<input type=file>` → `file_upload` → dispatch synthetic dragenter/dragover/drop with a DataTransfer. #93 should
+  deliver previews by WhatsApp media instead and keep Drive optional.
+- Approver = **Nicolás only** (not Mariana).
+
 ### 2026-10-27 (pm) — #90 Backup tables locked down (Supabase critical alert) (executor)
 - Supabase flagged `patients_/sessions_/saldo_lotes_backup_20261022` as "RLS Disabled in Public". anon already had no
   grants on them but **`authenticated` had SELECT** (any therapist login could read). Also `*_backup_20261023` (4 tables) had RLS off, no grants.

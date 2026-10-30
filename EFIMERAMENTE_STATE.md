@@ -103,6 +103,15 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-29 — #96 Efimeramente HQ: AI staff + WhatsApp desk + /hq page (Terminal, 1cd3099 + 8866916)
+- **Employees** = `.claude/agents/{michael,alex,vince,tim,wes}.md` (frontmatter name/description/tools/status/model; body = role, owns, rules, commands, what needs Nicolás's "sí", reports-to/hand-off). `/michael` … `/wes` in `.claude/commands/` make a session become that employee: read the Drive TO-DO (WHO'S WHO first) + its agent file + its `en_cola` hq_orders, then wait. Verified: a fresh headless `claude -p "/michael"` stated role + top 3 (#79, #15, #55) unprompted. Ad commands stay user-level in `~/.claude/commands/` (adscript/adgenerator/adgenclose), referenced, not modified. CLAUDE.md line: "This repo is Efimeramente HQ".
+- **WhatsApp desk:** `whatsapp-cloud-webhook` → `hqOrderFor(msg)` (`netlify/lib/hqDesk.mjs`) placed AFTER the facturas/fac_* handler and BEFORE `routeOwnerMessage`: owner phone only (isOwnerPhone AND last-9 968029896), text only, `^(michael|alex|vince|tim|wes)\s*[:,]` on an accent-folded body. Match → `hq-desk-background` (x-lead-verify gate) → `handleHqOrder`: insert `hq_orders` (wamid unique), read-only snapshot (held receipts, unapproved lotes, today's sessions, 24 h leads, open orders, payroll), `callClaudeHQ` in leadBrain.mjs (same key/model, forced tool `responder` {respuesta, necesita_trabajo}), reply ≤600 chars as `owner_outbox` kind `hq_reply` (`texto_exacto`) delivered only if his 24 h window is open (else stays pendiente, NO ping template), tokens + `cost_usd` (Sonnet $3/$15 per M) logged. Work orders → `en_cola` + "Lo ejecuto con Terminal". Writes ONLY hq_orders + owner_outbox. System prompt = agent file body (bundled into `netlify/lib/hqAgents.json` by `scripts/hq-agents-sync.mjs`, runs on `prebuild`; JSON committed) + desk-mode rules + standing facts.
+- **DB:** `hq_orders` (migration `hq_orders_96`, `supabase/hq-orders-96.sql`): RLS on, no policies, REVOKE ALL anon/authenticated, service_role only.
+- **/hq page:** `src/pages/HQ.jsx` (owner route + nav "HQ"), the mockup's faces/layout/colours scoped under `.hq`; live pill + last 3 orders + 30-day cost from owner-gated `netlify/functions/hq-status.mjs`.
+- **Verified:** harness `node scripts/harness-hq-96.mjs` (Michael/Wes → desk; "hola" + IG link → owner path as before; facturas unchanged; window closed = stored not sent; read-only). Live: Nicolás's "Michael: que está pendiente?" → hq_orders 614bf43e, inbound wamid.HBgMNTkzOTY4MDI5ODk2FQIAEhgUM0FBOTUwOUZGM0E5OUUxMUVCRTYA, reply wamid.HBgMNTkzOTY4MDI5ODk2FQIAERgUQ0U3RTk5N0EyQzlERDJGQzgwNDEA, 1901+203 tokens, $0.00875, 5 s.
+- **Gotcha:** first live reply flagged "0 leads" although Meta is off → standing facts added to the desk prompt (8866916). The desk has no Drive access: the backlog lives with `/michael`.
+- **Drive:** TO-DO rewritten with WHO'S WHO; DIRECTOR HANDOFF.md folded in and trashed (one memory file). `/cierre` now signs the employee.
+
 ### 2026-10-28 — #92g Chetta titles, no "pensar con luz", POST-01 re-rendered + sent to Nicolás on WhatsApp (executor, 807b343)
 - **Rules (Nicolás, 28 Oct):** carousel titles (cover, content, closing) in **Chetta Vissto** Regular, font stack
   `'Chetta Vissto','Helvetica Now Display','Inter Tight',…` so Helvetica Now fills glyphs Chetta lacks (¿ ¡ — ” …) per
@@ -210,27 +219,6 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   "Traducido de @drdianahill", no CTA added) · `TEST-2026-10-27-reescritura-v2` (same 7-slide text, new design) ·
   `COMPARACION-2026-10-27.png` (A top row, B bottom). The first folder `TEST-2026-10-27-terapia-que-se-queda` was left as is.
 - `assets/brand/logos/` stays in the repo as brand assets, but carousels no longer use them.
-
-### 2026-10-27 (eve) — #92 /carrusel piece 1: Instagram brand templates + test carousel (executor, 065f59d)
-- **Brand manual → code:** `assets/brand/BRAND.md` (8 HEX from manual p.13–20, fonts p.11–12, área de respeto p.29,
-  usos incorrectos p.30). Cream `#FEF8E9` (sampled p.26) + black ink approved by Nicolás. Logos trimmed in `assets/brand/logos/`.
-- **Renderer:** `scripts/carrusel/render.mjs` — `renderCarousel(spec, outDir)` (importable, for #93) + CLI
-  `node scripts/carrusel/render.mjs <spec.json> <outDir>`. Spec `{slides:[{type:portada|contenido|cierre,title,body?,kicker?}]}`;
-  `**x**` in a title = Helvetica bold (manual's headline pattern). Playwright (devDependency 1.64.1) → 1080×1350 PNG, size
-  checked from the PNG header. Auto-fit shrinks all type together; still overflowing at min → THROWS (no clipped slides).
-  Gotcha fixed: measure `.inner` height, not `scrollHeight` (centered blocks overflow upward invisibly).
-- **Fonts NOT in git** (repo is public; Helvetica Now = Monotype "may not copy or distribute"; Chetta Vissto has no license
-  info): `node scripts/carrusel/fetch-fonts.mjs` pulls them from Drive TIPOGRAFIA (link-shared) into gitignored
-  `assets/brand/fonts/`. Without them → Playfair Display / Inter Tight (`CARRUSEL_FALLBACK_FONTS=1` to preview).
-  Chetta lacks ¿ ¡ — “ ” … → those glyphs come from Playfair. Nicolás: fine for IG images; web use needs blnk's OK.
-- **Test carousel** from @drdianahill DesKKVGErca (9 slides, ACT "therapist avoidance") → 7 slides, rewritten for patients
-  ("Una buena terapia no corre a quitarte el malestar"), caption 94 words + 8 hashtags. Drive: `Efimeramente · Claude/IG ·
-  Listos/TEST-2026-10-27-terapia-que-se-queda` (folder id `1wa-rnf6k5HAwcEqYwfSgViYk0ZccqUsH`; IG · Listos =
-  `1cNOTjtAOx3d3c-yLiCF9-ql_yuCVqF2b`) with 01–07.png + caption.txt + source.txt. Nothing posted, no WhatsApp sent.
-- **Drive PNG upload gotcha:** the Drive connector only takes base64 (too heavy for PNGs). Worked: Chrome on the folder →
-  inject `<input type=file>` → `file_upload` → dispatch synthetic dragenter/dragover/drop with a DataTransfer. #93 should
-  deliver previews by WhatsApp media instead and keep Drive optional.
-- Approver = **Nicolás only** (not Mariana).
 
 ## Pending / Backlog
 
