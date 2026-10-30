@@ -26,7 +26,7 @@ Funnel: Meta Ads, WhatsApp conversation, free call, patient.
 - "Maximizar clientes potenciales" optimizes on CAPI LeadSubmitted; click "Aplicar" or it reverts.
 - After building a campaign, check every ad set and ad says "Activa", not "Borrador".
 - Check Meta yourself (Ads/Events Manager via Chrome on the Mac); never ask Nicolás to look it up.
-- "La primera llamada es gratuita" is NOT confirmed by Nicolás: don't use it in copy.
+- "La primera llamada es gratuita" is TRUE (confirmed by Nicolás, 29 Oct): OK in copy.
 - Bot/ad copy voice: speaks as "Nico", no emojis, no opening ¡ ¿.
 
 ## Commands

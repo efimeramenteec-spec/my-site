@@ -24,3 +24,5 @@ create index if not exists hq_orders_agent_created on public.hq_orders (agent, c
 alter table public.hq_orders enable row level security;
 revoke all on table public.hq_orders from anon, authenticated;
 grant select, insert, update, delete on table public.hq_orders to service_role;
+-- #97 prep (29 Oct): channel of the order; unused until the game UI ships.
+alter table public.hq_orders add column if not exists canal text not null default 'whatsapp' check (canal in ('whatsapp','panel'));
