@@ -43,6 +43,18 @@ export function parseHqOrder(msg) {
   return { agent: m[1].toLowerCase(), texto: body.slice(sep + 1).trim() }
 }
 
+// Reply language = the language of his message (deterministic; the model drifts to Spanish when the
+// surrounding data is Spanish). Accents / ¿¡ or more Spanish than English function words → es; tie → es.
+const ES_WORDS = /\b(que|qué|como|cómo|esta|está|estan|están|hoy|para|por|necesito|dime|hay|pendiente|cuál|cual|hola|gracias|quiero|tengo|el|la|los|las|de|del|y|en|un|una|es|son|ya|mi|tu|lo)\b/g
+const EN_WORDS = /\b(what|how|is|are|the|to|do|does|should|next|today|i|my|you|we|need|want|can|please|hi|hello|thanks|of|and|in|a|an|it|on|for|with|me)\b/g
+export function detectLang(text) {
+  const s = String(text || '').toLowerCase()
+  if (/[áéíóúñ¿¡]/.test(s)) return 'es'
+  const es = (s.match(ES_WORDS) || []).length
+  const en = (s.match(EN_WORDS) || []).length
+  return en > es ? 'en' : 'es'
+}
+
 export const isHqOwner = (from) => last9(from) === OWNER_LAST9
 
 const GYE_TODAY = () => new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10)
@@ -132,7 +144,7 @@ export function buildSystem(agentKey, canal = 'whatsapp') {
 
 ---
 HQ DESK MODE (#96/#97). ${CHANNEL_LINE[canal] || CHANNEL_LINE.whatsapp}, as ${a.name[0].toUpperCase() + a.name.slice(1)}.
-- Reply in the language of his order (Spanish by default), in your own voice, max ${MAX_REPLY}
+- Reply in the language the message tells you to, in your own voice, max ${MAX_REPLY}
   characters, plain text (no markdown, no tables).
 - You can ONLY read: the snapshot below is everything you know about live data. Never claim you did,
   changed, sent, approved or posted anything. Never invent numbers that aren't in the snapshot.
@@ -141,8 +153,8 @@ HQ DESK MODE (#96/#97). ${CHANNEL_LINE[canal] || CHANNEL_LINE.whatsapp}, as ${a.
   Money, patient messages and anything public always wait for Nicolás's "sí".
 - If the order belongs to another employee, say who and keep it short.
 - The recent conversation is context: continue it naturally, don't repeat yourself.
-- The snapshot's "prioridades" is the company's scored backlog: use it for "what's next / what's
-  pending / what matters". Live numbers (receipts, leads, sessions) come from the rest of the snapshot.
+- COMPANY PRIORITIES is the scored backlog: for "what's next / what's pending / what matters", answer
+  from it first (top items by score), then add at most one urgent live item from the snapshot.
 - Standing facts (company memory): Meta Ads are OFF since 27 Oct by Nicolás's decision, so 0 new
   ad leads is expected, not a problem. The first call is free (confirmed 29 Oct). Say only what
   the snapshot shows about a receipt; don't guess who forwarded it or why. For the full backlog,
@@ -176,7 +188,14 @@ async function recentHistory(supabase, agent, excludeId) {
 export async function answerOrder(supabase, row, canal, deps = defaultDeps) {
   try {
     const [snapshot, historial] = await Promise.all([buildSnapshot(supabase), recentHistory(supabase, row.agent, row.id)])
-    const user = `${historial.length ? `Conversación reciente contigo:\n${JSON.stringify(historial, null, 1)}\n\n` : ''}Orden de Nicolás para ti: "${row.texto || '(vacía)'}"\n\nSnapshot de solo lectura (${snapshot.fecha_gye}, hora Ecuador):\n${JSON.stringify(snapshot, null, 1)}`
+    const { prioridades, ...vivo } = snapshot
+    const idioma = detectLang(row.texto) === 'en' ? 'English' : 'Spanish'
+    const user = [
+      prioridades?.texto ? `COMPANY PRIORITIES (scored backlog, the source of truth for "what's next"; updated ${prioridades.actualizado}):\n${prioridades.texto}` : null,
+      historial.length ? `Recent conversation with you (oldest first):\n${JSON.stringify(historial, null, 1)}` : null,
+      `Nicolás's message to you: "${row.texto || '(empty)'}"\nReply in ${idioma}.`,
+      `Read-only live snapshot (${vivo.fecha_gye}, Ecuador time):\n${JSON.stringify(vivo, null, 1)}`,
+    ].filter(Boolean).join('\n\n')
     const out = await deps.callClaude({ system: buildSystem(row.agent, canal), user, tool: REPLY_TOOL })
     let respuesta = clip(out.input.respuesta)
     const estado = out.input.necesita_trabajo ? 'en_cola' : 'respondido'

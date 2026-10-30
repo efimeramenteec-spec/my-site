@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs'
 import { memSupabase } from '../netlify/lib/leadBotSim.mjs'
 import { routeOwnerMessage } from '../netlify/lib/botTestMode.mjs'
 import { isOwnerPhone, isFacturasCommand, facturaTap } from '../netlify/lib/facturarAprobacion.mjs'
-import { hqOrderFor, handleHqOrder, handlePanelOrder, MAX_REPLY } from '../netlify/lib/hqDesk.mjs'
+import { hqOrderFor, handleHqOrder, handlePanelOrder, detectLang, MAX_REPLY } from '../netlify/lib/hqDesk.mjs'
 
 const OWNER = '593968029896'
 const clock = new Date('2026-10-29T15:00:00Z')
@@ -131,8 +131,9 @@ const nOut = desk.db.owner_outbox.length, nSent2 = sent.length
 const p = await handlePanelOrder(desk, 'p1', panelDeps)
 const p1 = desk.db.hq_orders.find((o) => o.id === 'p1')
 assert.equal(p.estado, 'respondido'); assert.equal(p1.respuesta, 'Hey Nicolás. Two things today.')
-assert.match(lastSystem, /office game/); assert.match(lastUser, /Conversación reciente contigo/); assert.match(lastUser, /qué está pendiente/)
-assert.match(lastUser, /#79 brief fix/); assert.match(lastSystem, /scored backlog/)
+assert.match(lastSystem, /office game/); assert.match(lastUser, /Recent conversation with you/); assert.match(lastUser, /qué está pendiente/)
+assert.match(lastUser, /^COMPANY PRIORITIES[\s\S]*#79 brief fix/); assert.match(lastSystem, /scored backlog/); assert.match(lastUser, /Reply in English\./)
+for (const [t, want] of [['what now?', 'en'], ['What should I work on next?', 'en'], ['¿qué está pendiente?', 'es'], ['que hay hoy', 'es'], ['estado del post 2', 'es'], ['ok', 'es'], ['Hola, how are you?', 'en']]) assert.equal(detectLang(t), want, t)
 assert.equal(desk.db.owner_outbox.length, nOut); assert.equal(sent.length, nSent2)
 assert.deepEqual(await handlePanelOrder(desk, 'p1', panelDeps), { id: 'p1', skipped: true })
 assert.equal(desk.db.hq_contexto.length, 1); assert.equal(desk.db.hq_contexto[0].texto, 'Top: #79 brief fix, #15 ACCESS permit.')
