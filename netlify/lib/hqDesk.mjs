@@ -89,6 +89,12 @@ export async function buildSnapshot(supabase) {
       if (error) throw error
       return (data || []).map((o) => ({ ...o, texto: String(o.texto).slice(0, 120) }))
     }),
+    // #97 audit: the scored backlog, refreshed by every /cierre (the desk can't read Drive).
+    run('prioridades', async () => {
+      const { data, error } = await supabase.from('hq_contexto').select('texto, updated_at').eq('clave', 'prioridades').maybeSingle()
+      if (error) throw error
+      return data ? { texto: String(data.texto).slice(0, 2000), actualizado: String(data.updated_at).slice(0, 10) } : null
+    }),
     run('nomina', async () => {
       const { data, error } = await supabase.from('payroll_runs').select('periodo, estado')
         .order('periodo', { ascending: false }).limit(20)
@@ -135,6 +141,8 @@ HQ DESK MODE (#96/#97). ${CHANNEL_LINE[canal] || CHANNEL_LINE.whatsapp}, as ${a.
   Money, patient messages and anything public always wait for Nicolás's "sí".
 - If the order belongs to another employee, say who and keep it short.
 - The recent conversation is context: continue it naturally, don't repeat yourself.
+- The snapshot's "prioridades" is the company's scored backlog: use it for "what's next / what's
+  pending / what matters". Live numbers (receipts, leads, sessions) come from the rest of the snapshot.
 - Standing facts (company memory): Meta Ads are OFF since 27 Oct by Nicolás's decision, so 0 new
   ad leads is expected, not a problem. The first call is free (confirmed 29 Oct). Say only what
   the snapshot shows about a receipt; don't guess who forwarded it or why. For the full backlog,

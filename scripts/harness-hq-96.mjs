@@ -71,7 +71,7 @@ assert.equal(hqCalls.length, 2)
 console.log('✓ only the two employee orders reached hq-desk; "hola" + IG link routed exactly as today')
 
 // ── Part 2: the desk ──────────────────────────────────────────────────────────────
-const desk = memSupabase({ hq_orders: [], owner_outbox: [], whatsapp_messages: [], saldo_lotes: [], sessions: [], leads: [], payroll_runs: [] })
+const desk = memSupabase({ hq_orders: [], owner_outbox: [], whatsapp_messages: [], saldo_lotes: [], sessions: [], leads: [], payroll_runs: [], hq_contexto: [{ clave: 'prioridades', texto: 'Top: #79 brief fix, #15 ACCESS permit.', updated_at: '2026-10-29T23:00:00Z' }] })
 const sent = []
 let lastSystem = ''
 const mkDeps = ({ necesita = false, respuesta, windowOpen = true } = {}) => ({
@@ -118,7 +118,7 @@ assert.equal(desk.db.owner_outbox.at(-1).estado, 'pendiente'); assert.equal(desk
 console.log('✓ window closed: reply stored (outbox pendiente), nothing sent, no ping template')
 
 await assert.rejects(handleHqOrder(desk, { agent: 'michael', texto: 'x', wamid: 'w5', from: '593999111222' }, mkDeps()), /owner/)
-const touched = Object.entries(desk.db).filter(([t, rows]) => rows.length && !['hq_orders', 'owner_outbox'].includes(t))
+const touched = Object.entries(desk.db).filter(([t, rows]) => rows.length && !['hq_orders', 'owner_outbox', 'hq_contexto'].includes(t))
 assert.deepEqual(touched, [])
 console.log('✓ read-only: the desk wrote only hq_orders + owner_outbox')
 // ── Part 3 (#97): the office-game channel ────────────────────────────────────────
@@ -132,8 +132,10 @@ const p = await handlePanelOrder(desk, 'p1', panelDeps)
 const p1 = desk.db.hq_orders.find((o) => o.id === 'p1')
 assert.equal(p.estado, 'respondido'); assert.equal(p1.respuesta, 'Hey Nicolás. Two things today.')
 assert.match(lastSystem, /office game/); assert.match(lastUser, /Conversación reciente contigo/); assert.match(lastUser, /qué está pendiente/)
+assert.match(lastUser, /#79 brief fix/); assert.match(lastSystem, /scored backlog/)
 assert.equal(desk.db.owner_outbox.length, nOut); assert.equal(sent.length, nSent2)
 assert.deepEqual(await handlePanelOrder(desk, 'p1', panelDeps), { id: 'p1', skipped: true })
-console.log('✓ office game: answered in place with the recent conversation as context, nothing sent, no double answer')
+assert.equal(desk.db.hq_contexto.length, 1); assert.equal(desk.db.hq_contexto[0].texto, 'Top: #79 brief fix, #15 ACCESS permit.')
+console.log('✓ office game: answered in place with the recent conversation + the priorities note as context, nothing sent, no double answer')
 
 console.log('\nALL #96/#97 CHECKS PASSED')

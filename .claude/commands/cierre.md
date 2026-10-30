@@ -24,4 +24,9 @@ Close this session cleanly. If this session was an Efimeramente HQ employee (/mi
    line you add or change is signed with the employee who did the work, e.g. `(Wes, 29 Oct)`
    (`(Terminal, …)` when no employee was active), and the WHO'S WHO status of that employee
    is updated if it changed. Never create a second memory/handoff file.
-6. Give me a 5-line summary of what shipped and what the next session should pick up.
+6. **Refresh the HQ desk** (WhatsApp desk + office game read these; they can't read Drive):
+   - Upsert `hq_contexto` row `clave='prioridades'` with the top 5 of ACTIVE BACKLOG by score, what is
+     waiting on Nicolás, and standing facts (plain English, max ~1,500 chars, `actualizado_por` = who
+     closed, `updated_at = now()`).
+   - Every `hq_orders` row this session finished: set `estado='hecho'` (by id) so its "!" clears.
+7. Give me a 5-line summary of what shipped and what the next session should pick up.
