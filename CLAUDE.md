@@ -36,10 +36,11 @@ split is gone: no cloud director chat, no numbered prompts to paste. Continuity 
 the ONE memory file, never in a chat.
 
 **Session ritual (every task):**
-1. NEW session → `/michael`: `git pull`, read `PERMANENT TO-DO.md`, check `hq_orders`, state today's top 3 by score.
-2. Do the task. Ask Nicolás only for the "sí" items below.
-3. `/cierre`: update state + memory, build, commit, push.
-Never keep one long chat going; nothing important lives in a conversation.
+1. `/michael`: `git pull`, read `PERMANENT TO-DO.md`, check `hq_orders`, state today's top 3 by score.
+2. Do the tasks, one after another in the same chat. Ask Nicolás only for the "sí" items below.
+3. `/cierre` at checkpoints: update state + memory, build, commit, push.
+**Never tell Nicolás to open a new session** (31 Oct). Parallel work → subagent/temporary branch, cleaned up after.
+Nothing important lives only in a conversation.
 
 **One executor at a time:** pull first, push at the end; push rejected → `git pull --rebase`, then
 push. Never force-push. Never change the git remote, git config or `~/.ssh`.

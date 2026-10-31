@@ -441,7 +441,7 @@ export default function Comprobantes() {
         <div>
           <h1 className="font-heading text-xl font-bold text-content-primary">Comprobantes</h1>
           <p className="font-caption text-xs text-content-muted">
-            Pagos recibidos por WhatsApp en los últimos 7 días. Solo se marcan pagados solos los comprobantes por exactamente la tarifa del paciente; todo lo demás queda aquí con una propuesta para que la apruebes o la corrijas (otro monto, varias sesiones, paquete, sobrepago, imagen ilegible…). Nunca se crea saldo a favor sin tu aprobación.
+            Pagos recibidos por WhatsApp en los últimos 7 días (los pendientes se quedan hasta 90 días). Solo se marcan pagados solos los comprobantes por exactamente la tarifa del paciente; todo lo demás queda aquí con una propuesta para que la apruebes o la corrijas (otro monto, varias sesiones, paquete, sobrepago, imagen ilegible…). Nunca se crea saldo a favor sin tu aprobación.
           </p>
         </div>
         <Badge variant={totalPending ? 'lavender' : 'neutral'}>

@@ -302,6 +302,7 @@ export function cancelSession(id) {
 // the owner-gated `wa-proof-media` function (holds the Dualhook secret).
 const PROOF_TYPES = ['image', 'document']
 const PROOF_WINDOW_DAYS = 7
+const PROOF_PENDING_DAYS = 90
 
 function normalizeProof(row) {
   const msg = row.raw_payload?.message || {}
@@ -354,7 +355,10 @@ export async function getPaymentProofsData({ daysBack = PROOF_WINDOW_DAYS } = {}
       const sinceMs = Date.now() - daysBack * 24 * 60 * 60 * 1000
       // received_at >= send-time always, so filtering the fetch on received_at is
       // a SAFE superset of "sent in the last N days"; we narrow by send-time below.
-      const sinceISO = new Date(sinceMs).toISOString()
+      // Still-pending receipts (not applied, not closed) stay listed up to
+      // PROOF_PENDING_DAYS — a receipt sent back to review never drops out of sight.
+      const pendingSinceMs = Date.now() - PROOF_PENDING_DAYS * 24 * 60 * 60 * 1000
+      const sinceISO = new Date(Math.min(sinceMs, pendingSinceMs)).toISOString()
       const { data: rows, error } = await supabase
         .from('whatsapp_messages')
         .select(
@@ -372,7 +376,10 @@ export async function getPaymentProofsData({ daysBack = PROOF_WINDOW_DAYS } = {}
         .map(normalizeProof)
         // Keep only proofs actually SENT within the window (drops the history-sync
         // backlog that all share a recent received_at), newest first.
-        .filter((p) => new Date(p.sentAt).getTime() >= sinceMs)
+        .filter((p) => {
+          const t = new Date(p.sentAt).getTime()
+          return t >= sinceMs || (t >= pendingSinceMs && !p.reconciledAt && !p.cierre)
+        })
         .sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt))
 
       // Fetch unpaid confirmed past sessions for the matched patients only.

@@ -15,21 +15,24 @@ export const FIRMA = 'Att: La Caracola Mágica🐚✨'
 
 const seguro = (genero) => (genero === 'M' ? 'seguro' : 'segura')
 
-export function matchMessage({ nombre, n, monto }) {
-  return `Hola ${nombre}, revisé tus sesiones de septiembre y todo cuadra con el sistema: ${n} sesiones, total ${monto}. Te adjunto el reporte. Ya puedes hacer tu factura a Mariana y mandármela por aquí. Gracias!\n${FIRMA}`
+export function matchMessage({ nombre, mes, n, monto }) {
+  return `Hola ${nombre}, revisé tus sesiones de ${mes} y todo cuadra con el sistema: ${n} sesiones, total ${monto}. Te adjunto el reporte. Ya puedes hacer tu factura a Mariana y mandármela por aquí. Gracias!\n${FIRMA}`
 }
 
-export function pedirListaMessage({ nombre }) {
-  return `Hola ${nombre}, me pasas el detalle de tus sesiones de septiembre (fecha y paciente) para cruzarlo con el sistema y hacer tu pago? Gracias!\n${FIRMA}`
+export function pedirListaMessage({ nombre, mes }) {
+  return `Hola ${nombre}, me pasas el detalle de tus sesiones de ${mes} (fecha y paciente) para cruzarlo con el sistema y hacer tu pago? Gracias!\n${FIRMA}`
 }
+
+// `mes` = the payroll month in lowercase Spanish ('octubre'); payroll runs on the 2nd
+// of the following month.
 
 // Mismatch (both blocks in one message if both apply).
 //   soloEllos:  ['dd/mm — paciente', …]       sessions they have and the system doesn't
 //   soloSistema: ['dd/mm hh:mm — paciente', …] sessions the system has and they don't
-export function mismatchMessage({ nombre, genero, soloEllos = [], soloSistema = [] }) {
+export function mismatchMessage({ nombre, genero, mes, soloEllos = [], soloSistema = [] }) {
   const blocks = []
   if (soloEllos.length) {
-    blocks.push(`Hola ${nombre}, cruzando tu lista de septiembre con el sistema hay sesiones que tú tienes y el sistema no:\n${soloEllos.join('\n')}\nEstás 100% ${seguro(genero)} de que se dieron? Por qué no están en el sistema?`)
+    blocks.push(`Hola ${nombre}, cruzando tu lista de ${mes} con el sistema hay sesiones que tú tienes y el sistema no:\n${soloEllos.join('\n')}\nEstás 100% ${seguro(genero)} de que se dieron? Por qué no están en el sistema?`)
   }
   if (soloSistema.length) {
     const intro = soloEllos.length ? 'Y en el sistema tenemos estas sesiones que no están en tu lista:' : `Hola ${nombre}, en el sistema tenemos estas sesiones que no están en tu lista:`
