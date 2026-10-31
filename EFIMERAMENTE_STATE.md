@@ -103,6 +103,19 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-31 (evening) — #48 payroll on the 2nd + "cred" undo + no-new-sessions rule (Michael, 4cf6c23)
+- **#48 Payroll moves to the 2nd of each month** (Nicolás, 31 Oct), for the month just closed. October runs **Mon 2 Nov**.
+  The morning brief routine flags it. `netlify/lib/payrollCopy.mjs` now takes a `mes` parameter.
+  Still pending: close September (no `factura_recibida` yet; check María Gracia's delivery; Carolina's $828 v2 PDF),
+  then automate calculate → send → collect invoices.
+- **"cred" DONE:** the 5 payments made from unapproved credit were undone (Paola Ibarra, Daniela Santillan, Karo
+  Merizalde, Emilie Conforme [already invoiced], Zara Basantez). Lotes zeroed, sessions back to unpaid with
+  `pago_excluido=true`, receipts back in Comprobantes for review by hand — the tab now keeps pending receipts 90 days
+  (`src/lib/queries.js`, `Comprobantes.jsx` "hasta 90 días"). Backups `undo_credito_backup_20261031_*`. SQL:
+  `supabase/undo-credito-no-aprobado-31oct.sql`.
+- **New rule:** never tell Nicolás to open a new session (CLAUDE.md + `.claude/agents/michael.md`).
+- Shipped from the Mac: branch `claude/compassionate-moore-45c7b8` fast-forwarded into main, then deleted.
+
 ### 2026-10-31 — Morning brief moved to a Code routine (Michael)
 - **New routine `trig_013EazP73bkVymgm9rueHqsq` "Michael morning brief"** (claude.ai/code/routines), created via the
   RemoteTrigger API: cron `51 12 * * *` UTC = 07:51 GYE daily, env Default (`env_013KVxsFaBA6TcAZMz8F2Vbi`), model Opus,
