@@ -118,7 +118,8 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - **Brief:** Nicolás created the cloud routine "Michael morning brief" (trig_013yA3i5MFcwvXgEFUJS2jmQ, daily 07:51 GYE,
   read-only, Opus) and deleted the old "Director morning brief" one-offs. It writes nothing, so its output stays in its
   claude.ai session (no WhatsApp/push step in its prompt).
-- **HQ office game parked** (still deployed); WhatsApp desk unchanged (`hqAgents.json` is a snapshot, not regenerated).
+- **HQ office game parked** (still deployed). WhatsApp desk behavior unchanged (read-only rules are in `hqDesk.mjs`); its
+  Michael persona picks up the new `michael.md` at build (`prebuild` → `scripts/hq-agents-sync.mjs` → `hqAgents.json`).
 - **Loose ends** (payroll Oct, ACESS, receipts, POST-02, patient hygiene, volume note) recorded in the Drive TO-DO.
 
 ### 2026-10-29 (late night) — #97 audit of the HQ office game (Terminal; panel f57920d + 87f16f2, game repo e96b51f)

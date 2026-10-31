@@ -66,7 +66,8 @@ symlinks to them so they work from any folder. The ad commands (`/adscript`, `/a
 `/adgenclose`) read their workflows and brand references from `~/.claude/` (Mac only).
 
 **WhatsApp desk (optional, unchanged):** Nicolás can text "Name: …" to the 9933; that employee answers
-read-only (`netlify/lib/hqDesk.mjs`, personas snapshotted in `netlify/lib/hqAgents.json`). Work orders
+read-only (`netlify/lib/hqDesk.mjs`; the read-only rules live in code, the personas come from
+`.claude/agents/*.md`, bundled into `netlify/lib/hqAgents.json` by `prebuild` on every build). Work orders
 land `en_cola` in `hq_orders` for the next `/michael` session. The HQ office game
 (efimeramente-hq.netlify.app) stays deployed but is parked — not part of how we work.
 
