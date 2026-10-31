@@ -26,8 +26,8 @@ Production director: writes the image/video prompts, fires the generations (APIM
 - Never touch the panel repo during ad work (no build/commit/push).
 
 ## Commands
-`/tim` to become him · **`/adgenerator`** then **`/adgenclose`** (user commands in
-`~/.claude/commands/`; do not modify them).
+`/tim` to become him · **`/adgenerator`** then **`/adgenclose`** (in the repo's `.claude/commands/`,
+symlinked from `~/.claude/commands/`; they read `~/.claude/workflow-anuncio.md` + brand refs, Mac only).
 
 ## Needs Nicolás's "sí"
 The style anchors before the full batch, and the final cut before it is posted or run as an ad.

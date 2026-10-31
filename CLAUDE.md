@@ -28,16 +28,47 @@ Calendar sync, and WhatsApp appointment reminders.
 **This file is the cold-start orientation.** For the live backlog / "what changed last
 session," read `EFIMERAMENTE_STATE.md`. For visual/design tokens, read `BRAND.md`.
 
-## Director docs (Google Drive)
+## How we work — one desk (#98, Nicolás 31 Oct 2026)
 
-Since 2026-10-04 (pm): the **cloud session = director only** (prioritizes, scores, writes the prompts,
-verifies read-only via Drive/Supabase/Netlify); the **Mac terminal Claude Code = executor** (builds,
-migrations, deploys, /facturar — it has blanket permissions; `git pull` first). Priorities live in
-Google Drive, folder **"Efimeramente · Claude"** (id `16av_FWmaWjsw_WdyFwSuOqwd-Yf893bI`), via the
-Drive connector: **`PERMANENT TO-DO.md`** (scored backlog, live state, decisions in force — source of
-truth for priorities; find it by title, its id changes on every replace), `MAPA DE CASOS.md` (therapist
+**Michael executes.** A local Claude Code session on Nicolás's Mac, started with `/michael`, plans,
+scores AND executes (code, DB, deploys, `/facturar`, Chrome with his logins). The director/executor
+split is gone: no cloud director chat, no numbered prompts to paste. Continuity lives in this repo +
+the ONE memory file, never in a chat.
+
+**Session ritual (every task):**
+1. NEW session → `/michael`: `git pull`, read `PERMANENT TO-DO.md`, check `hq_orders`, state today's top 3 by score.
+2. Do the task. Ask Nicolás only for the "sí" items below.
+3. `/cierre`: update state + memory, build, commit, push.
+Never keep one long chat going; nothing important lives in a conversation.
+
+**One executor at a time:** pull first, push at the end; push rejected → `git pull --rebase`, then
+push. Never force-push. Never change the git remote, git config or `~/.ssh`.
+
+**Needs Nicolás's "sí":** money applied to patients · patient-facing copy · anything public (posts,
+emails to third parties) · deleting data (plus the destructive-DDL rule below). Everything else:
+decide, do, report in plain words. Michael keeps the scoring (`Impact×2 − Effort`), the 1 new
+patient/day metric, plain non-technical language, and calls Nicolás out when he drifts.
+
+**Memory:** Google Drive, folder **"Efimeramente · Claude"** (id `16av_FWmaWjsw_WdyFwSuOqwd-Yf893bI`),
+via the Drive connector: **`PERMANENT TO-DO.md`** (scored backlog, live state, decisions in force —
+find it by title, newest modifiedTime; its id changes on every replace), `MAPA DE CASOS.md` (therapist
 routing + education), `ASEGURADORAS - COBERTURA PSICOLOGIA.md`. No Drive connector → stop and say so.
-`/cierre` updates the TO-DO.
+`/cierre` updates the TO-DO. Never create a second memory/handoff file.
+
+**Morning brief:** cloud routine "Michael morning brief" (claude.ai routines, daily 07:51 Quito, fresh
+session, read-only) — runs with the Mac off.
+
+**Chrome:** Claude in Chrome is enabled by default on this Mac (`/chrome` → "Enabled by default" is
+on). If a session starts without the browser tools, start it with `claude --chrome`.
+
+**Commands:** every team command lives in `.claude/commands/` (this repo); `~/.claude/commands/` holds
+symlinks to them so they work from any folder. The ad commands (`/adscript`, `/adgenerator`,
+`/adgenclose`) read their workflows and brand references from `~/.claude/` (Mac only).
+
+**WhatsApp desk (optional, unchanged):** Nicolás can text "Name: …" to the 9933; that employee answers
+read-only (`netlify/lib/hqDesk.mjs`, personas snapshotted in `netlify/lib/hqAgents.json`). Work orders
+land `en_cola` in `hq_orders` for the next `/michael` session. The HQ office game
+(efimeramente-hq.netlify.app) stays deployed but is parked — not part of how we work.
 
 ---
 
@@ -233,7 +264,7 @@ same page auto-scoped by RLS to their own patients/sessions — no role logic in
 ### Instagram carousels — /carrusel (#92–#93; full rules in `assets/brand/BRAND.md` "/carrusel flow")
 Renderer `scripts/carrusel/render.mjs` + `colors.mjs`; specs `scripts/carrusel/posts/POST-NN-<slug>.json`; history/queue
 in Supabase `carrusel_posts` (owner-only; color via `nextPair` over it). **Standing rule (Nicolás, 29 Oct): carousel copy
-is corrected on the computer (Mac terminal or the director chat), NEVER on WhatsApp.** His corrected text goes into the
+is corrected on the computer (a Claude Code session on the Mac), NEVER on WhatsApp.** His corrected text goes into the
 spec exactly as written. WhatsApp receives only the finished slides (owner outbox `document` messages, his number only).
 
 ### Marketing module v2 (owner-only, `src/pages/Marketing.jsx`)

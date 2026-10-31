@@ -5,6 +5,37 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-31 (#98) -->
+
+### 2026-10-27 (late night) — #92c Carousel color pairs + Nicolás's corrected translation in 3 colors (executor, 59183b6)
+- **Color system** `scripts/carrusel/colors.mjs`: `PAIRS` (11 ids), each a flat bg + ONE ink for all text, same on every slide.
+  Light = manual pastel + black; deep = `deep(hex, L)` (same HSL hue, sat ≤ 80%, lightness L%), because mixing with black turned
+  warm hues brown. `contrast()` (WCAG), `checkPairs()` throws if any < 4.5:1 (`node scripts/carrusel/colors.mjs` prints the table;
+  lowest terracota-crema 5.44). `nextPair(history)` = next id after the last used (never repeats). **#93 must store the history.**
+- `render.mjs`: spec `"color": "<id>"` (default `crema-tinta`), refuses < 4.5; `renderCarousel` returns `{files, fonts, color, sizes}`;
+  `render.json` logs color + contrast + final font sizes per slide. The credit line is no longer faded (full ink).
+- Test (Nicolás's corrected text, verbatim, checked by script; S4/S5 now body-only, no credit line) in Drive IG · Listos:
+  `TEST-2026-10-27-final-colorA` terracota `#A54C12`/crema, `-colorB` deep blue `#1263A5`/crema, `-colorC` violet `#4E1F85`/yellow
+  `#FFD84A` (9 PNG + caption.txt + render.json each, byte-checked) + `COLORES-2026-10-27.png` (cover + slides 04, 08 per color).
+  Body sizes = #92b (56 body-only, 46 with title, 43 closing); everything fit.
+- **#93 decisions** (BRAND.md "/carrusel flow"): Mon/Wed/Fri the morning brief gives Nicolás the full translated copy → he corrects
+  → only then render → preview → his "sí" → post 19:00 GYE. Default = exact translation; caption drops the author's first-person
+  claims; exactly 5 Spanish hashtags (2–3 broad, 1–2 medium, 1 niche) inside the copy; color via `nextPair`. Slide doesn't fit → stop, report.
+- Gotcha: Drive upload = Chrome injected `<input type=file>` + synthetic drop (connector can't upload binaries); in a folder with
+  subfolders, drop at ~66% width / 80% height of the viewport, not on a tile.
+
+### 2026-10-27 (night) — #92b Carousel design fixes + exact-translation test (executor, d209039)
+- **Design in force (Nicolás):** flat cream `#FEF8E9` + black, NO gradients/orbs, NO logos on any slide; ✦ + NN/NN numbers +
+  "desliza →" (cover) + "pensar con luz" (closing) kept. Content titles pinned to the top (`.fit.top-align`), so the same
+  height on every content slide; body right below. `contenido.title` is optional (a body-only slide starts at the same spot,
+  body max 56px); `cierre.credit` = optional small line under the handle.
+- **Handle = `@efimeramente.ec`** (single const `HANDLE` in `scripts/carrusel/render.mjs`), shown ONLY on the closing slide.
+  The old handle is gone from the repo (grep → 0 outside CHANGELOG). The manual's p.32 mockup shows the old one; don't copy it.
+- Drive `IG · Listos/`: `TEST-2026-10-27-traduccion` (9 PNG, faithful translation incl. slide 6 statistic, caption translated +
+  "Traducido de @drdianahill", no CTA added) · `TEST-2026-10-27-reescritura-v2` (same 7-slide text, new design) ·
+  `COMPARACION-2026-10-27.png` (A top row, B bottom). The first folder `TEST-2026-10-27-terapia-que-se-queda` was left as is.
+- `assets/brand/logos/` stays in the repo as brand assets, but carousels no longer use them.
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-28 (#92g) -->
 
 ### 2026-10-27 (eve) — #92 /carrusel piece 1: Instagram brand templates + test carousel (executor, 065f59d)

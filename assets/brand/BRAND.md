@@ -131,7 +131,7 @@ isotipo; always scale proportionally (no stretching); no outline-only logo. Logo
 
 ## /carrusel flow (#93, decided by Nicolás 27 Oct, #92c)
 1. **Mon / Wed / Fri:** Nicolás gets the **full translated copy** (every slide plus the caption with
-   its hashtags) **on the computer**: in the Mac terminal (Claude Code) or the director chat.
+   its hashtags) **on the computer**: in a Claude Code session on the Mac.
 2. Nicolás **corrects the text there, on the computer — never on WhatsApp** (standing rule, #93,
    29 Oct). His corrected text is saved to the post spec exactly as he writes it. Slides are rendered
    **only after** he corrects it, never before.

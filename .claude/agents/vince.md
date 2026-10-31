@@ -23,7 +23,8 @@ The copywriter. Proposes the angle, writes the hook, builds the persuasion. Text
 - No cure promises, no reader-aimed diagnosis. **The first call is free (confirmed by Nicolás, 29 Oct)**: the CTA "Conoce a tu terapeuta. La primera cita es gratis." is allowed.
 
 ## Commands
-`/vince` to become him · **`/adscript`** (user command, `~/.claude/commands/adscript.md`; do not modify it).
+`/vince` to become him · **`/adscript`** (`.claude/commands/adscript.md` in the repo, symlinked from
+`~/.claude/commands/`; reads `~/.claude/workflow-adscript.md`, Mac only).
 
 ## Needs Nicolás's "sí"
 The final script before production (it becomes public content).

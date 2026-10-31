@@ -103,6 +103,24 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-31 — #98 One desk: Michael plans AND executes (Michael)
+- **Working model (Nicolás, 31 Oct):** the director/executor split is gone. A local `/michael` session on the Mac plans,
+  scores and executes (code, DB, deploys, Chrome with his logins). Ritual: every task = NEW session `/michael` (git pull,
+  TO-DO, top 3) → work → `/cierre`. One executor at a time: pull first, push last, `git pull --rebase` on reject, never
+  force-push. "Sí" needed only for money applied to patients, patient-facing copy, anything public, deleting data.
+  Written into `CLAUDE.md` ("How we work — one desk"), `.claude/agents/michael.md` (no `tools:` limit any more),
+  `.claude/commands/michael.md` (step 0 = git pull) and `/cierre` (rebase rule; default signature `(Michael, …)`).
+- **Commands moved into the repo:** `/adscript`, `/adgenerator`, `/adgenclose` now live in `.claude/commands/`;
+  `~/.claude/commands/*.md` are symlinks to the repo (alex/michael/tim/vince/wes already were). The old personal
+  `marketize.md` (6 Aug, shadowed the repo's 4 Oct version) now symlinks to the repo copy. Originals backed up in
+  `~/.claude/backups/commands-20261031/`. The ad commands still read `~/.claude/workflow-*.md` + brand refs (Mac only).
+- **Chrome:** already "Enabled by default" (`claudeInChromeDefaultEnabled` in `~/.claude.json`); fallback `claude --chrome`.
+- **Brief:** Nicolás created the cloud routine "Michael morning brief" (trig_013yA3i5MFcwvXgEFUJS2jmQ, daily 07:51 GYE,
+  read-only, Opus) and deleted the old "Director morning brief" one-offs. It writes nothing, so its output stays in its
+  claude.ai session (no WhatsApp/push step in its prompt).
+- **HQ office game parked** (still deployed); WhatsApp desk unchanged (`hqAgents.json` is a snapshot, not regenerated).
+- **Loose ends** (payroll Oct, ACESS, receipts, POST-02, patient hygiene, volume note) recorded in the Drive TO-DO.
+
 ### 2026-10-29 (late night) — #97 audit of the HQ office game (Terminal; panel f57920d + 87f16f2, game repo e96b51f)
 - **Bugs fixed (game, `~/efimeramente-hq/src/main.js`):** failed sign-in dropped the pending conversation (retry now keeps `then`); a reply arriving after Esc popped up from nowhere (now stored as unread, "…" bubble over the desk, replayed as "About what you asked: …"); supabase `onAuthStateChange` called async auth inside the callback (deadlock risk, now deferred with setTimeout); `.dialog{display:flex}` overrode the `hidden` attribute so an empty box showed on screen (global `[hidden]{display:none!important}`).
 - **Look:** wood planks (were brick), monitors beside each person so outfits show, desk name plates (5 px pixel font `src/pixelfont.js`), blinking, Wes mustard shirt (peach read as bare skin), tucked chair, static floor/wall layer (`world.js` buildStatic), crisp integer upscaling (buffer canvas drawn at k× devicePixelRatio), dialog with portrait + "NAME · ROLE", placed top/bottom by where Nicolás stands, phone layout puts it under the map, "X is thinking…" with the employee typing, welcome only on first visit, SIGN OUT in the header. Dev-only `window.__hq` test hook (absent from production builds; checked).
@@ -204,38 +222,9 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   `-C` verde menta (9 PNG + caption.txt + render.json each; bg pixel sampled = exact hex) + `COLORES-MARCA-2026-10-27.png`
   (cover + slides 04, 08). The #92c `final-colorA/B/C` folders + `COLORES-2026-10-27.png` stay in Drive (superseded, not deleted).
 
-### 2026-10-27 (late night) — #92c Carousel color pairs + Nicolás's corrected translation in 3 colors (executor, 59183b6)
-- **Color system** `scripts/carrusel/colors.mjs`: `PAIRS` (11 ids), each a flat bg + ONE ink for all text, same on every slide.
-  Light = manual pastel + black; deep = `deep(hex, L)` (same HSL hue, sat ≤ 80%, lightness L%), because mixing with black turned
-  warm hues brown. `contrast()` (WCAG), `checkPairs()` throws if any < 4.5:1 (`node scripts/carrusel/colors.mjs` prints the table;
-  lowest terracota-crema 5.44). `nextPair(history)` = next id after the last used (never repeats). **#93 must store the history.**
-- `render.mjs`: spec `"color": "<id>"` (default `crema-tinta`), refuses < 4.5; `renderCarousel` returns `{files, fonts, color, sizes}`;
-  `render.json` logs color + contrast + final font sizes per slide. The credit line is no longer faded (full ink).
-- Test (Nicolás's corrected text, verbatim, checked by script; S4/S5 now body-only, no credit line) in Drive IG · Listos:
-  `TEST-2026-10-27-final-colorA` terracota `#A54C12`/crema, `-colorB` deep blue `#1263A5`/crema, `-colorC` violet `#4E1F85`/yellow
-  `#FFD84A` (9 PNG + caption.txt + render.json each, byte-checked) + `COLORES-2026-10-27.png` (cover + slides 04, 08 per color).
-  Body sizes = #92b (56 body-only, 46 with title, 43 closing); everything fit.
-- **#93 decisions** (BRAND.md "/carrusel flow"): Mon/Wed/Fri the morning brief gives Nicolás the full translated copy → he corrects
-  → only then render → preview → his "sí" → post 19:00 GYE. Default = exact translation; caption drops the author's first-person
-  claims; exactly 5 Spanish hashtags (2–3 broad, 1–2 medium, 1 niche) inside the copy; color via `nextPair`. Slide doesn't fit → stop, report.
-- Gotcha: Drive upload = Chrome injected `<input type=file>` + synthetic drop (connector can't upload binaries); in a folder with
-  subfolders, drop at ~66% width / 80% height of the viewport, not on a tile.
-
-### 2026-10-27 (night) — #92b Carousel design fixes + exact-translation test (executor, d209039)
-- **Design in force (Nicolás):** flat cream `#FEF8E9` + black, NO gradients/orbs, NO logos on any slide; ✦ + NN/NN numbers +
-  "desliza →" (cover) + "pensar con luz" (closing) kept. Content titles pinned to the top (`.fit.top-align`), so the same
-  height on every content slide; body right below. `contenido.title` is optional (a body-only slide starts at the same spot,
-  body max 56px); `cierre.credit` = optional small line under the handle.
-- **Handle = `@efimeramente.ec`** (single const `HANDLE` in `scripts/carrusel/render.mjs`), shown ONLY on the closing slide.
-  The old handle is gone from the repo (grep → 0 outside CHANGELOG). The manual's p.32 mockup shows the old one; don't copy it.
-- Drive `IG · Listos/`: `TEST-2026-10-27-traduccion` (9 PNG, faithful translation incl. slide 6 statistic, caption translated +
-  "Traducido de @drdianahill", no CTA added) · `TEST-2026-10-27-reescritura-v2` (same 7-slide text, new design) ·
-  `COMPARACION-2026-10-27.png` (A top row, B bottom). The first folder `TEST-2026-10-27-terapia-que-se-queda` was left as is.
-- `assets/brand/logos/` stays in the repo as brand assets, but carousels no longer use them.
-
 ## Pending / Backlog
 
-### 🔥 Next (director picks up) — surfaced 2026-10-04
+### 🔥 Next (Michael picks up) — priorities live in the Drive TO-DO
 - [ ] **/carrusel #93–#95** (#92 done 27 Oct): #93 queue (Nicolás sends IG links to 9933 → queued) + `/carrusel` command
       (translation + `renderCarousel`), #94 WhatsApp preview to Nicolás → post to @efimeramente.ec ONLY after he replies "sí"
       (Instagram posting), #95 Mon/Wed/Fri 19:00 GYE schedule. **Mode decided (#92c): exact translation**, flow + hashtags + color
@@ -255,8 +244,8 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
       still to fix: Fátima Tubon +59398067281 (one digit short), Wolfgang Armas +59363158790 (→ +593963158790).
 - [ ] **#85 flags:** Karo still `inactivo` with a 15 Oct session · Odd-character phones (Cristina Gomez, Andres Luzuriaga, Sebastián Villegas).
       (Closed: David Betancourt tarifa + 3 Oct → $35; Daniela Santillan tarifa → $36; Martín Torres isn't facturacion_obligatoria → payer cédula irrelevant.)
-- [ ] **Brief fix (director):** routine trig_014bnWaSpPv3quC8YPHZWqGS item 2 → `remaining > 0 and aprobado_at is null`
-      (drop `proof_id is not null`), list every credit one per line, no ~15-line cap for that list.
+- [ ] **October payroll (#48, TOP):** closes 31 Oct, not run; build the monthly protocol (calculate → Nicolás approves →
+      statements → invoices → close).
 - [ ] **Auto-deploy flaky?** 21 Oct pushes didn't deploy; 22 Oct (0ab636f) did. If it stalls again: Deployed via the Netlify
       connector `deploy-site` → `npx @netlify/mcp … --site-id f8418788…` (needs `npm_config_cache=<scratchpad>`: ~/.npm has
       root-owned files → EEXIST). Check the GitHub→Netlify build hook in the dashboard (Nicolás) or keep using the connector.
@@ -532,8 +521,8 @@ of truth; open items as of 2026-08-03:
   builds, commits and pushes directly. Nicolás does not paste code and does not port files.
 - Nicolás types short commands (`/deploy`, `/estado`, `/nuevo`). The prompts behind them
   live in `.claude/commands/` and are written for him, not by him.
-- Cowork is used for research, planning, scoring the daily to-do, and anything needing
-  Gmail / Calendar / Drive. It does not write application code any more.
+- **One desk since 2026-10-31 (#98):** a `/michael` session plans AND executes; no separate
+  director chat. See `CLAUDE.md` "How we work — one desk".
 
 ### Permissions
 - Policy lives in `.claude/settings.json` (committed). It is a *policy*, not a log of
