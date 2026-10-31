@@ -103,6 +103,19 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-10-31 — Morning brief moved to a Code routine (Michael)
+- **New routine `trig_013EazP73bkVymgm9rueHqsq` "Michael morning brief"** (claude.ai/code/routines), created via the
+  RemoteTrigger API: cron `51 12 * * *` UTC = 07:51 GYE daily, env Default (`env_013KVxsFaBA6TcAZMz8F2Vbi`), model Opus,
+  repo my-site, connectors Supabase + Gmail + Google_Drive only, same prompt as the old one (read-only). Test fire 31 Oct
+  (`cse_01FSMHUHibvAZceHwsS7M9Gm`) succeeded in 46 s and sent a phone push.
+- **Why:** the old one (`trig_013yA3i5MFcwvXgEFUJS2jmQ`) was a Cowork task — it didn't show in Code → Routines. Deleted.
+  Also deleted the paused "Comprobantes y saldos: revisión diaria" (`trig_014bnWaSpPv3quC8YPHZWqGS`).
+- **Gotcha:** "ACESS replies daily check" (`trig_01VkgnsdCwuvtPWcijCp8WHT`, paused since 22 Oct) could NOT be deleted —
+  `delete_trigger` hit an approval gate twice. Harmless (disabled); Cowork-made routines don't appear in the Code
+  Routines page, so delete it from the Cowork app or approve the tool call next time.
+- Test-run findings for Nicolás (not acted on): unapproved credit paid 5 sessions on 22 Oct ($169: Emilie Conforme, Zara
+  Basantez, Paola Ibarra, Daniela Santillan, Karo Merizalde) — approve or undo.
+
 ### 2026-10-31 — #98 One desk: Michael plans AND executes (Michael)
 - **Working model (Nicolás, 31 Oct):** the director/executor split is gone. A local `/michael` session on the Mac plans,
   scores and executes (code, DB, deploys, Chrome with his logins). Ritual: every task = NEW session `/michael` (git pull,
@@ -117,8 +130,8 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   Fix (same day): `/cierre`, `/deploy`, `/estado`, `/facturar` were repo-only, so `/cierre` didn't exist in a session started
   from `~` — now symlinked too, and cierre/deploy/estado start with `cd ~/my-site`.
 - **Chrome:** already "Enabled by default" (`claudeInChromeDefaultEnabled` in `~/.claude.json`); fallback `claude --chrome`.
-- **Brief:** Nicolás created the cloud routine "Michael morning brief" (trig_013yA3i5MFcwvXgEFUJS2jmQ, daily 07:51 GYE,
-  read-only, Opus) and deleted the old "Director morning brief" one-offs. It writes nothing, so its output stays in its
+- **Brief:** Nicolás created the cloud routine "Michael morning brief" (trig_013yA3i5MFcwvXgEFUJS2jmQ — replaced the same
+  day by Code routine trig_013EazP73bkVymgm9rueHqsq, see above; daily 07:51 GYE, read-only, Opus) and deleted the old "Director morning brief" one-offs. It writes nothing, so its output stays in its
   claude.ai session (no WhatsApp/push step in its prompt).
 - **HQ office game parked** (still deployed). WhatsApp desk behavior unchanged (read-only rules are in `hqDesk.mjs`); its
   Michael persona picks up the new `michael.md` at build (`prebuild` → `scripts/hq-agents-sync.mjs` → `hqAgents.json`).
@@ -213,17 +226,6 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   `VIOLETA-AMARILLO-2026-10-27.png` (cover, 04, 08 per scheme). Slide 8 fit (103/51 px), so no split happened in the test.
 - BRAND.md carrusel section + "/carrusel flow" rewritten (old "never split a slide" removed). Gotcha: Drive navigation in the
   same tab didn't kill the previous drop upload, but verify with the connector each time.
-
-### 2026-10-27 (late night) — #92d Carousel colors = only the manual's real colors (executor, 673e548)
-- **Rule (Nicolás): "Only the manual's colors. Adjustment = transparency over cream only. Never darken or create colors."**
-  `scripts/carrusel/colors.mjs` rewritten: the #92c `deep()` shades (terracota, deep blue, violet, ladrillo, naranja profundo) are GONE.
-  `PAIRS` = 9 pairs: crema + the 8 manual hexes (p.13–20), all with black text (no manual color reaches 4.5:1 as text on
-  another). Pair = `{base: <MANUAL key>|'crema', alpha?, ink}`; `tint(base, alpha)` = the only allowed adjustment
-  (transparency over `#FEF8E9`). `getPair()` throws for an unknown base, a non-manual ink or contrast < 4.5 → the renderer
-  can't use anything else. Lowest: violeta-tinta 7.70:1. `nextPair` rotates the 9 real pairs only.
-- Test (same #92c text and caption, unchanged): Drive IG · Listos `TEST-2026-10-27-marca-A` azul cielo, `-B` rosa melón,
-  `-C` verde menta (9 PNG + caption.txt + render.json each; bg pixel sampled = exact hex) + `COLORES-MARCA-2026-10-27.png`
-  (cover + slides 04, 08). The #92c `final-colorA/B/C` folders + `COLORES-2026-10-27.png` stay in Drive (superseded, not deleted).
 
 ## Pending / Backlog
 

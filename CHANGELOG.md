@@ -5,6 +5,19 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-31 (brief routine) -->
+
+### 2026-10-27 (late night) — #92d Carousel colors = only the manual's real colors (executor, 673e548)
+- **Rule (Nicolás): "Only the manual's colors. Adjustment = transparency over cream only. Never darken or create colors."**
+  `scripts/carrusel/colors.mjs` rewritten: the #92c `deep()` shades (terracota, deep blue, violet, ladrillo, naranja profundo) are GONE.
+  `PAIRS` = 9 pairs: crema + the 8 manual hexes (p.13–20), all with black text (no manual color reaches 4.5:1 as text on
+  another). Pair = `{base: <MANUAL key>|'crema', alpha?, ink}`; `tint(base, alpha)` = the only allowed adjustment
+  (transparency over `#FEF8E9`). `getPair()` throws for an unknown base, a non-manual ink or contrast < 4.5 → the renderer
+  can't use anything else. Lowest: violeta-tinta 7.70:1. `nextPair` rotates the 9 real pairs only.
+- Test (same #92c text and caption, unchanged): Drive IG · Listos `TEST-2026-10-27-marca-A` azul cielo, `-B` rosa melón,
+  `-C` verde menta (9 PNG + caption.txt + render.json each; bg pixel sampled = exact hex) + `COLORES-MARCA-2026-10-27.png`
+  (cover + slides 04, 08). The #92c `final-colorA/B/C` folders + `COLORES-2026-10-27.png` stay in Drive (superseded, not deleted).
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-31 (#98) -->
 
 ### 2026-10-27 (late night) — #92c Carousel color pairs + Nicolás's corrected translation in 3 colors (executor, 59183b6)

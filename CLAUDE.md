@@ -55,7 +55,7 @@ find it by title, newest modifiedTime; its id changes on every replace), `MAPA D
 routing + education), `ASEGURADORAS - COBERTURA PSICOLOGIA.md`. No Drive connector → stop and say so.
 `/cierre` updates the TO-DO. Never create a second memory/handoff file.
 
-**Morning brief:** cloud routine "Michael morning brief" (claude.ai routines, daily 07:51 Quito, fresh
+**Morning brief:** cloud routine "Michael morning brief" (`trig_013EazP73bkVymgm9rueHqsq`, Code → Routines, daily 07:51 Quito, fresh
 session, read-only) — runs with the Mac off.
 
 **Chrome:** Claude in Chrome is enabled by default on this Mac (`/chrome` → "Enabled by default" is
