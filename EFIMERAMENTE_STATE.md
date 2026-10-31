@@ -114,6 +114,8 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   `~/.claude/commands/*.md` are symlinks to the repo (alex/michael/tim/vince/wes already were). The old personal
   `marketize.md` (6 Aug, shadowed the repo's 4 Oct version) now symlinks to the repo copy. Originals backed up in
   `~/.claude/backups/commands-20261031/`. The ad commands still read `~/.claude/workflow-*.md` + brand refs (Mac only).
+  Fix (same day): `/cierre`, `/deploy`, `/estado`, `/facturar` were repo-only, so `/cierre` didn't exist in a session started
+  from `~` — now symlinked too, and cierre/deploy/estado start with `cd ~/my-site`.
 - **Chrome:** already "Enabled by default" (`claudeInChromeDefaultEnabled` in `~/.claude.json`); fallback `claude --chrome`.
 - **Brief:** Nicolás created the cloud routine "Michael morning brief" (trig_013yA3i5MFcwvXgEFUJS2jmQ, daily 07:51 GYE,
   read-only, Opus) and deleted the old "Director morning brief" one-offs. It writes nothing, so its output stays in its

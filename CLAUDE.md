@@ -62,7 +62,9 @@ session, read-only) — runs with the Mac off.
 on). If a session starts without the browser tools, start it with `claude --chrome`.
 
 **Commands:** every team command lives in `.claude/commands/` (this repo); `~/.claude/commands/` holds
-symlinks to them so they work from any folder. The ad commands (`/adscript`, `/adgenerator`,
+symlinks to them so they work from any folder (only the one-off `/limpiar` is repo-only). A NEW command
+needs its symlink too (`ln -s ~/my-site/.claude/commands/<name>.md ~/.claude/commands/`), or sessions
+started outside `~/my-site` won't see it. The ad commands (`/adscript`, `/adgenerator`,
 `/adgenclose`) read their workflows and brand references from `~/.claude/` (Mac only).
 
 **WhatsApp desk (optional, unchanged):** Nicolás can text "Name: …" to the 9933; that employee answers

@@ -1,6 +1,7 @@
 ---
 description: Build, verify, commit and push to production
 ---
+Work in `~/my-site` (`cd ~/my-site` first), even if this session started in another folder.
 Deploy the current work to production. Steps, in order — stop and report if any step fails:
 
 1. `git status --short` — show me what is about to ship.

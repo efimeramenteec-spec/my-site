@@ -1,6 +1,7 @@
 ---
 description: Load current project state and report where things stand
 ---
+Work in `~/my-site` (`cd ~/my-site` first), even if this session started in another folder.
 Read `EFIMERAMENTE_STATE.md` (sections: Project Overview, Key Files, Pending / Backlog,
 Working Protocol). Do NOT read `CHANGELOG.md` unless I ask about past work.
 

@@ -1,6 +1,7 @@
 ---
 description: Close out a session — update state file, commit, push, update the Drive TO-DO
 ---
+Work in `~/my-site` (`cd ~/my-site` first), even if this session started in another folder.
 Close this session cleanly. If this session was an Efimeramente HQ employee (/michael, /alex,
 /vince, /tim, /wes), say which one at the top of your summary.
 
