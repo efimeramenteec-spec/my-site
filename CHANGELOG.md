@@ -5,6 +5,29 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-31 (handoff ship) -->
+
+### 2026-10-27 (late night) — #92e Carousel colors = ONLY violet/yellow + dense slides split (executor, c9f5b1d)
+- **Rule (Nicolás): two schemes only, alternating post by post:** `amarillo-violeta` (yellow bg + violet text) and
+  `violeta-amarillo` (violet bg + yellow text). No black text anywhere; every other #92d pair is gone.
+  `scripts/carrusel/colors.mjs`: `COLORES` = violet `#B48AE4` (manual p.16 exact; feed `#B586E4`) and yellow
+  `tint('amarillo', 0.6)` = `#FFE58A` (manual `#FFD84A` at 60% over cream; the printed hex is ~65 RGB units off the feed's
+  `#FDE689`, 60% lands ~2 off). `getPair()` refuses any other id; `nextPair(history)` alternates A/B (empty history = A).
+  Contrast 2.19:1 is logged in `render.json`, never blocking (`AA_BODY` export removed).
+- `scripts/carrusel/render.mjs`: all sans (Helvetica Now): titles Bold, body Medium with `**...**` = Bold, labels 34 px Bold,
+  body floor 40 px (body-only 60 max, with title 52, closing 50), titles content 104 to 72, cover 150 to 80, closing 112 to 72.
+  The Chetta serif accent was tried and dropped (thin strokes unreadable at 2.19:1): `**...**` in titles = plain bold,
+  "pensar con luz" = bold sans. Page-number "/ NN" no longer at 60% opacity. Cover says "desliza" (arrow removed).
+- **Split rule:** a `contenido` slide that doesn't fit at its minimum is split at a paragraph break (most balanced break whose
+  first part fits; rest split recursively), slides renumbered, words untouched; the continuation has no title (`_cont` keeps the
+  first part's body size range). `renderCarousel` returns `splits` (logged in `render.json`). Single paragraph / cover /
+  closing that doesn't fit still throws. Verified with a synthetic 8-paragraph slide (split 2+3 of 04).
+- Test (#92c text verbatim, diffed against the #92c spec; same caption): Drive IG · Listos `TEST-2026-10-27-violeta-sobre-amarillo`
+  and `TEST-2026-10-27-amarillo-sobre-violeta` (9 PNG + caption.txt + render.json each, bytes checked) +
+  `VIOLETA-AMARILLO-2026-10-27.png` (cover, 04, 08 per scheme). Slide 8 fit (103/51 px), so no split happened in the test.
+- BRAND.md carrusel section + "/carrusel flow" rewritten (old "never split a slide" removed). Gotcha: Drive navigation in the
+  same tab didn't kill the previous drop upload, but verify with the connector each time.
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-31 (brief routine) -->
 
 ### 2026-10-27 (late night) — #92d Carousel colors = only the manual's real colors (executor, 673e548)
