@@ -311,6 +311,20 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [ ] **Card cap 3 vs hijo_adolescente (4) / hijo_adulto (5)** — confirm with Nicolás whether to show all.
 - [ ] **#38 Drop the 4 unused functions** (SQL in the 2026-10-04 Completed entry) + add the key policy to CLAUDE.md.
 
+### 🟠 Payroll (#48) — AGREED WORKFLOW (Nicolás, 2 Nov 2026) — build next, first real run = October
+1. Template `conteo_sesiones` (UTILITY, submitted 2 Nov, Meta id 1500377868577111, PENDING) to each therapist on payroll:
+   "Hola {{1}}! Por favor envíame por aquí tu conteo de sesiones del mes de {{2}} para cotejarlo con nuestro sistema. Si ya
+   lo enviaste, ignora este mensaje. Att: la Caracola Mágica". Skip Mariana (keeps 100%) and anyone whose list already arrived.
+   Michael may tweak template wording if it helps Meta approval.
+2. Check HOURLY (scheduled fn, under withCronLock): a list that arrives is read (text or screenshot/PDF via Claude; audio →
+   Nicolás) and handled right away — the PDF must go out while the therapist's 24 h window is open.
+3. **Match = session COUNT only** (= confirmed non-llamada sessions of the month). Dates/patients are NOT a criterion.
+4. Match → `matchMessage` + system PDF (`scripts/payroll-report.mjs` logic / `sessionReport.js`) via payroll-send; payroll_runs enviado_ok.
+5. Mismatch → ONE WhatsApp to Nicolás (notifyOwner) per therapist: their count vs the system's. He fixes, says "check X again".
+6. 24 h after the template → one WhatsApp to Nicolás listing who hasn't sent. Bank deposit = Nicolás, outside the system.
+- **October so far:** Francisco 8 = system 8 → report SENT 2 Nov (delivered; payroll_runs 24449849). Daniela sent a screenshot
+  1 Nov (not read yet). Sophia: 31 Oct 10:00 session with Elena Valentina (Cecilia Saltos) still Pendiente — Nicolás asking her.
+
 ### 🟠 Payroll Sep (#48) — follow-ups
 - [ ] **María Gracia delivery** — her 3 payroll messages were "sent" not "delivered" at 19:05 UTC 5 Oct; re-check
       `whatsapp_delivery_status` for her wamids (payroll_runs.detalle.wamids). Failed → resend via payroll-send.
