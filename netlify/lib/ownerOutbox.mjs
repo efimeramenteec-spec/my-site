@@ -30,7 +30,7 @@
 import { ownerWhatsApp } from './whatsapp.mjs'
 import { sendText, sendButtons, sendStaffText, sendStaffImage, sendStaffDocument } from './waSend.mjs'
 import { notifyTherapist } from './push.mjs'
-import { listTemplates, sendOwnerPing, PING_TEMPLATE, OWNER_TEMPLATES } from './leadTemplates.mjs'
+import { listTemplates, sendOwnerPing, PING_TEMPLATE } from './leadTemplates.mjs'
 
 const TABLE = 'owner_outbox'
 const WINDOW_MS = 24 * 3600 * 1000
@@ -42,9 +42,9 @@ const last9 = (p) => String(p || '').replace(/\D/g, '').slice(-9)
 async function pingTemplateApproved() {
   const out = await listTemplates()
   const t = (out.templates || []).find((x) => x.name === PING_TEMPLATE)
-  const want = OWNER_TEMPLATES.find((x) => x.name === PING_TEMPLATE).category
-  // A reclassified (MARKETING) template waits for Nicolás's decision → push instead.
-  return !!t && t.status === 'APPROVED' && t.category === want
+  // Standing rule (Nicolás): use a template once APPROVED, whatever category Meta assigns. Meta filed ping_nico as
+  // MARKETING; the old UTILITY-only check left every closed-window alert as a phone push only (fixed 2 Nov).
+  return !!t && t.status === 'APPROVED'
 }
 
 const defaultDeps = {

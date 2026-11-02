@@ -29,7 +29,7 @@ import { normalizePhone, formatFechaEs, formatHora } from './whatsapp.mjs'
 import { sendText, sendStaffButtons } from './waSend.mjs'
 import { notifyTherapist } from './push.mjs'
 import { notifyOwner, windowOpen } from './ownerOutbox.mjs'
-import { listTemplates, sendSesionPendiente, SESION_PENDIENTE_TEMPLATE, SESION_PENDIENTE_BODY, STAFF_TEMPLATES } from './leadTemplates.mjs'
+import { listTemplates, sendSesionPendiente, SESION_PENDIENTE_TEMPLATE, SESION_PENDIENTE_BODY } from './leadTemplates.mjs'
 import { patientLabel } from '../../src/lib/format.js'
 
 const TABLE = 'session_estado_reminders'
@@ -115,8 +115,9 @@ export function supabaseRepo(supabase) {
 async function templateApproved() {
   const out = await listTemplates()
   const t = (out.templates || []).find((x) => x.name === SESION_PENDIENTE_TEMPLATE)
-  const want = STAFF_TEMPLATES.find((x) => x.name === SESION_PENDIENTE_TEMPLATE).category
-  return !!t && t.status === 'APPROVED' && t.category === want
+  // Standing rule: use a template once APPROVED, whatever category Meta assigns. Meta filed this one as
+  // MARKETING, and the old UTILITY-only check sent every closed-window reminder as a phone push only (2 Nov).
+  return !!t && t.status === 'APPROVED'
 }
 
 async function cancelCalendar(calendarId, eventId) {
