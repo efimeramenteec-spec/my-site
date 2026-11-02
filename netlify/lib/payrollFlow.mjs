@@ -174,19 +174,30 @@ async function inboundFrom(supabase, telefono, sinceIso) {
 export function previousPeriodo(now) {
   const g = new Date(now.getTime() - 5 * H)
   const d = new Date(Date.UTC(g.getUTCFullYear(), g.getUTCMonth() - 1, 1))
-  return { periodo: d.toISOString().slice(0, 7), day: g.getUTCDate() }
+  return { periodo: d.toISOString().slice(0, 7), day: g.getUTCDate(), hour: g.getUTCHours() }
 }
 
 // Payroll runs on the 2nd (Nicolás, 31 Oct): from the 2nd to the 10th, every therapist on payroll without a
 // row for last month gets the template — as soon as Meta has it APPROVED. Nobody has to remember to start it.
 async function autoStart(supabase, now, report, deps) {
-  const { periodo, day } = previousPeriodo(now)
+  const { periodo, day, hour } = previousPeriodo(now)
   if (day < 2 || day > 10) return
+  if (hour < 9 || hour > 20) return // never message therapists at night (first pass: the 2nd, 09:05 Quito)
   const ther = (await payrollTherapists(supabase)).filter(onPayroll)
   const { data: rows } = await supabase.from('payroll_runs').select('terapeuta_id').eq('periodo', periodo)
   const have = new Set((rows || []).map((r) => r.terapeuta_id))
   if (ther.every((t) => have.has(t.id))) return
-  if (!(await deps.templateApproved())) { report.autoStart = 'template_not_approved'; return }
+  if (!(await deps.templateApproved())) {
+    report.autoStart = 'template_not_approved'
+    // Tell Nicolás once per month that payroll is blocked on Meta (otherwise it would just wait silently).
+    const resumen = `Nómina ${mesDe(periodo)}: plantilla conteo_sesiones no aprobada`
+    const { data: told } = await supabase.from('owner_outbox').select('id').eq('kind', 'nomina_plantilla').eq('resumen', resumen).limit(1)
+    if (!told?.length) {
+      await deps.notifyOwner(supabase, { kind: 'nomina_plantilla', resumen,
+        messages: [{ type: 'text', body: `Nómina de ${mesDe(periodo)}: no pude enviar el pedido de conteo porque Meta todavía no aprueba la plantilla conteo_sesiones. Reintento cada hora hasta el día 10.` }] })
+    }
+    return
+  }
   report.autoStart = await startPayroll(supabase, { periodo, live: true }, deps)
 }
 
@@ -195,7 +206,7 @@ export async function runPayrollCheck(supabase, deps = defaultDeps) {
   const report = { checked: 0, matched: [], mismatched: [], unreadable: [], waiting: [], noListAlerts: [] }
   try { await autoStart(supabase, now, report, deps) }
   catch (e) { console.error('[payroll] auto-start failed:', e.message); report.autoStart = 'error: ' + e.message }
-  const { data: rows, error } = await supabase.from('payroll_runs').select('*').eq('estado', 'pendiente_lista')
+  const { data: rows, error } = await supabase.from('payroll_runs').select('*').in('estado', ['pendiente_lista', 'mismatch'])
   if (error) throw new Error('payroll_runs: ' + error.message)
   if (!rows?.length) return report
   const therapists = await payrollTherapists(supabase)
@@ -221,16 +232,23 @@ async function checkOne(supabase, row, byId, therapists, now, report, deps) {
     const mes = mesDe(row.periodo)
     const msgs = await inboundFrom(supabase, t.telefono, lookbackStart(row.periodo))
     const newest = msgs.length ? msgs[msgs.length - 1].received_at : null
-    // Nothing new since the last read → only the 24 h "no list" notice can apply.
-    if (!newest || (row.revisado_hasta && new Date(newest) <= new Date(row.revisado_hasta))) {
-      report.waiting.push(t.nombre)
-      return
+    const nothingNew = !newest || (row.revisado_hasta && new Date(newest) <= new Date(row.revisado_hasta))
+    let read = null
+    if (nothingNew) {
+      // A mismatch re-compares every pass: Nicolás fixed the sessions → counts now equal → the report goes out.
+      if (row.estado === 'mismatch' && row.conteo_terapeuta != null &&
+          (await systemCount(supabase, t.id, row.periodo)) === row.conteo_terapeuta) {
+        read = { tiene_conteo: true, conteo: row.conteo_terapeuta, ambiguo: false, nota: row.detalle?.lectura?.nota || 'recomparado' }
+      } else {
+        report.waiting.push(t.nombre)
+        return
+      }
     }
     // Build the model input: text + images. Audio/documents can't be read reliably.
     const input = []
     let unreadableKinds = []
     const mediaErrors = []
-    for (const m of msgs) {
+    for (const m of (read ? [] : msgs)) {
       const msg = m.raw_payload?.message || {}
       if (msg.type === 'text' && msg.text?.body) input.push({ type: 'text', text: msg.text.body })
       else if (msg.type === 'image') {
@@ -253,8 +271,7 @@ async function checkOne(supabase, row, byId, therapists, now, report, deps) {
       report.waiting.push(t.nombre)
       return
     }
-    let read = null
-    if (input.length) {
+    if (!read && input.length) {
       try { read = await deps.readCount({ nombre: t.nombre, mes, messages: input }) }
       catch (e) {
         // Retry next hour (no revisado_hasta stamp); the error is visible in payroll-run?action=status.
@@ -264,7 +281,7 @@ async function checkOne(supabase, row, byId, therapists, now, report, deps) {
         return
       }
     }
-    const stamp = { revisado_hasta: newest, updated_at: now.toISOString() }
+    const stamp = { revisado_hasta: newest || row.revisado_hasta || null, updated_at: now.toISOString() }
 
     if (!read?.tiene_conteo || read.conteo == null || read.ambiguo) {
       // Nothing usable yet. Tell Nicolás only if there's something he must look at himself.
@@ -286,9 +303,14 @@ async function checkOne(supabase, row, byId, therapists, now, report, deps) {
     stamp.detalle = { ...prevDetalle, lectura: { conteo, nota: read.nota || null, at: now.toISOString() }, sistema }
 
     if (conteo !== sistema) {
-      await deps.notifyOwner(supabase, { kind: 'nomina_revisar', resumen: `Nómina ${mes}: ${t.nombre} ${conteo} vs sistema ${sistema}`.slice(0, 90),
-        messages: [{ type: 'text', body: `Nómina de ${mes}: ${t.nombre} reporta ${conteo} sesiones y el sistema tiene ${sistema}. Revisa su reporte; cuando esté corregido dime "revisa a ${t.nombre}" y se lo envío.` }] })
-      await supabase.from('payroll_runs').update({ ...stamp, estado: 'mismatch', aviso_owner_at: now.toISOString() }).eq('id', row.id)
+      // Tell Nicolás once per count (a chatty follow-up with the same count doesn't re-alert).
+      const already = row.estado === 'mismatch' && row.conteo_terapeuta === conteo
+      if (!already) {
+        await deps.notifyOwner(supabase, { kind: 'nomina_revisar', resumen: `Nómina ${mes}: ${t.nombre} ${conteo} vs sistema ${sistema}`.slice(0, 90),
+          messages: [{ type: 'text', body: `Nómina de ${mes}: ${t.nombre} reporta ${conteo} sesiones y el sistema tiene ${sistema}. Si falta o sobra algo en el sistema, corrígelo en el panel y el reporte se le envía solo apenas cuadre (lo reviso cada hora).` }] })
+        stamp.aviso_owner_at = now.toISOString()
+      }
+      await supabase.from('payroll_runs').update({ ...stamp, estado: 'mismatch' }).eq('id', row.id)
       report.mismatched.push({ nombre: t.nombre, conteo, sistema })
       return
     }
