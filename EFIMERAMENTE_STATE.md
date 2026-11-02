@@ -135,6 +135,9 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   owner alert per distinct count. Verified: `payroll-check 5 * * * *` in the live deploy's function_schedules, scheduler
   fired 20:05 UTC on its own; conteo_sesiones re-APPROVED with 🐚✨; rehearsal of 2 Dec (night = nothing, 09:05 = 6
   therapists asked, Mariana never).
+- **Mismatch alerts name the difference (2 Nov, 1fd1bfe):** the reading also returns their list per patient (`detalle`:
+  paciente, cantidad, días) → `diffDetail()` matches it to the system's sessions (name prefix/nickname + shared days) and
+  the owner alert lists only the patients whose counts differ, with the missing day. Information only — COUNT decides.
 - **Template category bug (fixed 2 Nov, e438461):** `sesion_pendiente` and `ping_nico` are APPROVED as **MARKETING**, but
   `sesionesPendientes.mjs#templateApproved` and `ownerOutbox.mjs#pingTemplateApproved` required UTILITY → closed-window
   "¿se dio la sesión?" reminders and owner alerts went ONLY as phone pushes (why Sophia's 31 Oct never got a WhatsApp).
@@ -255,8 +258,8 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [ ] **#85 flags:** Karo still `inactivo` with a 15 Oct session · Odd-character phones (Cristina Gomez, Andres Luzuriaga, Sebastián Villegas).
       (Closed: David Betancourt tarifa + 3 Oct → $35; Daniela Santillan tarifa → $36; Martín Torres isn't facturacion_obligatoria → payer cédula irrelevant.)
 - [ ] **October payroll (#48) — running by itself:** Francisco + Carolina (26, $642) sent. Daniela's PDF goes out when she
-      answers `info_consultorio`. **María Gracia mismatch: she says 15, system 16** (Nicolás told; fix in panel → report goes
-      out by itself). Camila + Sophia owe their counts. Watch `payroll-run?action=status&periodo=2026-10`.
+      answers `info_consultorio`. **María Gracia mismatch: she says 15, system 16 — the difference is Catalina Fernández 22 Oct 17:00**
+      (on the system, not on her list; Nicolás decides: cancel it in the panel or tell her). Report goes out by itself once equal. Camila + Sophia owe their counts. Watch `payroll-run?action=status&periodo=2026-10`.
       Not built yet: tracking therapist invoices (`factura_recibida`) and closing the month.
 - [ ] **Auto-deploy flaky?** 21 Oct pushes didn't deploy; 22 Oct (0ab636f) did. If it stalls again: Deployed via the Netlify
       connector `deploy-site` → `npx @netlify/mcp … --site-id f8418788…` (needs `npm_config_cache=<scratchpad>`: ~/.npm has
