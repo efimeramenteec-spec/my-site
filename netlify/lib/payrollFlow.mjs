@@ -27,8 +27,8 @@ import { downloadSessionReport } from '../../src/lib/sessionReport.js'
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 const H = 3600e3
 const BUCKET = 'payroll'
-const APIMART_URL = 'https://api.apimart.ai/v1/chat/completions'
-const MODEL = 'claude-opus-4-8' // same vision model as the receipt reader
+const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
+const MODEL = 'claude-opus-5-5' // reads screenshots of session lists
 const SITE = 'https://efimeramente-panel.netlify.app'
 const LOGO_URL = `${SITE}/logos/LOGOTIPOLARGO%20(1).png`
 
@@ -46,7 +46,7 @@ function lookbackStart(periodo) {
 const last9 = (s) => String(s || '').replace(/\D/g, '').slice(-9)
 const money = (n) => `$${Number.isInteger(Number(n)) ? Number(n) : Number(n).toFixed(2)}`
 
-const PROMPT = (nombre, mes) => `Eres el asistente de nómina de un consultorio de psicología. ${nombre} (terapeuta) debía enviar por WhatsApp su conteo de sesiones del mes de ${mes}. Abajo están sus mensajes recientes (texto y/o capturas, en orden). Decide si contienen ese conteo.
+const PROMPT = (nombre, mes) => `Eres el asistente de nómina de un consultorio de psicología. ${nombre} (terapeuta) debía enviar por WhatsApp su conteo de sesiones del mes de ${mes}. Abajo están sus mensajes recientes (textos y, después, sus capturas). Decide si contienen ese conteo.
 
 Responde SOLO con un objeto JSON en una línea, sin comentarios, sin markdown, con estas 4 claves:
 - "tiene_conteo": true si en los mensajes está el conteo o la lista de sesiones de ${mes}; false si hablan de otros temas.
@@ -69,23 +69,23 @@ export const defaultDeps = {
   fetchMedia: fetchDualhookMedia,
   // messages: [{ type:'text', text } | { type:'image', b64, mime }]
   async readCount({ nombre, mes, messages }) {
-    const apiKey = process.env.APIMART_API_KEY
-    if (!apiKey) throw new Error('APIMART_API_KEY missing')
-    const content = [{ type: 'text', text: PROMPT(nombre, mes) }]
-    for (const m of messages) {
-      if (m.type === 'text') content.push({ type: 'text', text: `Mensaje: ${m.text}` })
-      else content.push({ type: 'image_url', image_url: { url: `data:${m.mime};base64,${m.b64}` } })
+    const apiKey = process.env.ANTHROPIC_API_KEY
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing')
+    // All texts in one block, then the screenshots (Claude Messages API, base64 images).
+    const texts = messages.filter((m) => m.type === 'text').map((m) => `- ${m.text}`).join('\n')
+    const content = [{ type: 'text', text: `${PROMPT(nombre, mes)}\n\nMensajes de texto:\n${texts || '(ninguno)'}` }]
+    for (const m of messages.filter((x) => x.type === 'image')) {
+      content.push({ type: 'image', source: { type: 'base64', media_type: m.mime, data: m.b64 } })
     }
-    const res = await fetch(APIMART_URL, {
+    const res = await fetch(ANTHROPIC_URL, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, stream: false, max_tokens: 600, messages: [{ role: 'user', content }] }),
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: MODEL, max_tokens: 600, messages: [{ role: 'user', content }] }),
     })
-    if (!res.ok) throw new Error(`APIMart ${res.status}: ${(await res.text()).slice(0, 200)}`)
+    if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`)
     const data = await res.json()
-    const raw = data?.choices?.[0]?.message?.content
-    const text = Array.isArray(raw) ? raw.map((p) => p?.text || '').join('') : String(raw ?? '')
-    const out = parseModelJson(text.replace(/\/\/[^\n"]*$/gm, ''))
+    const text = (data?.content || []).map((p) => p?.text || '').join('')
+    const out = parseModelJson(text)
     if (!out) throw new Error('unparseable model output: ' + text.slice(0, 200))
     return out
   },
