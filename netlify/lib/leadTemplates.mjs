@@ -329,6 +329,30 @@ export async function sendSesionPendiente(therapistE164, { nombre, paciente, fec
   return data?.messages?.[0]?.id || null
 }
 
+// conteo_sesiones (#48 payroll step 1) — {{1}} nombre, {{2}} mes ('octubre').
+// Sent only by lib/payrollFlow.mjs, once APPROVED. Returns the wamid.
+export async function sendConteoSesiones(therapistE164, { nombre, mes }) {
+  const apiKey = process.env.WA_DUALHOOK_API_KEY
+  if (!apiKey) throw new Error('WA_DUALHOOK_API_KEY missing — no send performed')
+  const body = {
+    messaging_product: 'whatsapp',
+    to: String(therapistE164).replace(/^\+/, ''),
+    type: 'template',
+    template: {
+      name: CONTEO_SESIONES_TEMPLATE, language: { code: LANG },
+      components: [{ type: 'body', parameters: [nombre, mes].map((v) => ({ type: 'text', text: String(v).trim() })) }],
+    },
+  }
+  const res = await fetch(SEND_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`Dualhook ${res.status}: ${await res.text()}`)
+  const data = await res.json()
+  return data?.messages?.[0]?.id || null
+}
+
 // Broadcast template (#53) — {{1}} = saludo. Sent only by lib/broadcast.mjs.
 export async function sendBroadcastTemplate(toE164, name, saludo) {
   const apiKey = process.env.WA_DUALHOOK_API_KEY
