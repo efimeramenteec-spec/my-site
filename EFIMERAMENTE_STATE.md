@@ -103,6 +103,27 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-11-02 — #99 Duplicate sends: one run at a time for every scheduled function (Michael, 6efff0e)
+- **Symptom (Nicolás):** payment reminder WhatsApp'd twice in a row. `reminder_sends` showed it on 2 Nov (4 patients,
+  same session_ids, 1–4 s apart) and 23 Oct (5 patients). Scouting also found: "Comprobante en espera" owner alerts
+  sent 2–4× (21, 22, 26, 30 Oct, 2 Nov), one sesión-pendiente reminder doubled (21 Oct).
+- **Root cause:** Netlify's scheduler drops a scheduled invocation after ~15 s (request log status **499**,
+  duration ≈14.97 s) and invokes the function AGAIN ~15 s later; the first execution keeps running to the end.
+  Jobs that send first and stamp after then send twice. On 2 Nov the 10:00 run had 9 patients (~27 s): run 1 sent
+  all 9, the retry re-read the list after 5 were stamped and resent the other 4. lead-followups and process-proofs
+  were being double-run on EVERY tick (both executions completed).
+- **Not affected (verified):** invoicing (overlap guard `en_curso` + per-session re-check; one `factura_aprobaciones`
+  row per run day, no session invoiced twice), RIDE sweep + broadcasts (atomic `claimed_at`), money (no duplicate
+  `saldo_lotes` per proof, no duplicate `saldo_consumos`), appointment reminders (no dupes in `reminder_sends` cita).
+- **Fix:** `cron_locks` table + `try_cron_lock(name, holder, ttl)` / `release_cron_lock` (service_role only,
+  `supabase/cron-locks-99.sql`); `netlify/lib/cronLock.mjs#withCronLock` (fails CLOSED: lock error → run skipped).
+  All 8 scheduled fns now `run()` inside the lock; a retry logs `[cron-lock] <name>: another run in progress`.
+  `payment-run` / `proofs-run` live share their twin's lock name (409 when busy). Belt and braces:
+  `paymentReminders.mjs` CLAIMS `recordatorio_pago_at` (NULL→now) BEFORE sending, unclaims on a failed send (resend
+  path unchanged); `proofReconcile.mjs` claims `alerted_at` before `notifyOwner`, unclaims on failure.
+- **Gotcha:** don't re-add "send, then stamp" in any scheduled job; claim first or rely on the lock.
+
+
 ### 2026-10-31 (evening) — #48 payroll on the 2nd + "cred" undo + no-new-sessions rule (Michael, 4cf6c23)
 - **#48 Payroll moves to the 2nd of each month** (Nicolás, 31 Oct), for the month just closed. October runs **Mon 2 Nov**.
   The morning brief routine flags it. `netlify/lib/payrollCopy.mjs` now takes a `mes` parameter.

@@ -527,6 +527,13 @@ Window = appointments 23–25h out.
 - Env: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`, `TWILIO_CONTENT_SID`, `SUPABASE_SERVICE_KEY`.
   ⚠️ Never hardcode the Twilio Content SID in source — Netlify's secret scanner fails the build.
 
+### Scheduled functions run ONE at a time — `netlify/lib/cronLock.mjs` (#99, 2 Nov 2026)
+Netlify drops a scheduled invocation after ~15 s (499) and invokes it AGAIN while the first keeps running. Every
+scheduled function's default export wraps its `run()` in `withCronLock(supabase, '<name>', run)` (table `cron_locks`,
+`supabase/cron-locks-99.sql`); manual live triggers use their twin's lock name. **A new scheduled function must do the
+same**, and any job that messages someone must CLAIM its stamp (NULL→now, `.is(col, null)`) BEFORE sending — never
+send-then-stamp. This doubled payment reminders (23 Oct, 2 Nov) and owner alerts.
+
 ### Failed reminders don't count as sent — `netlify/lib/reminderSends.mjs` (#86 C, 22 Oct 2026)
 Every ACCEPTED payment ('pago') / appointment ('cita') reminder is logged in **`reminder_sends`** (wamid, session_ids,
 telefono; `supabase/reminder-sends-86.sql`). A rejected send stamps nothing. When Meta reports `failed` for that wamid
