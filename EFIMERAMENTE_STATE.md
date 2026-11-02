@@ -254,8 +254,9 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
       still to fix: Fátima Tubon +59398067281 (one digit short), Wolfgang Armas +59363158790 (→ +593963158790).
 - [ ] **#85 flags:** Karo still `inactivo` with a 15 Oct session · Odd-character phones (Cristina Gomez, Andres Luzuriaga, Sebastián Villegas).
       (Closed: David Betancourt tarifa + 3 Oct → $35; Daniela Santillan tarifa → $36; Martín Torres isn't facturacion_obligatoria → payer cédula irrelevant.)
-- [ ] **October payroll (#48) — running by itself:** Daniela's PDF goes out when she answers `info_consultorio`;
-      Camila, Carolina, María Gracia, Sophia owe their counts (asked 2 Nov 14:37). Watch `payroll-run?action=status&periodo=2026-10`.
+- [ ] **October payroll (#48) — running by itself:** Francisco + Carolina (26, $642) sent. Daniela's PDF goes out when she
+      answers `info_consultorio`. **María Gracia mismatch: she says 15, system 16** (Nicolás told; fix in panel → report goes
+      out by itself). Camila + Sophia owe their counts. Watch `payroll-run?action=status&periodo=2026-10`.
       Not built yet: tracking therapist invoices (`factura_recibida`) and closing the month.
 - [ ] **Auto-deploy flaky?** 21 Oct pushes didn't deploy; 22 Oct (0ab636f) did. If it stalls again: Deployed via the Netlify
       connector `deploy-site` → `npx @netlify/mcp … --site-id f8418788…` (needs `npm_config_cache=<scratchpad>`: ~/.npm has
