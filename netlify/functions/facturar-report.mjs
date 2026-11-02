@@ -10,11 +10,12 @@
 // Env: SUPABASE_SERVICE_KEY, CONTIFICO_API_KEY, CONTIFICO_POS_TOKEN, WA_DUALHOOK_API_KEY, VAPID_PRIVATE_KEY.
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
+import { withCronLock } from '../lib/cronLock.mjs'
 import { runReport } from '../lib/facturarAprobacion.mjs'
 
 export const config = { schedule: '0 14 * * 1,4' }
 
-export default async () => {
+async function run() {
   const supabase = getSupabaseAdmin()
   if (!supabase) { console.error('[facturar-report] no SUPABASE_SERVICE_KEY'); return new Response('ok') }
   try {
@@ -24,4 +25,13 @@ export default async () => {
     console.error('[facturar-report] failed:', e.message)
   }
   return new Response('ok')
+}
+
+// #99: Netlify retries a scheduled run that passes ~15 s while the first one keeps
+// going — the lock makes the retry exit instead of sending everything twice.
+export default async () => {
+  const supabase = getSupabaseAdmin()
+  if (!supabase) return run()
+  const r = await withCronLock(supabase, 'facturar-report', run)
+  return r.result || new Response(JSON.stringify(r), { headers: { 'Content-Type': 'application/json' } })
 }

@@ -13,13 +13,14 @@
 // ⚠️ Scheduled functions aren't HTTP-invocable — use proofs-run.mjs to run by hand.
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
+import { withCronLock } from '../lib/cronLock.mjs'
 import { runProofAutomation } from '../lib/proofReconcile.mjs'
 
 export const config = { schedule: '*/10 * * * *' }
 
 const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } })
 
-export default async () => {
+async function run() {
   const supabase = getSupabaseAdmin()
   if (!supabase) { console.error('[process-proofs] no SUPABASE_SERVICE_KEY'); return new Response('Supabase key missing', { status: 500 }) }
 
@@ -33,4 +34,13 @@ export default async () => {
     today: report.today, proofs: report.items.length, marked: report.marked, withheld: report.withheld, failed: report.failed,
   }))
   return json(report)
+}
+
+// #99: Netlify retries a scheduled run that passes ~15 s while the first one keeps
+// going — the lock makes the retry exit instead of sending everything twice.
+export default async () => {
+  const supabase = getSupabaseAdmin()
+  if (!supabase) return run()
+  const r = await withCronLock(supabase, 'process-proofs', run)
+  return r.result || new Response(JSON.stringify(r), { headers: { 'Content-Type': 'application/json' } })
 }

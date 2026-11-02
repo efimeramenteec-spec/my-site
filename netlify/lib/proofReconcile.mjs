@@ -821,15 +821,22 @@ export async function runProofAutomation(supabase, { now = new Date(), live = fa
             ` pagó ${ex?.amount != null ? fmt$(ex.amount) : '¿monto?'}` +
             `${rec.tarifa != null ? `, tarifa ${fmt$(rec.tarifa)}` : ''}.\nMotivo: ${item.motivo}.\n` +
             `Propuesta: ${rec.texto}.\nApruébalo o corrígelo en el panel → Comprobantes.`
-          try {
-            await notify(supabase, { kind: 'comprobante_pendiente', resumen: `Comprobante en espera: ${who}`.slice(0, 90), messages: [{ type: 'text', body }] })
-            const { error: aErr } = await supabase
-              .from('whatsapp_messages').update({ alerted_at: now.toISOString() }).eq('id', proof.id)
-            if (aErr) { console.error('[proof-auto] alert-stamp failed:', aErr.message); item.alert = 'sent_stamp_failed' }
-            else { item.alert = 'sent'; report.alerted++ }
-          } catch (err) {
-            console.error(`[proof-auto] notifyOwner failed for proof ${proof.id}:`, err.message)
-            item.alert = 'failed'
+          // #99: CLAIM the alert first (alerted_at NULL → now). Another run that got there
+          // first → no second "Comprobante en espera" to Nicolás. Failed notify → unclaim.
+          const alertIso = now.toISOString()
+          const { data: claimed, error: cErr } = await supabase.from('whatsapp_messages')
+            .update({ alerted_at: alertIso }).eq('id', proof.id).is('alerted_at', null).select('id')
+          if (cErr) { console.error('[proof-auto] alert claim failed:', cErr.message); item.alert = 'claim_failed' }
+          else if (!claimed?.length) item.alert = 'already_alerted'
+          else {
+            try {
+              await notify(supabase, { kind: 'comprobante_pendiente', resumen: `Comprobante en espera: ${who}`.slice(0, 90), messages: [{ type: 'text', body }] })
+              item.alert = 'sent'; report.alerted++
+            } catch (err) {
+              console.error(`[proof-auto] notifyOwner failed for proof ${proof.id}:`, err.message)
+              await supabase.from('whatsapp_messages').update({ alerted_at: null }).eq('id', proof.id).eq('alerted_at', alertIso)
+              item.alert = 'failed'
+            }
           }
         }
       } else {

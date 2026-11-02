@@ -24,6 +24,7 @@
 // (Functions → lead-followups → Run now) to test the batch (respects the switch).
 
 import { getSupabaseAdmin, TZ_OFFSET, formatHora } from '../lib/whatsapp.mjs'
+import { withCronLock } from '../lib/cronLock.mjs'
 import { nudgeLead, sendReminderForLead, sendResultForLead, sendFirstSessionForLead, botAllowedForPhone } from '../lib/leadBot.mjs'
 import { sweepCapiEvents } from '../lib/capi.mjs'
 import { runLeadLinker } from '../lib/leadLinker.mjs'
@@ -47,7 +48,7 @@ async function mapById(supabase, table, cols, ids) {
   return new Map((data || []).map((r) => [r.id, r]))
 }
 
-export default async () => {
+async function run() {
   const supabase = getSupabaseAdmin()
   if (!supabase) {
     console.error('[followups] SUPABASE_SERVICE_KEY not set')
@@ -164,4 +165,13 @@ export default async () => {
   const test = !!(process.env.LEAD_BOT_TEST_PHONES || '').trim()
   console.log(`[followups] live=${live} test=${test} ecHour=${ecHour} quiet=${quiet} ${JSON.stringify(counts)}`)
   return json({ live, test, quiet, ...counts, linker, capi })
+}
+
+// #99: Netlify retries a scheduled run that passes ~15 s while the first one keeps
+// going — the lock makes the retry exit instead of sending everything twice.
+export default async () => {
+  const supabase = getSupabaseAdmin()
+  if (!supabase) return run()
+  const r = await withCronLock(supabase, 'lead-followups', run)
+  return r.result || new Response(JSON.stringify(r), { headers: { 'Content-Type': 'application/json' } })
 }

@@ -18,6 +18,7 @@
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
 import { runPaymentReminders } from '../lib/paymentReminders.mjs'
+import { withCronLock } from '../lib/cronLock.mjs'
 
 const TOKEN = '69ef36f5858533f06ce695d6e17b87e2'
 
@@ -36,10 +37,14 @@ export default async (req) => {
   const only = (url.searchParams.get('only') || '').split(',').map((x) => x.trim()).filter(Boolean)
   const resend = url.searchParams.get('resend') === '1'
   try {
-    const report = await runPaymentReminders(supabase, {
+    const go = () => runPaymentReminders(supabase, {
       now: new Date(), live, dryRun: !live, only: only.length ? only : null, resend,
     })
-    return json({ mode, report })
+    // #99: a live manual run shares the scheduled sender's lock — never two at once.
+    if (!live) return json({ mode, report: await go() })
+    const r = await withCronLock(supabase, 'payment-reminders', go)
+    if (r.skipped) return json({ mode, skipped: r.skipped, error: r.error }, 409)
+    return json({ mode, report: r.result })
   } catch (e) {
     return json({ error: e.message }, 500)
   }

@@ -12,6 +12,7 @@
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
 import { runProofAutomation } from '../lib/proofReconcile.mjs'
+import { withCronLock } from '../lib/cronLock.mjs'
 
 const TOKEN = '0ec013040a1e6aaad8651983b4019567'
 
@@ -28,8 +29,12 @@ export default async (req) => {
   const live = mode === 'live'
   const daysBack = Number(url.searchParams.get('days')) || 7
   try {
-    const report = await runProofAutomation(supabase, { now: new Date(), live, daysBack })
-    return json({ mode, report })
+    const go = () => runProofAutomation(supabase, { now: new Date(), live, daysBack })
+    // #99: a live manual run shares process-proofs' lock — never two at once.
+    if (!live) return json({ mode, report: await go() })
+    const r = await withCronLock(supabase, 'process-proofs', go)
+    if (r.skipped) return json({ mode, skipped: r.skipped, error: r.error }, 409)
+    return json({ mode, report: r.result })
   } catch (e) {
     return json({ error: e.message }, 500)
   }

@@ -197,15 +197,36 @@ export async function runPaymentReminders(supabase, { now = new Date(), live = f
     catch (e) { console.warn('[payment-reminders] failedBefore lookup failed (sending anyway):', e.message) }
     if (deadNumber) { entry.result = 'skipped_failed_before'; report.skipped++; report.patients.push(entry); continue }
     if (dryRun || !live) { entry.result = 'dry'; report.patients.push(entry); continue }
+    // #99: CLAIM before sending — stamp recordatorio_pago_at only where still NULL. If
+    // another run already took any of these sessions, give back what we took and skip:
+    // a reminder is sent once even if two runs overlap. (resend = deliberate, no claim.)
+    const stampIso = now.toISOString()
+    const unclaim = (ids) => supabase.from('sessions').update({ recordatorio_pago_at: null })
+      .in('id', ids).eq('recordatorio_pago_at', stampIso)
+    if (!resend) {
+      const { data: claimed, error: cErr } = await supabase.from('sessions')
+        .update({ recordatorio_pago_at: stampIso }).in('id', entry.sessionIds).is('recordatorio_pago_at', null).select('id')
+      if (cErr) { entry.result = 'claim_failed'; entry.error = cErr.message; report.failed++; report.patients.push(entry); continue }
+      if ((claimed || []).length !== entry.sessionIds.length) {
+        if (claimed?.length) await unclaim(claimed.map((r) => r.id))
+        entry.result = 'skipped_claimed_by_other_run'; report.skipped++; report.patients.push(entry); continue
+      }
+    }
     try {
       const resp = await sendDualhookPaymentReminder({ toE164, name, monto, sesionesText })
       entry.wamid = resp?.messages?.[0]?.id || null
       await logReminderSend(sendRepo, { kind: 'pago', resp, patientId: pid, sessionIds: entry.sessionIds, telefono: toE164 })
-      const { error: uErr } = await supabase
-        .from('sessions').update({ recordatorio_pago_at: now.toISOString() }).in('id', entry.sessionIds)
+      const { error: uErr } = resend
+        ? await supabase.from('sessions').update({ recordatorio_pago_at: stampIso }).in('id', entry.sessionIds)
+        : { error: null }
       if (uErr) { entry.result = 'sent_mark_failed'; entry.error = uErr.message; report.failed++ }
       else { entry.result = 'sent'; report.sent++ }
     } catch (e) {
+      // Not sent → give the claim back so tomorrow's run can try again.
+      if (!resend) {
+        const { error: rbErr } = await unclaim(entry.sessionIds)
+        if (rbErr) console.error('[payment-reminders] unclaim after failed send failed:', rbErr.message)
+      }
       entry.result = 'failed'; entry.error = e.message; report.failed++
     }
     report.patients.push(entry)

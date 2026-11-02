@@ -18,6 +18,7 @@
 // ⚠️ Requires sessions.reminder_sent_at — see supabase/add-reminder-sent-at.sql.
 
 import { getSupabaseAdmin, deliverReminder, TZ_OFFSET } from '../lib/whatsapp.mjs'
+import { withCronLock } from '../lib/cronLock.mjs'
 import { reconcileWithSupabase } from '../lib/reminderSends.mjs'
 
 export const config = { schedule: '0 * * * *' }
@@ -30,7 +31,7 @@ const WINDOW_MAX_H = 25
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json' } })
 
-export default async () => {
+async function run() {
   const supabase = getSupabaseAdmin()
   if (!supabase) {
     console.error('[send-reminders] SUPABASE_SERVICE_KEY not set')
@@ -88,4 +89,13 @@ export default async () => {
 
   console.log(`[send-reminders] LIVE done sent=${sent} failed=${failed} skipped=${skipped}`)
   return json({ live: true, candidates: sessions?.length || 0, due: due.length, sent, failed, skipped })
+}
+
+// #99: Netlify retries a scheduled run that passes ~15 s while the first one keeps
+// going — the lock makes the retry exit instead of sending everything twice.
+export default async () => {
+  const supabase = getSupabaseAdmin()
+  if (!supabase) return run()
+  const r = await withCronLock(supabase, 'send-reminders', run)
+  return r.result || new Response(JSON.stringify(r), { headers: { 'Content-Type': 'application/json' } })
 }

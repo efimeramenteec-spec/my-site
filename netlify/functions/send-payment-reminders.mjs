@@ -13,11 +13,12 @@
 //    or the Netlify UI → Functions → "Run now" (respects the kill-switch).
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
+import { withCronLock } from '../lib/cronLock.mjs'
 import { runPaymentReminders } from '../lib/paymentReminders.mjs'
 
 export const config = { schedule: '0 15 * * 1-6' }
 
-export default async () => {
+async function run() {
   const supabase = getSupabaseAdmin()
   if (!supabase) {
     console.error('[payment-reminders] SUPABASE_SERVICE_KEY not set')
@@ -30,4 +31,13 @@ export default async () => {
     eligiblePatients: report.patients?.length || 0, sent: report.sent, failed: report.failed, skipped: report.skipped,
   }))
   return new Response(JSON.stringify(report), { headers: { 'Content-Type': 'application/json' } })
+}
+
+// #99: Netlify retries a scheduled run that passes ~15 s while the first one keeps
+// going — the lock makes the retry exit instead of sending everything twice.
+export default async () => {
+  const supabase = getSupabaseAdmin()
+  if (!supabase) return run()
+  const r = await withCronLock(supabase, 'payment-reminders', run)
+  return r.result || new Response(JSON.stringify(r), { headers: { 'Content-Type': 'application/json' } })
 }
