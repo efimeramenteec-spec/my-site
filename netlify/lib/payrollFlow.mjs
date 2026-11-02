@@ -46,16 +46,15 @@ function lookbackStart(periodo) {
 const last9 = (s) => String(s || '').replace(/\D/g, '').slice(-9)
 const money = (n) => `$${Number.isInteger(Number(n)) ? Number(n) : Number(n).toFixed(2)}`
 
-const PROMPT = (nombre, mes) => `Eres el asistente de nómina de un consultorio de psicología. La terapeuta/el terapeuta ${nombre} debía enviar por WhatsApp su conteo de sesiones del mes de ${mes}. Abajo están sus mensajes recientes (texto y/o capturas, en orden). Decide si contienen ese conteo.
+const PROMPT = (nombre, mes) => `Eres el asistente de nómina de un consultorio de psicología. ${nombre} (terapeuta) debía enviar por WhatsApp su conteo de sesiones del mes de ${mes}. Abajo están sus mensajes recientes (texto y/o capturas, en orden). Decide si contienen ese conteo.
 
-Devuelve ÚNICAMENTE un JSON válido, sin texto adicional:
-{
-  "tiene_conteo": boolean,   // true si en los mensajes está el conteo o la lista de sesiones de ${mes}
-  "conteo": number|null,     // total de sesiones que declara; si manda una lista sin total, cuenta los ítems (cada sesión = 1)
-  "ambiguo": boolean,        // true si el total escrito y la lista no coinciden, o no se puede saber con certeza
-  "nota": string             // una frase corta en español explicando de dónde sale el número
-}
-Si los mensajes son de otros temas, tiene_conteo=false. No inventes.`
+Responde SOLO con un objeto JSON en una línea, sin comentarios, sin markdown, con estas 4 claves:
+- "tiene_conteo": true si en los mensajes está el conteo o la lista de sesiones de ${mes}; false si hablan de otros temas.
+- "conteo": el total de sesiones que declara (número entero). Si manda una lista sin total, cuenta los ítems (cada sesión = 1). null si no hay conteo.
+- "ambiguo": true si el total escrito y la lista no coinciden o no se puede saber con certeza; si no, false.
+- "nota": una frase corta en español explicando de dónde sale el número.
+Ejemplo de formato: {"tiene_conteo": true, "conteo": 12, "ambiguo": false, "nota": "Lista de 12 sesiones en la captura"}
+No inventes.`
 
 export const defaultDeps = {
   now: () => new Date(),
@@ -80,12 +79,14 @@ export const defaultDeps = {
     const res = await fetch(APIMART_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, stream: false, max_tokens: 400, messages: [{ role: 'user', content }] }),
+      body: JSON.stringify({ model: MODEL, stream: false, max_tokens: 600, messages: [{ role: 'user', content }] }),
     })
     if (!res.ok) throw new Error(`APIMart ${res.status}: ${(await res.text()).slice(0, 200)}`)
     const data = await res.json()
-    const out = parseModelJson(data?.choices?.[0]?.message?.content)
-    if (!out) throw new Error('unparseable model output')
+    const raw = data?.choices?.[0]?.message?.content
+    const text = Array.isArray(raw) ? raw.map((p) => p?.text || '').join('') : String(raw ?? '')
+    const out = parseModelJson(text.replace(/\/\/[^\n"]*$/gm, ''))
+    if (!out) throw new Error('unparseable model output: ' + text.slice(0, 200))
     return out
   },
   async buildPdf(supabase, therapist, therapists, periodo) {
