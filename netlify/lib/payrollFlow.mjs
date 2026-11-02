@@ -82,13 +82,13 @@ export const defaultDeps = {
     const res = await fetch(ANTHROPIC_URL, {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, max_tokens: 600, messages: [{ role: 'user', content }] }),
+      body: JSON.stringify({ model: MODEL, max_tokens: 4096, messages: [{ role: 'user', content }] }),
     })
     if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`)
     const data = await res.json()
     const text = (data?.content || []).map((p) => p?.text || '').join('')
     const out = parseModelJson(text)
-    if (!out) throw new Error('unparseable model output: ' + text.slice(0, 200))
+    if (!out) throw new Error(`unparseable model output (stop: ${data?.stop_reason}): ` + text.slice(0, 200))
     return out
   },
   async buildPdf(supabase, therapist, therapists, periodo) {
