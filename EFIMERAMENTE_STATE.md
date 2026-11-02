@@ -329,8 +329,12 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - **October (2 Nov):** Francisco 8 = 8 → report sent, then RE-SENT corrected at **$25/session → $200** (Nicolás: Francisco
   is the only one at $25; `therapists.provision_rate` 24→25, Finanzas + reports use it). Daniela: screenshot read = 40 =
   system 40 → match, but her window was closed → Nicolás told; PDF goes out when she next writes. Camila, Carolina,
-  María Gracia, Sophia: template goes out automatically once Meta approves. Sophia: 31 Oct 10:00 session with
-  Elena Valentina (Cecilia Saltos) still Pendiente — Nicolás asking her.
+  María Gracia, Sophia: asked 2 Nov 14:37 (auto-start), all delivered. Sophia's 31 Oct 10:00 session (Elena Valentina)
+  set **confirmada** by hand 2 Nov (Nicolás: she told him it happened) → her October = 7.
+- **Template category bug (fixed 2 Nov, e438461):** `sesion_pendiente` and `ping_nico` are APPROVED as **MARKETING**, but
+  `sesionesPendientes.mjs#templateApproved` and `ownerOutbox.mjs#pingTemplateApproved` required UTILITY → closed-window
+  "¿se dio la sesión?" reminders and owner alerts went ONLY as phone pushes (why Sophia's 31 Oct never got a WhatsApp).
+  Now: approved = usable, any category (standing rule). `resolveName` v2 check left as is (#41, deliberate).
 - **Open for Nicolás:** Francisco was paid 19 × $24 = $456 for September — if $25 applied then too, he's owed $19.
   Finanzas now shows ALL his months at $25 (the rate has no start date).
 
