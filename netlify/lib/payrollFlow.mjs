@@ -48,12 +48,13 @@ const money = (n) => `$${Number.isInteger(Number(n)) ? Number(n) : Number(n).toF
 
 const PROMPT = (nombre, mes) => `Eres el asistente de nómina de un consultorio de psicología. ${nombre} (terapeuta) debía enviar por WhatsApp su conteo de sesiones del mes de ${mes}. Abajo están sus mensajes recientes (textos y, después, sus capturas o PDFs). Decide si contienen ese conteo.
 
-Responde SOLO con un objeto JSON en una línea, sin comentarios, sin markdown, con estas 4 claves:
+Responde SOLO con un objeto JSON en una línea, sin comentarios, sin markdown, con estas 5 claves:
 - "tiene_conteo": true si en los mensajes está el conteo o la lista de sesiones de ${mes}; false si hablan de otros temas.
 - "conteo": el total de sesiones que declara (número entero). Si manda una lista sin total, cuenta los ítems (cada sesión = 1). null si no hay conteo.
 - "ambiguo": true si el total escrito y la lista no coinciden o no se puede saber con certeza; si no, false.
 - "nota": una frase corta en español explicando de dónde sale el número.
-Ejemplo de formato: {"tiene_conteo": true, "conteo": 12, "ambiguo": false, "nota": "Lista de 12 sesiones en la captura"}
+- "detalle": su lista tal como la manda, agrupada por paciente: [{"paciente": "nombre como lo escribe", "cantidad": número de sesiones, "dias": [días del mes como números, si los da; si no, []]}]. [] si no manda lista.
+Ejemplo de formato: {"tiene_conteo": true, "conteo": 3, "ambiguo": false, "nota": "Lista de 3 sesiones en la captura", "detalle": [{"paciente": "Ana Pérez", "cantidad": 2, "dias": [3, 17]}, {"paciente": "Luis", "cantidad": 1, "dias": []}]}
 No inventes.`
 
 export const defaultDeps = {
@@ -125,6 +126,53 @@ export async function systemCount(supabase, terapeutaId, periodo) {
     .eq('terapeuta_id', terapeutaId).eq('estado', 'confirmada').neq('tipo', 'llamada').gte('fecha', desde).lte('fecha', hasta)
   if (error) throw new Error('system count: ' + error.message)
   return count || 0
+}
+
+// Which sessions differ, for Nicolás's mismatch message (information only — the decision is the COUNT).
+// Their list is grouped by patient; the system's sessions are matched to it by shared name words.
+const fold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+const words = (x) => fold(x).split(/[^a-zñ]+/).filter((w) => w.length > 2)
+export function diffDetail(theirs, systemSessions) {
+  if (!Array.isArray(theirs) || !theirs.length) return []
+  const groups = new Map() // system patient label → [days]
+  for (const s of systemSessions) {
+    const p = s.patient || {}
+    const label = [p.nombre, p.apellido].filter(Boolean).join(' ') + (p.nombre_2 ? ` (${p.nombre_2})` : '')
+    if (!groups.has(label)) groups.set(label, { days: [], words: new Set(words([p.nombre, p.apellido, p.nombre_2, p.apellido_2].join(' '))) })
+    groups.get(label).days.push(Number(String(s.fecha).slice(8, 10)))
+  }
+  const used = new Set()
+  const lines = []
+  for (const item of theirs) {
+    const w = words(item.paciente)
+    let best = null, score = 0
+    for (const [label, g] of groups) {
+      if (used.has(label)) continue
+      const sc = w.filter((x) => g.words.has(x)).length
+      if (sc > score) { best = label; score = sc }
+    }
+    const n = Math.round(Number(item.cantidad) || 0)
+    if (!best) { lines.push(`• ${item.paciente}: ella/él ${n}, no lo encuentro en el sistema`); continue }
+    used.add(best)
+    const g = groups.get(best)
+    if (n !== g.days.length) {
+      const theirDays = (item.dias || []).map(Number)
+      const extra = theirDays.length ? g.days.filter((d) => !theirDays.includes(d)) : []
+      const missing = theirDays.filter((d) => !g.days.includes(d))
+      lines.push(`• ${best}: ${n} en su lista, ${g.days.length} en el sistema (${g.days.join(', ')})` +
+        (extra.length ? ` — no anotó el ${extra.join(', ')}` : '') + (missing.length ? ` — anotó el ${missing.join(', ')} que no está en el sistema` : ''))
+    }
+  }
+  for (const [label, g] of groups) if (!used.has(label)) lines.push(`• ${label}: ${g.days.length} en el sistema (${g.days.join(', ')}), no aparece en su lista`)
+  return lines
+}
+
+async function systemSessions(supabase, terapeutaId, periodo) {
+  const { desde, hasta } = periodoRange(periodo)
+  const { data, error } = await supabase.from('sessions').select('fecha, patient:patients(nombre,apellido,nombre_2,apellido_2)')
+    .eq('terapeuta_id', terapeutaId).eq('estado', 'confirmada').neq('tipo', 'llamada').gte('fecha', desde).lte('fecha', hasta).order('fecha')
+  if (error) throw new Error('system sessions: ' + error.message)
+  return data || []
 }
 
 // Step 1. skip = therapist names whose list already arrived (row, no template). live=false → plan only.
@@ -300,14 +348,18 @@ async function checkOne(supabase, row, byId, therapists, now, report, deps) {
     const conteo = Math.round(Number(read.conteo))
     stamp.conteo_terapeuta = conteo
     const { ultimo_error: _cleared, ...prevDetalle } = row.detalle || {}
-    stamp.detalle = { ...prevDetalle, lectura: { conteo, nota: read.nota || null, at: now.toISOString() }, sistema }
+    stamp.detalle = { ...prevDetalle, lectura: { conteo, nota: read.nota || null, detalle: read.detalle || row.detalle?.lectura?.detalle || null, at: now.toISOString() }, sistema }
 
     if (conteo !== sistema) {
       // Tell Nicolás once per count (a chatty follow-up with the same count doesn't re-alert).
       const already = row.estado === 'mismatch' && row.conteo_terapeuta === conteo
       if (!already) {
+        let diff = []
+        try { diff = diffDetail(read.detalle, await systemSessions(supabase, t.id, row.periodo)) }
+        catch (e) { console.warn('[payroll] diff failed:', e.message) }
+        const donde = diff.length ? `\nDiferencia:\n${diff.slice(0, 10).join('\n')}` : ''
         await deps.notifyOwner(supabase, { kind: 'nomina_revisar', resumen: `Nómina ${mes}: ${t.nombre} ${conteo} vs sistema ${sistema}`.slice(0, 90),
-          messages: [{ type: 'text', body: `Nómina de ${mes}: ${t.nombre} reporta ${conteo} sesiones y el sistema tiene ${sistema}. Si falta o sobra algo en el sistema, corrígelo en el panel y el reporte se le envía solo apenas cuadre (lo reviso cada hora).` }] })
+          messages: [{ type: 'text', body: `Nómina de ${mes}: ${t.nombre} reporta ${conteo} sesiones y el sistema tiene ${sistema}.${donde}\nSi falta o sobra algo en el sistema, corrígelo en el panel y el reporte se le envía solo apenas cuadre (lo reviso cada hora).` }] })
         stamp.aviso_owner_at = now.toISOString()
       }
       await supabase.from('payroll_runs').update({ ...stamp, estado: 'mismatch' }).eq('id', row.id)
