@@ -7,6 +7,14 @@ Newest first.
 
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-11-02 -->
 
+### 2026-10-29 (late night) — #97 audit of the HQ office game (Terminal; panel f57920d + 87f16f2, game repo e96b51f)
+- **Bugs fixed (game, `~/efimeramente-hq/src/main.js`):** failed sign-in dropped the pending conversation (retry now keeps `then`); a reply arriving after Esc popped up from nowhere (now stored as unread, "…" bubble over the desk, replayed as "About what you asked: …"); supabase `onAuthStateChange` called async auth inside the callback (deadlock risk, now deferred with setTimeout); `.dialog{display:flex}` overrode the `hidden` attribute so an empty box showed on screen (global `[hidden]{display:none!important}`).
+- **Look:** wood planks (were brick), monitors beside each person so outfits show, desk name plates (5 px pixel font `src/pixelfont.js`), blinking, Wes mustard shirt (peach read as bare skin), tucked chair, static floor/wall layer (`world.js` buildStatic), crisp integer upscaling (buffer canvas drawn at k× devicePixelRatio), dialog with portrait + "NAME · ROLE", placed top/bottom by where Nicolás stands, phone layout puts it under the map, "X is thinking…" with the employee typing, welcome only on first visit, SIGN OUT in the header. Dev-only `window.__hq` test hook (absent from production builds; checked).
+- **Desk brain (`netlify/lib/hqDesk.mjs`):** new locked table `hq_contexto` (clave 'prioridades', migration `hq_contexto_97`, `supabase/hq-contexto-97.sql`) = top of the scored backlog, refreshed by `/cierre` step 6 (also marks finished hq_orders `hecho` so "!" clears). Prompt now: COMPANY PRIORITIES first, then conversation, then message + "Reply in English/Spanish" decided by `detectLang()` (the model drifted to Spanish), then the live snapshot. Live test "What should I work on next?" → English, #15 / #48 / #55 + waiting items, $0.011 (test rows deleted).
+- Employee commands: speak Nicolás's language (English since 29 Oct).
+
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-11-02 -->
+
 ### 2026-10-28 — #92g Chetta titles, no "pensar con luz", POST-01 re-rendered + sent to Nicolás on WhatsApp (executor, 807b343)
 - **Rules (Nicolás, 28 Oct):** carousel titles (cover, content, closing) in **Chetta Vissto** Regular, font stack
   `'Chetta Vissto','Helvetica Now Display','Inter Tight',…` so Helvetica Now fills glyphs Chetta lacks (¿ ¡ — ” …) per
