@@ -35,7 +35,7 @@ export default async (req) => {
     }
     if (action === 'recheck') return json(await recheckPayroll(supabase, { periodo, nombre: url.searchParams.get('nombre') }))
     const { data, error } = await supabase.from('payroll_runs')
-      .select('periodo, estado, sesiones, monto, conteo_terapeuta, pedido_at, revisado_hasta, aviso_sin_lista_at, aviso_owner_at, therapist:therapists(nombre)')
+      .select('periodo, estado, sesiones, monto, conteo_terapeuta, pedido_at, revisado_hasta, aviso_sin_lista_at, aviso_owner_at, detalle, therapist:therapists(nombre)')
       .eq('periodo', periodo || '').order('created_at')
     if (error) throw new Error(error.message)
     return json({ periodo, rows: data })

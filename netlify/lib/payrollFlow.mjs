@@ -177,8 +177,21 @@ export async function runPayrollCheck(supabase, deps = defaultDeps) {
   const byId = new Map(therapists.map((t) => [t.id, t]))
 
   for (const row of rows) {
+    try { await checkOne(supabase, row, byId, therapists, now, report, deps) }
+    catch (e) {
+      // One therapist can't stop the others; the error shows in payroll-run?action=status.
+      console.error('[payroll] row failed:', e.message)
+      await supabase.from('payroll_runs').update({ detalle: { ...(row.detalle || {}), ultimo_error: { at: now.toISOString(), paso: 'proceso', error: String(e.message).slice(0, 300) } } }).eq('id', row.id)
+    }
+  }
+  await noListNotice(supabase, byId, now, report, deps)
+  return report
+}
+
+async function checkOne(supabase, row, byId, therapists, now, report, deps) {
+  {
     const t = byId.get(row.terapeuta_id)
-    if (!t) continue
+    if (!t) return
     report.checked++
     const mes = mesDe(row.periodo)
     const msgs = await inboundFrom(supabase, t.telefono, lookbackStart(row.periodo))
@@ -186,11 +199,12 @@ export async function runPayrollCheck(supabase, deps = defaultDeps) {
     // Nothing new since the last read → only the 24 h "no list" notice can apply.
     if (!newest || (row.revisado_hasta && new Date(newest) <= new Date(row.revisado_hasta))) {
       report.waiting.push(t.nombre)
-      continue
+      return
     }
     // Build the model input: text + images. Audio/documents can't be read reliably.
     const input = []
     let unreadableKinds = []
+    const mediaErrors = []
     for (const m of msgs) {
       const msg = m.raw_payload?.message || {}
       if (msg.type === 'text' && msg.text?.body) input.push({ type: 'text', text: msg.text.body })
@@ -199,13 +213,25 @@ export async function runPayrollCheck(supabase, deps = defaultDeps) {
           const { buffer, contentType } = await deps.fetchMedia(mediaIdOf(msg))
           input.push({ type: 'image', b64: Buffer.from(buffer).toString('base64'), mime: contentType.startsWith('image/') ? contentType : 'image/jpeg' })
           if (msg.image?.caption) input.push({ type: 'text', text: msg.image.caption })
-        } catch (e) { unreadableKinds.push('imagen'); console.warn('[payroll] media fetch failed:', e.message) }
+        } catch (e) { unreadableKinds.push('imagen'); mediaErrors.push(String(e.message).slice(0, 200)); console.warn('[payroll] media fetch failed:', e.message) }
       } else if (msg.type === 'audio' || msg.type === 'document') unreadableKinds.push(msg.type === 'audio' ? 'audio' : 'documento')
+    }
+    // A screenshot we couldn't download may BE the list → don't judge from the text alone; retry next hour.
+    if (mediaErrors.length) {
+      await supabase.from('payroll_runs').update({ detalle: { ...(row.detalle || {}), ultimo_error: { at: now.toISOString(), paso: 'imagen', error: mediaErrors[0] } } }).eq('id', row.id)
+      report.waiting.push(t.nombre)
+      return
     }
     let read = null
     if (input.length) {
       try { read = await deps.readCount({ nombre: t.nombre, mes, messages: input }) }
-      catch (e) { console.error('[payroll] readCount failed:', e.message); continue } // retry next hour, don't stamp
+      catch (e) {
+        // Retry next hour (no revisado_hasta stamp); the error is visible in payroll-run?action=status.
+        console.error('[payroll] readCount failed:', e.message)
+        await supabase.from('payroll_runs').update({ detalle: { ...(row.detalle || {}), ultimo_error: { at: now.toISOString(), paso: 'lectura', error: String(e.message).slice(0, 300) } } }).eq('id', row.id)
+        report.waiting.push(t.nombre)
+        return
+      }
     }
     const stamp = { revisado_hasta: newest, updated_at: now.toISOString() }
 
@@ -219,7 +245,7 @@ export async function runPayrollCheck(supabase, deps = defaultDeps) {
         report.unreadable.push(t.nombre)
       } else report.waiting.push(t.nombre)
       await supabase.from('payroll_runs').update(stamp).eq('id', row.id)
-      continue
+      return
     }
 
     const sistema = await systemCount(supabase, t.id, row.periodo)
@@ -232,7 +258,7 @@ export async function runPayrollCheck(supabase, deps = defaultDeps) {
         messages: [{ type: 'text', body: `Nómina de ${mes}: ${t.nombre} reporta ${conteo} sesiones y el sistema tiene ${sistema}. Revisa su reporte; cuando esté corregido dime "revisa a ${t.nombre}" y se lo envío.` }] })
       await supabase.from('payroll_runs').update({ ...stamp, estado: 'mismatch', aviso_owner_at: now.toISOString() }).eq('id', row.id)
       report.mismatched.push({ nombre: t.nombre, conteo, sistema })
-      continue
+      return
     }
 
     // MATCH → message + PDF. The PDF goes out as a plain message: their 24 h window is open (they just wrote).
@@ -248,7 +274,7 @@ export async function runPayrollCheck(supabase, deps = defaultDeps) {
       // revisado_hasta = newest: their NEXT message re-triggers the read, and then the window is open.
       await supabase.from('payroll_runs').update(stamp).eq('id', row.id)
       report.waiting.push(t.nombre)
-      continue
+      return
     }
     const pdf = await deps.buildPdf(supabase, t, therapists, row.periodo)
     const path = `${row.periodo}/${t.nombre.toLowerCase().replace(/\s+/g, '-')}.pdf`
@@ -266,8 +292,11 @@ export async function runPayrollCheck(supabase, deps = defaultDeps) {
     }).eq('id', row.id)
     report.matched.push({ nombre: t.nombre, sesiones: pdf.count, monto: pdf.pay })
   }
+}
 
-  // 24 h after the template: who still hasn't sent anything → ONE message per periodo.
+// 24 h after the template: who still hasn't sent anything → ONE message per periodo.
+async function noListNotice(supabase, byId, now, report, deps) {
+  {
   const { data: late } = await supabase.from('payroll_runs').select('id, periodo, terapeuta_id, pedido_at')
     .eq('estado', 'pendiente_lista').is('aviso_sin_lista_at', null).is('conteo_terapeuta', null)
     .not('pedido_at', 'is', null).lte('pedido_at', new Date(now.getTime() - 24 * H).toISOString())
@@ -284,7 +313,7 @@ export async function runPayrollCheck(supabase, deps = defaultDeps) {
     await supabase.from('payroll_runs').update({ aviso_sin_lista_at: now.toISOString() }).in('id', list.map((r) => r.id))
     report.noListAlerts.push({ periodo, names })
   }
-  return report
+  }
 }
 
 // "revisa a X": back to pendiente_lista so the next pass re-reads everything.
