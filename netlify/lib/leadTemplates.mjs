@@ -144,7 +144,12 @@ export const OWNER_TEMPLATES = [
 export const CONTEO_SESIONES_TEMPLATE = 'conteo_sesiones'
 export const CONTEO_SESIONES_BODY =
   'Hola {{1}}! Por favor envíame por aquí tu conteo de sesiones del mes de {{2}} para cotejarlo con nuestro sistema. ' +
-  'Si ya lo enviaste, ignora este mensaje. Att: la Caracola Mágica'
+  'Si ya lo enviaste, ignora este mensaje. Att: La Caracola Mágica🐚✨'
+// Reopens a therapist's 24 h window (Nicolás, 2 Nov): once they answer anything, free messages (reports, PDFs) can go.
+export const INFO_CONSULTORIO_TEMPLATE = 'info_consultorio'
+export const INFO_CONSULTORIO_BODY =
+  'Hola {{1}}. Quiero enviarte información relevante del consultorio. Responde cualquier mensaje para poder enviártela. ' +
+  'Att: La Caracola Mágica🐚✨'
 export const SESION_PENDIENTE_TEMPLATE = 'sesion_pendiente'
 export const SESION_PENDIENTE_BODY =
   'Hola {{1}}! Hay una sesión que se quedó en estado pendiente.\n\n{{2}}, del {{3}}\n\nSe dio la sesión?\n\nAtt: La Caracola Mágica🐚✨'
@@ -163,6 +168,10 @@ export const STAFF_TEMPLATES = [
   { name: CONTEO_SESIONES_TEMPLATE, to: 'therapist', language: LANG, category: 'UTILITY',
     components: [
       { type: 'BODY', text: CONTEO_SESIONES_BODY, example: { body_text: [['Camila', 'octubre']] } },
+    ] },
+  { name: INFO_CONSULTORIO_TEMPLATE, to: 'therapist', language: LANG, category: 'UTILITY',
+    components: [
+      { type: 'BODY', text: INFO_CONSULTORIO_BODY, example: { body_text: [['Daniela']] } },
     ] },
 ]
 // Broadcast templates (#53). Used by lib/broadcast.mjs for recipients whose 24h
@@ -195,7 +204,7 @@ export async function listTemplates() {
   const apiKey = process.env.WA_DUALHOOK_API_KEY
   if (!apiKey) throw new Error('WA_DUALHOOK_API_KEY missing')
   const names = ALL_TEMPLATES.map((t) => t.name)
-  const res = await fetch(`${TEMPLATES_URL}?fields=name,status,category,language,rejected_reason&limit=100`, {
+  const res = await fetch(`${TEMPLATES_URL}?fields=id,name,status,category,language,rejected_reason&limit=100`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   })
   const txt = await res.text()
@@ -351,6 +360,46 @@ export async function sendConteoSesiones(therapistE164, { nombre, mes }) {
   if (!res.ok) throw new Error(`Dualhook ${res.status}: ${await res.text()}`)
   const data = await res.json()
   return data?.messages?.[0]?.id || null
+}
+
+// info_consultorio — {{1}} nombre. Reopens a therapist's window so free messages can follow. Returns the wamid.
+export async function sendInfoConsultorio(therapistE164, { nombre }) {
+  const apiKey = process.env.WA_DUALHOOK_API_KEY
+  if (!apiKey) throw new Error('WA_DUALHOOK_API_KEY missing — no send performed')
+  const body = {
+    messaging_product: 'whatsapp',
+    to: String(therapistE164).replace(/^\+/, ''),
+    type: 'template',
+    template: {
+      name: INFO_CONSULTORIO_TEMPLATE, language: { code: LANG },
+      components: [{ type: 'body', parameters: [{ type: 'text', text: String(nombre).trim() }] }],
+    },
+  }
+  const res = await fetch(SEND_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`Dualhook ${res.status}: ${await res.text()}`)
+  const data = await res.json()
+  return data?.messages?.[0]?.id || null
+}
+
+// Edit an existing template's body in place (Meta re-reviews it; same name, same sends). Used when copy changes.
+export async function editTemplate(name) {
+  const apiKey = process.env.WA_DUALHOOK_API_KEY
+  if (!apiKey) throw new Error('WA_DUALHOOK_API_KEY missing')
+  const def = ALL_TEMPLATES.find((t) => t.name === name)
+  if (!def) throw new Error('unknown template ' + name)
+  const list = await listTemplates()
+  const cur = (list.templates || []).find((t) => t.name === name)
+  if (!cur?.id) throw new Error('template not found at Meta: ' + name)
+  const res = await fetch(`${DUALHOOK_BASE}/${cur.id}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ components: def.components }),
+  })
+  return { name, id: cur.id, status: res.status, body: (await res.text()).slice(0, 400) }
 }
 
 // Broadcast template (#53) — {{1}} = saludo. Sent only by lib/broadcast.mjs.

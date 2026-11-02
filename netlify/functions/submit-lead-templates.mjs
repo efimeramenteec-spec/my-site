@@ -9,7 +9,7 @@
 // Guard: GET ?token=<LEAD_TOOLS_TOKEN>. Returns per-template {status, body} so you
 // can see each template's Meta id + PENDING state. Delete or ignore after go-live.
 
-import { submitTemplates, listTemplates } from '../lib/leadTemplates.mjs'
+import { submitTemplates, listTemplates, editTemplate } from '../lib/leadTemplates.mjs'
 
 export default async (req) => {
   const url = new URL(req.url)
@@ -29,6 +29,12 @@ export default async (req) => {
     }
   }
   try {
+    // ?edit=<template> re-sends an existing template's body to Meta (copy changed in code).
+    const edit = url.searchParams.get('edit')
+    if (edit) {
+      const out = await editTemplate(edit)
+      return new Response(JSON.stringify({ ok: true, ...out }, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
     // ?name=<template> submits just one (fast response — avoids the proxy timeout
     // that eats the full 4-template batch, so per-template Meta errors are visible).
     const only = url.searchParams.get('name')

@@ -20,7 +20,7 @@ import { normalizePhone } from './whatsapp.mjs'
 import { mediaIdOf, fetchDualhookMedia } from './waMedia.mjs'
 import { parseModelJson } from './proofOcr.mjs'
 import { sendStaffText, sendStaffDocument } from './waSend.mjs'
-import { sendConteoSesiones, listTemplates, CONTEO_SESIONES_TEMPLATE } from './leadTemplates.mjs'
+import { sendConteoSesiones, sendInfoConsultorio, listTemplates, CONTEO_SESIONES_TEMPLATE, INFO_CONSULTORIO_TEMPLATE } from './leadTemplates.mjs'
 import { notifyOwner } from './ownerOutbox.mjs'
 import { downloadSessionReport } from '../../src/lib/sessionReport.js'
 
@@ -58,10 +58,11 @@ No inventes.`
 
 export const defaultDeps = {
   now: () => new Date(),
-  templateApproved: async () => {
+  templateApproved: async (name = CONTEO_SESIONES_TEMPLATE) => {
     const out = await listTemplates()
-    return (out.templates || []).some((t) => t.name === CONTEO_SESIONES_TEMPLATE && t.status === 'APPROVED')
+    return (out.templates || []).some((t) => t.name === name && t.status === 'APPROVED')
   },
+  sendReopen: sendInfoConsultorio,
   sendTemplate: sendConteoSesiones,
   sendText: sendStaffText,
   sendDocument: sendStaffDocument,
@@ -296,12 +297,25 @@ async function checkOne(supabase, row, byId, therapists, now, report, deps) {
     const to = normalizePhone(t.telefono)
     const windowOpen = now.getTime() - new Date(newest).getTime() < 23 * H
     if (!windowOpen) {
-      // Can't send freely any more — Nicolás forwards it, or the next message from them reopens it.
-      if (!row.aviso_owner_at) {
-        await deps.notifyOwner(supabase, { kind: 'nomina_revisar', resumen: `Nómina ${mes}: ${t.nombre} cuadra, ventana cerrada`.slice(0, 90),
-          messages: [{ type: 'text', body: `Nómina de ${mes}: ${t.nombre} cuadra (${conteo} sesiones) pero su WhatsApp lleva más de 24 h sin escribir y no puedo mandarle el reporte. Apenas escriba algo al 9933 se lo envío.` }] })
-        stamp.aviso_owner_at = now.toISOString()
+      // Window closed: send info_consultorio ("responde cualquier cosa…") once; their reply re-triggers this read
+      // with the window open and the report goes out. Template not approved yet → tell Nicolás instead.
+      const det = { ...(stamp.detalle || {}) }
+      if (!det.reabrir_at) {
+        let reopened = false
+        try {
+          if (await deps.templateApproved(INFO_CONSULTORIO_TEMPLATE)) {
+            det.reabrir_wamid = await deps.sendReopen(to, { nombre: t.nombre })
+            det.reabrir_at = now.toISOString()
+            reopened = true
+          }
+        } catch (e) { console.warn('[payroll] reopen template failed:', e.message) }
+        if (!reopened && !row.aviso_owner_at) {
+          await deps.notifyOwner(supabase, { kind: 'nomina_revisar', resumen: `Nómina ${mes}: ${t.nombre} cuadra, ventana cerrada`.slice(0, 90),
+            messages: [{ type: 'text', body: `Nómina de ${mes}: ${t.nombre} cuadra (${conteo} sesiones) pero su WhatsApp lleva más de 24 h sin escribir y no puedo mandarle el reporte. Apenas escriba algo al 9933 se lo envío.` }] })
+          stamp.aviso_owner_at = now.toISOString()
+        }
       }
+      stamp.detalle = det
       // revisado_hasta = newest: their NEXT message re-triggers the read, and then the window is open.
       await supabase.from('payroll_runs').update(stamp).eq('id', row.id)
       report.waiting.push(t.nombre)
