@@ -331,6 +331,12 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   system 40 → match, but her window was closed → Nicolás told; PDF goes out when she next writes. Camila, Carolina,
   María Gracia, Sophia: asked 2 Nov 14:37 (auto-start), all delivered. Sophia's 31 Oct 10:00 session (Elena Valentina)
   set **confirmada** by hand 2 Nov (Nicolás: she told him it happened) → her October = 7.
+- **`info_consultorio` template (Nicolás, 2 Nov; APPROVED as MARKETING, id 2664067827398492):** "Hola {{1}}. Quiero
+  enviarte información relevante del consultorio. Responde cualquier mensaje para poder enviártela. Att: La Caracola
+  Mágica🐚✨" — reopens a therapist's 24 h window. `sendInfoConsultorio` in leadTemplates.mjs. Payroll uses it by itself:
+  report ready + window closed → sends it once (`detalle.reabrir_at`), their reply → PDF goes out. Daniela got it 2 Nov
+  15:19 (delivered). `conteo_sesiones` body edited to end with 🐚✨ (re-review; `submit-lead-templates?edit=<name>`).
+  Reading step max_tokens 600 → 4096 (answer was cut mid-JSON once).
 - **Template category bug (fixed 2 Nov, e438461):** `sesion_pendiente` and `ping_nico` are APPROVED as **MARKETING**, but
   `sesionesPendientes.mjs#templateApproved` and `ownerOutbox.mjs#pingTemplateApproved` required UTILITY → closed-window
   "¿se dio la sesión?" reminders and owner alerts went ONLY as phone pushes (why Sophia's 31 Oct never got a WhatsApp).
