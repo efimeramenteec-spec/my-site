@@ -3,7 +3,7 @@
 // the two can never disagree.
 //
 // Rules (Nicolas): base rate lives in therapists.provision_rate ($24 default;
-// Mariana = 0, she keeps 100%). Pareja (couple) sessions pay MORE ($30). A
+// Mariana = 0, she keeps 100%; Francisco = $25, the only exception — 2 Nov 2026). Pareja (couple) sessions pay MORE ($30). A
 // therapist on a 0 base is never provisioned, whatever the session type.
 // Trial period (Nicolás, 5 Oct 2026): new therapists are paid $20 per
 // non-pareja session for their first 2 months — therapists.prueba_hasta

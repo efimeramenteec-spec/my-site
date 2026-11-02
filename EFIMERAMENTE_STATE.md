@@ -311,19 +311,28 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [ ] **Card cap 3 vs hijo_adolescente (4) / hijo_adulto (5)** — confirm with Nicolás whether to show all.
 - [ ] **#38 Drop the 4 unused functions** (SQL in the 2026-10-04 Completed entry) + add the key policy to CLAUDE.md.
 
-### 🟠 Payroll (#48) — AGREED WORKFLOW (Nicolás, 2 Nov 2026) — build next, first real run = October
-1. Template `conteo_sesiones` (UTILITY, submitted 2 Nov, Meta id 1500377868577111, PENDING) to each therapist on payroll:
-   "Hola {{1}}! Por favor envíame por aquí tu conteo de sesiones del mes de {{2}} para cotejarlo con nuestro sistema. Si ya
-   lo enviaste, ignora este mensaje. Att: la Caracola Mágica". Skip Mariana (keeps 100%) and anyone whose list already arrived.
-   Michael may tweak template wording if it helps Meta approval.
-2. Check HOURLY (scheduled fn, under withCronLock): a list that arrives is read (text or screenshot/PDF via Claude; audio →
-   Nicolás) and handled right away — the PDF must go out while the therapist's 24 h window is open.
-3. **Match = session COUNT only** (= confirmed non-llamada sessions of the month). Dates/patients are NOT a criterion.
-4. Match → `matchMessage` + system PDF (`scripts/payroll-report.mjs` logic / `sessionReport.js`) via payroll-send; payroll_runs enviado_ok.
-5. Mismatch → ONE WhatsApp to Nicolás (notifyOwner) per therapist: their count vs the system's. He fixes, says "check X again".
-6. 24 h after the template → one WhatsApp to Nicolás listing who hasn't sent. Bank deposit = Nicolás, outside the system.
-- **October so far:** Francisco 8 = system 8 → report SENT 2 Nov (delivered; payroll_runs 24449849). Daniela sent a screenshot
-  1 Nov (not read yet). Sophia: 31 Oct 10:00 session with Elena Valentina (Cecilia Saltos) still Pendiente — Nicolás asking her.
+### 🟠 Payroll (#48) — BUILT 2 Nov 2026 (Michael), automatic from now on
+- **Flow (Nicolás's design):** template `conteo_sesiones` (UTILITY, Meta id 1500377868577111, PENDING on 2 Nov) to each
+  therapist on payroll (provision_rate > 0 → never Mariana) → hourly read of their replies (text, screenshots, PDFs; Claude
+  Opus 5.5 via ANTHROPIC_API_KEY) → **match = session COUNT only** vs confirmed non-llamada sessions → match: `matchMessage`
+  + system PDF from the 9933 (needs their 24 h window open; closed → Nicolás told, sent as soon as they write again) →
+  mismatch / ambiguous / audio: ONE WhatsApp to Nicolás → 24 h after the template with nothing: one WhatsApp listing who.
+- **Auto-start:** from the 2nd to the 10th of each month, the hourly pass sends the template to every therapist on payroll
+  with no `payroll_runs` row for last month, once the template is APPROVED. Nobody triggers it.
+- **Code:** `netlify/lib/payrollFlow.mjs` (startPayroll / runPayrollCheck / autoStart / recheckPayroll);
+  `payroll-check` (scheduled :05) → `payroll-check-background` (withCronLock 'payroll-check', 15 min);
+  `payroll-run?token=PAYROLL_TOKEN&action=start|check|recheck|status`; migration `supabase/payroll-flow-48.sql`.
+  Errors land in `payroll_runs.detalle.ultimo_error` (status shows them). `scripts/payroll-report.mjs` = one PDF by hand.
+- **Gotchas:** APIMart returned EMPTY content for multi-part text+image → reading uses the Anthropic API directly.
+  A prompt with inline `//` comments made the model echo them (unparseable). Image download failure = retry, never judge
+  from the text alone.
+- **October (2 Nov):** Francisco 8 = 8 → report sent, then RE-SENT corrected at **$25/session → $200** (Nicolás: Francisco
+  is the only one at $25; `therapists.provision_rate` 24→25, Finanzas + reports use it). Daniela: screenshot read = 40 =
+  system 40 → match, but her window was closed → Nicolás told; PDF goes out when she next writes. Camila, Carolina,
+  María Gracia, Sophia: template goes out automatically once Meta approves. Sophia: 31 Oct 10:00 session with
+  Elena Valentina (Cecilia Saltos) still Pendiente — Nicolás asking her.
+- **Open for Nicolás:** Francisco was paid 19 × $24 = $456 for September — if $25 applied then too, he's owed $19.
+  Finanzas now shows ALL his months at $25 (the rate has no start date).
 
 ### 🟠 Payroll Sep (#48) — follow-ups
 - [ ] **María Gracia delivery** — her 3 payroll messages were "sent" not "delivered" at 19:05 UTC 5 Oct; re-check

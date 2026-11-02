@@ -169,9 +169,31 @@ async function inboundFrom(supabase, telefono, sinceIso) {
 }
 
 // Step 2–5. One pass over every pending row.
+// The month just closed, in Guayaquil time: on 2 Nov 2026 → '2026-10'.
+export function previousPeriodo(now) {
+  const g = new Date(now.getTime() - 5 * H)
+  const d = new Date(Date.UTC(g.getUTCFullYear(), g.getUTCMonth() - 1, 1))
+  return { periodo: d.toISOString().slice(0, 7), day: g.getUTCDate() }
+}
+
+// Payroll runs on the 2nd (Nicolás, 31 Oct): from the 2nd to the 10th, every therapist on payroll without a
+// row for last month gets the template — as soon as Meta has it APPROVED. Nobody has to remember to start it.
+async function autoStart(supabase, now, report, deps) {
+  const { periodo, day } = previousPeriodo(now)
+  if (day < 2 || day > 10) return
+  const ther = (await payrollTherapists(supabase)).filter(onPayroll)
+  const { data: rows } = await supabase.from('payroll_runs').select('terapeuta_id').eq('periodo', periodo)
+  const have = new Set((rows || []).map((r) => r.terapeuta_id))
+  if (ther.every((t) => have.has(t.id))) return
+  if (!(await deps.templateApproved())) { report.autoStart = 'template_not_approved'; return }
+  report.autoStart = await startPayroll(supabase, { periodo, live: true }, deps)
+}
+
 export async function runPayrollCheck(supabase, deps = defaultDeps) {
   const now = deps.now()
   const report = { checked: 0, matched: [], mismatched: [], unreadable: [], waiting: [], noListAlerts: [] }
+  try { await autoStart(supabase, now, report, deps) }
+  catch (e) { console.error('[payroll] auto-start failed:', e.message); report.autoStart = 'error: ' + e.message }
   const { data: rows, error } = await supabase.from('payroll_runs').select('*').eq('estado', 'pendiente_lista')
   if (error) throw new Error('payroll_runs: ' + error.message)
   if (!rows?.length) return report
