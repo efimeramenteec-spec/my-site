@@ -141,22 +141,24 @@ export function diffDetail(theirs, systemSessions) {
     if (!groups.has(label)) groups.set(label, { days: [], words: new Set(words([p.nombre, p.apellido, p.nombre_2, p.apellido_2].join(' '))) })
     groups.get(label).days.push(Number(String(s.fecha).slice(8, 10)))
   }
+  // Name words match on prefix or first 4 letters ("Cata" ~ Catalina, "Martín" ~ Marthin); shared days weigh too.
+  const near = (a, b) => a.startsWith(b) || b.startsWith(a) || (a.length >= 4 && b.length >= 4 && a.slice(0, 4) === b.slice(0, 4))
   const used = new Set()
   const lines = []
   for (const item of theirs) {
     const w = words(item.paciente)
+    const theirDays = (item.dias || []).map(Number)
     let best = null, score = 0
     for (const [label, g] of groups) {
       if (used.has(label)) continue
-      const sc = w.filter((x) => g.words.has(x)).length
+      const sc = 2 * w.filter((x) => [...g.words].some((y) => near(x, y))).length + theirDays.filter((d) => g.days.includes(d)).length
       if (sc > score) { best = label; score = sc }
     }
     const n = Math.round(Number(item.cantidad) || 0)
-    if (!best) { lines.push(`• ${item.paciente}: ella/él ${n}, no lo encuentro en el sistema`); continue }
+    if (!best) { lines.push(`• ${item.paciente}: ${n} en su lista, no lo encuentro en el sistema`); continue }
     used.add(best)
     const g = groups.get(best)
     if (n !== g.days.length) {
-      const theirDays = (item.dias || []).map(Number)
       const extra = theirDays.length ? g.days.filter((d) => !theirDays.includes(d)) : []
       const missing = theirDays.filter((d) => !g.days.includes(d))
       lines.push(`• ${best}: ${n} en su lista, ${g.days.length} en el sistema (${g.days.join(', ')})` +
