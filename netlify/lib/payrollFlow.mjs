@@ -46,7 +46,7 @@ function lookbackStart(periodo) {
 const last9 = (s) => String(s || '').replace(/\D/g, '').slice(-9)
 const money = (n) => `$${Number.isInteger(Number(n)) ? Number(n) : Number(n).toFixed(2)}`
 
-const PROMPT = (nombre, mes) => `Eres el asistente de nómina de un consultorio de psicología. ${nombre} (terapeuta) debía enviar por WhatsApp su conteo de sesiones del mes de ${mes}. Abajo están sus mensajes recientes (textos y, después, sus capturas). Decide si contienen ese conteo.
+const PROMPT = (nombre, mes) => `Eres el asistente de nómina de un consultorio de psicología. ${nombre} (terapeuta) debía enviar por WhatsApp su conteo de sesiones del mes de ${mes}. Abajo están sus mensajes recientes (textos y, después, sus capturas o PDFs). Decide si contienen ese conteo.
 
 Responde SOLO con un objeto JSON en una línea, sin comentarios, sin markdown, con estas 4 claves:
 - "tiene_conteo": true si en los mensajes está el conteo o la lista de sesiones de ${mes}; false si hablan de otros temas.
@@ -74,8 +74,9 @@ export const defaultDeps = {
     // All texts in one block, then the screenshots (Claude Messages API, base64 images).
     const texts = messages.filter((m) => m.type === 'text').map((m) => `- ${m.text}`).join('\n')
     const content = [{ type: 'text', text: `${PROMPT(nombre, mes)}\n\nMensajes de texto:\n${texts || '(ninguno)'}` }]
-    for (const m of messages.filter((x) => x.type === 'image')) {
-      content.push({ type: 'image', source: { type: 'base64', media_type: m.mime, data: m.b64 } })
+    for (const m of messages) {
+      if (m.type === 'image') content.push({ type: 'image', source: { type: 'base64', media_type: m.mime, data: m.b64 } })
+      if (m.type === 'pdf') content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: m.b64 } })
     }
     const res = await fetch(ANTHROPIC_URL, {
       method: 'POST',
@@ -215,6 +216,12 @@ async function checkOne(supabase, row, byId, therapists, now, report, deps) {
           input.push({ type: 'image', b64: Buffer.from(buffer).toString('base64'), mime: contentType.startsWith('image/') ? contentType : 'image/jpeg' })
           if (msg.image?.caption) input.push({ type: 'text', text: msg.image.caption })
         } catch (e) { unreadableKinds.push('imagen'); mediaErrors.push(String(e.message).slice(0, 200)); console.warn('[payroll] media fetch failed:', e.message) }
+      } else if (msg.type === 'document' && /pdf/i.test(msg.document?.mime_type || msg.document?.filename || '')) {
+        try {
+          const { buffer } = await deps.fetchMedia(mediaIdOf(msg))
+          input.push({ type: 'pdf', b64: Buffer.from(buffer).toString('base64') })
+          if (msg.document?.caption) input.push({ type: 'text', text: msg.document.caption })
+        } catch (e) { unreadableKinds.push('documento'); mediaErrors.push(String(e.message).slice(0, 200)); console.warn('[payroll] media fetch failed:', e.message) }
       } else if (msg.type === 'audio' || msg.type === 'document') unreadableKinds.push(msg.type === 'audio' ? 'audio' : 'documento')
     }
     // A screenshot we couldn't download may BE the list → don't judge from the text alone; retry next hour.
@@ -252,7 +259,8 @@ async function checkOne(supabase, row, byId, therapists, now, report, deps) {
     const sistema = await systemCount(supabase, t.id, row.periodo)
     const conteo = Math.round(Number(read.conteo))
     stamp.conteo_terapeuta = conteo
-    stamp.detalle = { ...(row.detalle || {}), lectura: { conteo, nota: read.nota || null, at: now.toISOString() }, sistema }
+    const { ultimo_error: _cleared, ...prevDetalle } = row.detalle || {}
+    stamp.detalle = { ...prevDetalle, lectura: { conteo, nota: read.nota || null, at: now.toISOString() }, sistema }
 
     if (conteo !== sistema) {
       await deps.notifyOwner(supabase, { kind: 'nomina_revisar', resumen: `Nómina ${mes}: ${t.nombre} ${conteo} vs sistema ${sistema}`.slice(0, 90),
