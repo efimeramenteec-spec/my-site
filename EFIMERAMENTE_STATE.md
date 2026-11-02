@@ -337,6 +337,12 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   report ready + window closed → sends it once (`detalle.reabrir_at`), their reply → PDF goes out. Daniela got it 2 Nov
   15:19 (delivered). `conteo_sesiones` body edited to end with 🐚✨ (re-review; `submit-lead-templates?edit=<name>`).
   Reading step max_tokens 600 → 4096 (answer was cut mid-JSON once).
+- **Hardening + end-to-end check (2 Nov, 450fc9a):** auto-start only 09:00–20:00 Quito (first pass on the 2nd = 09:05);
+  template not APPROVED on the 2nd → Nicolás told ONCE (owner_outbox kind `nomina_plantilla`), retries hourly to the 10th;
+  `mismatch` rows re-compare every pass (stored count vs system) → fixed in the panel = report goes out by itself; one
+  owner alert per distinct count. Verified: `payroll-check 5 * * * *` in the live deploy's function_schedules, scheduler
+  fired 20:05 UTC on its own; conteo_sesiones re-APPROVED with 🐚✨; rehearsal of 2 Dec (night = nothing, 09:05 = 6
+  therapists asked, Mariana never).
 - **Template category bug (fixed 2 Nov, e438461):** `sesion_pendiente` and `ping_nico` are APPROVED as **MARKETING**, but
   `sesionesPendientes.mjs#templateApproved` and `ownerOutbox.mjs#pingTemplateApproved` required UTILITY → closed-window
   "¿se dio la sesión?" reminders and owner alerts went ONLY as phone pushes (why Sophia's 31 Oct never got a WhatsApp).
