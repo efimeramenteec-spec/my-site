@@ -103,6 +103,45 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-11-02 — #48 Payroll workflow: automatic every 2nd (Michael, 8ade73d → 450fc9a)
+- **Flow (Nicolás's design):** template `conteo_sesiones` (UTILITY, Meta id 1500377868577111, PENDING on 2 Nov) to each
+  therapist on payroll (provision_rate > 0 → never Mariana) → hourly read of their replies (text, screenshots, PDFs; Claude
+  Opus 5.5 via ANTHROPIC_API_KEY) → **match = session COUNT only** vs confirmed non-llamada sessions → match: `matchMessage`
+  + system PDF from the 9933 (needs their 24 h window open; closed → Nicolás told, sent as soon as they write again) →
+  mismatch / ambiguous / audio: ONE WhatsApp to Nicolás → 24 h after the template with nothing: one WhatsApp listing who.
+- **Auto-start:** from the 2nd to the 10th of each month, the hourly pass sends the template to every therapist on payroll
+  with no `payroll_runs` row for last month, once the template is APPROVED. Nobody triggers it.
+- **Code:** `netlify/lib/payrollFlow.mjs` (startPayroll / runPayrollCheck / autoStart / recheckPayroll);
+  `payroll-check` (scheduled :05) → `payroll-check-background` (withCronLock 'payroll-check', 15 min);
+  `payroll-run?token=PAYROLL_TOKEN&action=start|check|recheck|status`; migration `supabase/payroll-flow-48.sql`.
+  Errors land in `payroll_runs.detalle.ultimo_error` (status shows them). `scripts/payroll-report.mjs` = one PDF by hand.
+- **Gotchas:** APIMart returned EMPTY content for multi-part text+image → reading uses the Anthropic API directly.
+  A prompt with inline `//` comments made the model echo them (unparseable). Image download failure = retry, never judge
+  from the text alone.
+- **October (2 Nov):** Francisco 8 = 8 → report sent, then RE-SENT corrected at **$25/session → $200** (Nicolás: Francisco
+  is the only one at $25; `therapists.provision_rate` 24→25, Finanzas + reports use it). Daniela: screenshot read = 40 =
+  system 40 → match, but her window was closed → Nicolás told; PDF goes out when she next writes. Camila, Carolina,
+  María Gracia, Sophia: asked 2 Nov 14:37 (auto-start), all delivered. Sophia's 31 Oct 10:00 session (Elena Valentina)
+  set **confirmada** by hand 2 Nov (Nicolás: she told him it happened) → her October = 7.
+- **`info_consultorio` template (Nicolás, 2 Nov; APPROVED as MARKETING, id 2664067827398492):** "Hola {{1}}. Quiero
+  enviarte información relevante del consultorio. Responde cualquier mensaje para poder enviártela. Att: La Caracola
+  Mágica🐚✨" — reopens a therapist's 24 h window. `sendInfoConsultorio` in leadTemplates.mjs. Payroll uses it by itself:
+  report ready + window closed → sends it once (`detalle.reabrir_at`), their reply → PDF goes out. Daniela got it 2 Nov
+  15:19 (delivered). `conteo_sesiones` body edited to end with 🐚✨ (re-review; `submit-lead-templates?edit=<name>`).
+  Reading step max_tokens 600 → 4096 (answer was cut mid-JSON once).
+- **Hardening + end-to-end check (2 Nov, 450fc9a):** auto-start only 09:00–20:00 Quito (first pass on the 2nd = 09:05);
+  template not APPROVED on the 2nd → Nicolás told ONCE (owner_outbox kind `nomina_plantilla`), retries hourly to the 10th;
+  `mismatch` rows re-compare every pass (stored count vs system) → fixed in the panel = report goes out by itself; one
+  owner alert per distinct count. Verified: `payroll-check 5 * * * *` in the live deploy's function_schedules, scheduler
+  fired 20:05 UTC on its own; conteo_sesiones re-APPROVED with 🐚✨; rehearsal of 2 Dec (night = nothing, 09:05 = 6
+  therapists asked, Mariana never).
+- **Template category bug (fixed 2 Nov, e438461):** `sesion_pendiente` and `ping_nico` are APPROVED as **MARKETING**, but
+  `sesionesPendientes.mjs#templateApproved` and `ownerOutbox.mjs#pingTemplateApproved` required UTILITY → closed-window
+  "¿se dio la sesión?" reminders and owner alerts went ONLY as phone pushes (why Sophia's 31 Oct never got a WhatsApp).
+  Now: approved = usable, any category (standing rule). `resolveName` v2 check left as is (#41, deliberate).
+- **Francisco $25 = October onward only** (Nicolás 2 Nov: nothing retroactive, September stays $456). Known quirk:
+  `provision_rate` has no start date, so Finanzas shows his PAST months at $25 too — display only, accepted.
+
 ### 2026-11-02 — #99 Duplicate sends: one run at a time for every scheduled function (Michael, 6efff0e)
 - **Symptom (Nicolás):** payment reminder WhatsApp'd twice in a row. `reminder_sends` showed it on 2 Nov (4 patients,
   same session_ids, 1–4 s apart) and 23 Oct (5 patients). Scouting also found: "Comprobante en espera" owner alerts
@@ -193,53 +232,6 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - **Gotcha:** first live reply flagged "0 leads" although Meta is off → standing facts added to the desk prompt (8866916). The desk has no Drive access: the backlog lives with `/michael`.
 - **Drive:** TO-DO rewritten with WHO'S WHO; DIRECTOR HANDOFF.md folded in and trashed (one memory file). `/cierre` now signs the employee.
 
-### 2026-10-28 — #92g Chetta titles, no "pensar con luz", POST-01 re-rendered + sent to Nicolás on WhatsApp (executor, 807b343)
-- **Rules (Nicolás, 28 Oct):** carousel titles (cover, content, closing) in **Chetta Vissto** Regular, font stack
-  `'Chetta Vissto','Helvetica Now Display','Inter Tight',…` so Helvetica Now fills glyphs Chetta lacks (¿ ¡ — ” …) per
-  character; body/labels unchanged (Helvetica Now Medium/Bold). **"pensar con luz" is on no slide** (closing template + BRAND.md).
-  ✦ stays top-right everywhere. Auto-fit + split rule unchanged.
-- `scripts/carrusel/render.mjs`: Playfair link removed; `renderCarousel` THROWS when the brand fonts are missing (unless
-  `CARRUSEL_FALLBACK_FONTS=1`, preview only) and per slide when a `.title` exists but `document.fonts.load("100px 'Chetta Vissto'")`
-  returns nothing (gotcha: `document.fonts.check` fails on title-less slides because the face is never requested).
-  POST-01 final sizes: cover 144 px, content titles 101/109, body 60/50/49; no split.
-- **Owner outbox gains media (#92g):** `waSend.mjs#sendStaffImage(to,{link,caption})` (as-is, returns wamid);
-  `ownerOutbox.mjs` messages now also `{type:'image', link, caption?}` and `{type:'texto_exacto', body}` (no cleanBotText, keeps ¿ and
-  emoji); `deliverRow` (exported) stores `owner_outbox.wamids` (migration `supabase/owner-outbox-wamids-92g.sql`, additive, applied).
-  **New fn `owner-outbox-send?id=<uuid>`**: delivers ONE `pendiente` row now, only to last-9 968029896 (refuses otherwise), 409
-  `window_closed` with NO ping/template when his 24h window is shut, 403 for unknown/non-pending ids. Pattern for #94: insert the row
-  (SQL/service role) with image links + caption, call the fn, read statuses by joining `unnest(wamids)` to `whatsapp_delivery_status`.
-- **Sent 28 Oct 01:52 UTC** (row `6221f24b-1b90-4f44-9800-31aded32bc1a`, kind `carrusel_preview`): 9 images + 1 caption text, all
-  `delivered`, pricing `free_customer_service`. Images were served from `public/carrusel/post-01/` for the send and removed from the
-  repo afterwards (WhatsApp keeps its own copy). Gotcha: WA image links must be public HTTPS; Supabase storage uploads need the
-  service key, which this executor can't read (`.env` reads are denied in this harness, LEAD_TOOLS_TOKEN not readable via the
-  Netlify connector), hence the uuid-gated fn + temporary public files.
-- Drive `IG · Listos/POST-01-evitacion-experiencial/`: new 01–09.png + render.json (old ones trashed), caption.txt kept.
-- **Quality follow-up (989630b):** WhatsApp `image` messages are re-compressed to JPEG (Nicolás noticed softer slides), so
-  owner outbox gained `{type:'document', link, filename?, caption?}` (`waSend.mjs#sendStaffDocument`, byte-for-byte). POST-01
-  resent as 9 documents `POST-01-01.png`…`09.png` (row `7d46320b-a33f-40a3-8ce8-5fe44793a876`): all sent/delivered/read. Rule for
-  #94: anything Nicolás will post goes as `document`; `image` only for a quick look. Temporary public PNGs removed again.
-
-### 2026-10-27 (late night) — #92f FINAL carousel color rule = 8 violet combos + POST-01 + Drive cleanup (executor, 5f594f5)
-- **Rule (Nicolás, final): violet `#B48AE4` (violeta neblina p.16) is ALWAYS one of the two colors; only 8 combos, one per post,
-  rotating:** 1 violet/cream `#FEF8E9` (2.57:1) · 2 cream/violet · 3 violet/yellow `#FFD84A` (1.97) · 4 yellow/violet · 5 violet/menta
-  `#B7F5D8` (2.22) · 6 menta/violet · 7 violet/durazno `#FCD1B5` (1.94) · 8 violet/azul cielo `#A9D8FF` (1.81). Exact manual hexes;
-  the #92e 60% yellow (`#FFE58A`) is gone. Never black text; transparency (`tint`) is the only allowed adjustment (unused today).
-- `scripts/carrusel/colors.mjs`: `PAIRS` = 8 entries `{n, id, nombre, bg, ink}`, ids `violeta-sobre-crema`, `crema-sobre-violeta`,
-  `violeta-sobre-amarillo`, `amarillo-sobre-violeta`, `violeta-sobre-menta`, `menta-sobre-violeta`, `violeta-sobre-durazno`,
-  `violeta-sobre-azul`. `getPair(idOrNumber)` accepts the id or 1–8, throws for anything else or a combo without violet; returns `n` too.
-  `nextPair(history)` cycles 1→8→1 (empty history or a pre-#92f id like `amarillo-violeta` starts at 1). `tint('crema')` = CREMA.
-- `render.mjs`: default color = `violeta-sobre-crema`; header comments updated. Typography/split rule unchanged from #92e (all sans,
-  body ≥ 40 px, serif accent stays dropped).
-- `assets/brand/BRAND.md`: carrusel color section replaced by the 8-combo table; "/carrusel flow" color line updated (POST-01 = combo 1).
-- **Drive IG · Listos now holds ONLY:** `POST-01-evitacion-experiencial/` (the #92c text verbatim, checked by script against the #92c
-  spec; 9 PNG + caption.txt + render.json, byte sizes verified via connector; no split needed) and `COMBOS-8.png` (cover + slide 04
-  in all 8 combos). **Trashed (recoverable 30 days):** 11 folders TEST-2026-10-27-{traduccion, reescritura-v2, terapia-que-se-queda,
-  final-colorA/B/C, marca-A/B/C, violeta-sobre-amarillo, amarillo-sobre-violeta} + COMPARACION-2026-10-27.png, COLORES-2026-10-27.png,
-  COLORES-MARCA-2026-10-27.png, VIOLETA-AMARILLO-2026-10-27.png.
-- Gotchas: the Drive connector's `search_files` returns ~5 items per page regardless of `pageSize` (paginate; after trashing, page 1
-  can come back empty with a token). Upload = injected `<input type=file>` + synthetic drop, then `file_upload` on its ref.
-  A scratch script importing playwright from the scratchpad must import `~/my-site/node_modules/playwright/index.mjs` by path.
-
 ## Pending / Backlog
 
 ### 🔥 Next (Michael picks up) — priorities live in the Drive TO-DO
@@ -262,8 +254,9 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
       still to fix: Fátima Tubon +59398067281 (one digit short), Wolfgang Armas +59363158790 (→ +593963158790).
 - [ ] **#85 flags:** Karo still `inactivo` with a 15 Oct session · Odd-character phones (Cristina Gomez, Andres Luzuriaga, Sebastián Villegas).
       (Closed: David Betancourt tarifa + 3 Oct → $35; Daniela Santillan tarifa → $36; Martín Torres isn't facturacion_obligatoria → payer cédula irrelevant.)
-- [ ] **October payroll (#48, TOP):** closes 31 Oct, not run; build the monthly protocol (calculate → Nicolás approves →
-      statements → invoices → close).
+- [ ] **October payroll (#48) — running by itself:** Daniela's PDF goes out when she answers `info_consultorio`;
+      Camila, Carolina, María Gracia, Sophia owe their counts (asked 2 Nov 14:37). Watch `payroll-run?action=status&periodo=2026-10`.
+      Not built yet: tracking therapist invoices (`factura_recibida`) and closing the month.
 - [ ] **Auto-deploy flaky?** 21 Oct pushes didn't deploy; 22 Oct (0ab636f) did. If it stalls again: Deployed via the Netlify
       connector `deploy-site` → `npx @netlify/mcp … --site-id f8418788…` (needs `npm_config_cache=<scratchpad>`: ~/.npm has
       root-owned files → EEXIST). Check the GitHub→Netlify build hook in the dashboard (Nicolás) or keep using the connector.
@@ -310,45 +303,6 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [ ] **A Stutz never delivered** ("En preparación", $0 since 1 Oct) — 12 unpublished drafts in Ads Manager. Director decides.
 - [ ] **Card cap 3 vs hijo_adolescente (4) / hijo_adulto (5)** — confirm with Nicolás whether to show all.
 - [ ] **#38 Drop the 4 unused functions** (SQL in the 2026-10-04 Completed entry) + add the key policy to CLAUDE.md.
-
-### 🟠 Payroll (#48) — BUILT 2 Nov 2026 (Michael), automatic from now on
-- **Flow (Nicolás's design):** template `conteo_sesiones` (UTILITY, Meta id 1500377868577111, PENDING on 2 Nov) to each
-  therapist on payroll (provision_rate > 0 → never Mariana) → hourly read of their replies (text, screenshots, PDFs; Claude
-  Opus 5.5 via ANTHROPIC_API_KEY) → **match = session COUNT only** vs confirmed non-llamada sessions → match: `matchMessage`
-  + system PDF from the 9933 (needs their 24 h window open; closed → Nicolás told, sent as soon as they write again) →
-  mismatch / ambiguous / audio: ONE WhatsApp to Nicolás → 24 h after the template with nothing: one WhatsApp listing who.
-- **Auto-start:** from the 2nd to the 10th of each month, the hourly pass sends the template to every therapist on payroll
-  with no `payroll_runs` row for last month, once the template is APPROVED. Nobody triggers it.
-- **Code:** `netlify/lib/payrollFlow.mjs` (startPayroll / runPayrollCheck / autoStart / recheckPayroll);
-  `payroll-check` (scheduled :05) → `payroll-check-background` (withCronLock 'payroll-check', 15 min);
-  `payroll-run?token=PAYROLL_TOKEN&action=start|check|recheck|status`; migration `supabase/payroll-flow-48.sql`.
-  Errors land in `payroll_runs.detalle.ultimo_error` (status shows them). `scripts/payroll-report.mjs` = one PDF by hand.
-- **Gotchas:** APIMart returned EMPTY content for multi-part text+image → reading uses the Anthropic API directly.
-  A prompt with inline `//` comments made the model echo them (unparseable). Image download failure = retry, never judge
-  from the text alone.
-- **October (2 Nov):** Francisco 8 = 8 → report sent, then RE-SENT corrected at **$25/session → $200** (Nicolás: Francisco
-  is the only one at $25; `therapists.provision_rate` 24→25, Finanzas + reports use it). Daniela: screenshot read = 40 =
-  system 40 → match, but her window was closed → Nicolás told; PDF goes out when she next writes. Camila, Carolina,
-  María Gracia, Sophia: asked 2 Nov 14:37 (auto-start), all delivered. Sophia's 31 Oct 10:00 session (Elena Valentina)
-  set **confirmada** by hand 2 Nov (Nicolás: she told him it happened) → her October = 7.
-- **`info_consultorio` template (Nicolás, 2 Nov; APPROVED as MARKETING, id 2664067827398492):** "Hola {{1}}. Quiero
-  enviarte información relevante del consultorio. Responde cualquier mensaje para poder enviártela. Att: La Caracola
-  Mágica🐚✨" — reopens a therapist's 24 h window. `sendInfoConsultorio` in leadTemplates.mjs. Payroll uses it by itself:
-  report ready + window closed → sends it once (`detalle.reabrir_at`), their reply → PDF goes out. Daniela got it 2 Nov
-  15:19 (delivered). `conteo_sesiones` body edited to end with 🐚✨ (re-review; `submit-lead-templates?edit=<name>`).
-  Reading step max_tokens 600 → 4096 (answer was cut mid-JSON once).
-- **Hardening + end-to-end check (2 Nov, 450fc9a):** auto-start only 09:00–20:00 Quito (first pass on the 2nd = 09:05);
-  template not APPROVED on the 2nd → Nicolás told ONCE (owner_outbox kind `nomina_plantilla`), retries hourly to the 10th;
-  `mismatch` rows re-compare every pass (stored count vs system) → fixed in the panel = report goes out by itself; one
-  owner alert per distinct count. Verified: `payroll-check 5 * * * *` in the live deploy's function_schedules, scheduler
-  fired 20:05 UTC on its own; conteo_sesiones re-APPROVED with 🐚✨; rehearsal of 2 Dec (night = nothing, 09:05 = 6
-  therapists asked, Mariana never).
-- **Template category bug (fixed 2 Nov, e438461):** `sesion_pendiente` and `ping_nico` are APPROVED as **MARKETING**, but
-  `sesionesPendientes.mjs#templateApproved` and `ownerOutbox.mjs#pingTemplateApproved` required UTILITY → closed-window
-  "¿se dio la sesión?" reminders and owner alerts went ONLY as phone pushes (why Sophia's 31 Oct never got a WhatsApp).
-  Now: approved = usable, any category (standing rule). `resolveName` v2 check left as is (#41, deliberate).
-- **Open for Nicolás:** Francisco was paid 19 × $24 = $456 for September — if $25 applied then too, he's owed $19.
-  Finanzas now shows ALL his months at $25 (the rate has no start date).
 
 ### 🟠 Payroll Sep (#48) — follow-ups
 - [ ] **María Gracia delivery** — her 3 payroll messages were "sent" not "delivered" at 19:05 UTC 5 Oct; re-check

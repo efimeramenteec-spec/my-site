@@ -5,6 +5,55 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-11-02 -->
+
+### 2026-10-28 — #92g Chetta titles, no "pensar con luz", POST-01 re-rendered + sent to Nicolás on WhatsApp (executor, 807b343)
+- **Rules (Nicolás, 28 Oct):** carousel titles (cover, content, closing) in **Chetta Vissto** Regular, font stack
+  `'Chetta Vissto','Helvetica Now Display','Inter Tight',…` so Helvetica Now fills glyphs Chetta lacks (¿ ¡ — ” …) per
+  character; body/labels unchanged (Helvetica Now Medium/Bold). **"pensar con luz" is on no slide** (closing template + BRAND.md).
+  ✦ stays top-right everywhere. Auto-fit + split rule unchanged.
+- `scripts/carrusel/render.mjs`: Playfair link removed; `renderCarousel` THROWS when the brand fonts are missing (unless
+  `CARRUSEL_FALLBACK_FONTS=1`, preview only) and per slide when a `.title` exists but `document.fonts.load("100px 'Chetta Vissto'")`
+  returns nothing (gotcha: `document.fonts.check` fails on title-less slides because the face is never requested).
+  POST-01 final sizes: cover 144 px, content titles 101/109, body 60/50/49; no split.
+- **Owner outbox gains media (#92g):** `waSend.mjs#sendStaffImage(to,{link,caption})` (as-is, returns wamid);
+  `ownerOutbox.mjs` messages now also `{type:'image', link, caption?}` and `{type:'texto_exacto', body}` (no cleanBotText, keeps ¿ and
+  emoji); `deliverRow` (exported) stores `owner_outbox.wamids` (migration `supabase/owner-outbox-wamids-92g.sql`, additive, applied).
+  **New fn `owner-outbox-send?id=<uuid>`**: delivers ONE `pendiente` row now, only to last-9 968029896 (refuses otherwise), 409
+  `window_closed` with NO ping/template when his 24h window is shut, 403 for unknown/non-pending ids. Pattern for #94: insert the row
+  (SQL/service role) with image links + caption, call the fn, read statuses by joining `unnest(wamids)` to `whatsapp_delivery_status`.
+- **Sent 28 Oct 01:52 UTC** (row `6221f24b-1b90-4f44-9800-31aded32bc1a`, kind `carrusel_preview`): 9 images + 1 caption text, all
+  `delivered`, pricing `free_customer_service`. Images were served from `public/carrusel/post-01/` for the send and removed from the
+  repo afterwards (WhatsApp keeps its own copy). Gotcha: WA image links must be public HTTPS; Supabase storage uploads need the
+  service key, which this executor can't read (`.env` reads are denied in this harness, LEAD_TOOLS_TOKEN not readable via the
+  Netlify connector), hence the uuid-gated fn + temporary public files.
+- Drive `IG · Listos/POST-01-evitacion-experiencial/`: new 01–09.png + render.json (old ones trashed), caption.txt kept.
+- **Quality follow-up (989630b):** WhatsApp `image` messages are re-compressed to JPEG (Nicolás noticed softer slides), so
+  owner outbox gained `{type:'document', link, filename?, caption?}` (`waSend.mjs#sendStaffDocument`, byte-for-byte). POST-01
+  resent as 9 documents `POST-01-01.png`…`09.png` (row `7d46320b-a33f-40a3-8ce8-5fe44793a876`): all sent/delivered/read. Rule for
+  #94: anything Nicolás will post goes as `document`; `image` only for a quick look. Temporary public PNGs removed again.
+
+### 2026-10-27 (late night) — #92f FINAL carousel color rule = 8 violet combos + POST-01 + Drive cleanup (executor, 5f594f5)
+- **Rule (Nicolás, final): violet `#B48AE4` (violeta neblina p.16) is ALWAYS one of the two colors; only 8 combos, one per post,
+  rotating:** 1 violet/cream `#FEF8E9` (2.57:1) · 2 cream/violet · 3 violet/yellow `#FFD84A` (1.97) · 4 yellow/violet · 5 violet/menta
+  `#B7F5D8` (2.22) · 6 menta/violet · 7 violet/durazno `#FCD1B5` (1.94) · 8 violet/azul cielo `#A9D8FF` (1.81). Exact manual hexes;
+  the #92e 60% yellow (`#FFE58A`) is gone. Never black text; transparency (`tint`) is the only allowed adjustment (unused today).
+- `scripts/carrusel/colors.mjs`: `PAIRS` = 8 entries `{n, id, nombre, bg, ink}`, ids `violeta-sobre-crema`, `crema-sobre-violeta`,
+  `violeta-sobre-amarillo`, `amarillo-sobre-violeta`, `violeta-sobre-menta`, `menta-sobre-violeta`, `violeta-sobre-durazno`,
+  `violeta-sobre-azul`. `getPair(idOrNumber)` accepts the id or 1–8, throws for anything else or a combo without violet; returns `n` too.
+  `nextPair(history)` cycles 1→8→1 (empty history or a pre-#92f id like `amarillo-violeta` starts at 1). `tint('crema')` = CREMA.
+- `render.mjs`: default color = `violeta-sobre-crema`; header comments updated. Typography/split rule unchanged from #92e (all sans,
+  body ≥ 40 px, serif accent stays dropped).
+- `assets/brand/BRAND.md`: carrusel color section replaced by the 8-combo table; "/carrusel flow" color line updated (POST-01 = combo 1).
+- **Drive IG · Listos now holds ONLY:** `POST-01-evitacion-experiencial/` (the #92c text verbatim, checked by script against the #92c
+  spec; 9 PNG + caption.txt + render.json, byte sizes verified via connector; no split needed) and `COMBOS-8.png` (cover + slide 04
+  in all 8 combos). **Trashed (recoverable 30 days):** 11 folders TEST-2026-10-27-{traduccion, reescritura-v2, terapia-que-se-queda,
+  final-colorA/B/C, marca-A/B/C, violeta-sobre-amarillo, amarillo-sobre-violeta} + COMPARACION-2026-10-27.png, COLORES-2026-10-27.png,
+  COLORES-MARCA-2026-10-27.png, VIOLETA-AMARILLO-2026-10-27.png.
+- Gotchas: the Drive connector's `search_files` returns ~5 items per page regardless of `pageSize` (paginate; after trashing, page 1
+  can come back empty with a token). Upload = injected `<input type=file>` + synthetic drop, then `file_upload` on its ref.
+  A scratch script importing playwright from the scratchpad must import `~/my-site/node_modules/playwright/index.mjs` by path.
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-10-31 (handoff ship) -->
 
 ### 2026-10-27 (late night) — #92e Carousel colors = ONLY violet/yellow + dense slides split (executor, c9f5b1d)
