@@ -141,6 +141,10 @@ export const OWNER_TEMPLATES = [
 // (lib/sesionesPendientes.mjs). Copy approved by Nicolás: no ¡¿, the 🐚✨ signature
 // is allowed for therapist messages. Quick-reply payloads (est_ok:/est_no:<id>) are
 // set per message at send time (sendSesionPendiente).
+export const CONTEO_SESIONES_TEMPLATE = 'conteo_sesiones'
+export const CONTEO_SESIONES_BODY =
+  'Hola {{1}}! Por favor envíame por aquí tu conteo de sesiones del mes de {{2}} para cotejarlo con nuestro sistema. ' +
+  'Si ya lo enviaste, ignora este mensaje. Att: la Caracola Mágica'
 export const SESION_PENDIENTE_TEMPLATE = 'sesion_pendiente'
 export const SESION_PENDIENTE_BODY =
   'Hola {{1}}! Hay una sesión que se quedó en estado pendiente.\n\n{{2}}, del {{3}}\n\nSe dio la sesión?\n\nAtt: La Caracola Mágica🐚✨'
@@ -153,6 +157,12 @@ export const STAFF_TEMPLATES = [
         { type: 'QUICK_REPLY', text: 'Ocurrió' },
         { type: 'QUICK_REPLY', text: 'No ocurrió' },
       ] },
+    ] },
+  // Payroll step 1 (#48, Nicolás 2 Nov): ask each therapist for the month's session
+  // count. Nicolás's copy character for character — never edit in place.
+  { name: CONTEO_SESIONES_TEMPLATE, to: 'therapist', language: LANG, category: 'UTILITY',
+    components: [
+      { type: 'BODY', text: CONTEO_SESIONES_BODY, example: { body_text: [['Camila', 'octubre']] } },
     ] },
 ]
 // Broadcast templates (#53). Used by lib/broadcast.mjs for recipients whose 24h
