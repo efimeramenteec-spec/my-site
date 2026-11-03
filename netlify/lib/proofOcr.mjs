@@ -15,13 +15,14 @@ const APIMART_URL = 'https://api.apimart.ai/v1/chat/completions'
 // receipt OCR. Opus 4.8 for best accuracy on amounts (a misread number is costly).
 const OCR_MODEL = 'claude-opus-4-8'
 
-const PROMPT = `Eres un lector de comprobantes de transferencia bancaria de Ecuador. Analiza la imagen del comprobante y devuelve ÚNICAMENTE un objeto JSON válido (sin texto adicional, sin markdown) con exactamente estas claves:
+const PROMPT = `Eres un lector de comprobantes de pago (transferencias de bancos de Ecuador, PayPhone, PayPal y bancos del exterior). Analiza el comprobante (imagen o PDF) y devuelve ÚNICAMENTE un objeto JSON válido (sin texto adicional, sin markdown) con exactamente estas claves:
 
 {
   "is_payment_proof": boolean,   // true si es un comprobante/recibo de transferencia o pago; false si es otra cosa (foto cualquiera, captura no relacionada)
   "transfer_date": string|null,  // fecha de LA TRANSFERENCIA en formato "YYYY-MM-DD"; null si no aparece
   "transfer_time": string|null,  // hora de la transferencia en formato 24h "HH:MM"; null si el banco solo muestra fecha
   "amount": number|null,         // monto pagado como número, sin símbolos ni separadores de miles (ej 39.00); null si no aparece
+  "currency": string|null,       // código ISO de la moneda del monto ("USD", "COP", "EUR"…). Ecuador usa USD; un banco colombiano muestra COP
   "origin_bank": string|null,    // banco de origen (desde dónde se pagó); null si no aparece
   "sender_name": string|null,    // nombre del titular que ENVÍA el dinero; null si no aparece
   "destination": string|null,    // normaliza el destino a UNO de: "pichincha","guayaquil","produbanco","payphone","paypal","otro"; null si no aparece
@@ -53,13 +54,17 @@ export function normalizeExtraction(raw) {
   const num = typeof amount === 'number' ? amount
     : (amount != null && !Number.isNaN(Number(String(amount).replace(/[^0-9.]/g, ''))))
       ? Number(String(amount).replace(/[^0-9.]/g, '')) : null
-  const conf = ['high', 'medium', 'low'].includes(raw?.confidence) ? raw.confidence : 'low'
   const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+  // A non-USD amount (e.g. a Colombian bank showing COP 101.799) is NOT a dollar amount → never auto-applied.
+  const currency = str(raw?.currency)?.toUpperCase() || null
+  const foreign = currency && currency !== 'USD'
+  const conf = foreign ? 'low' : ['high', 'medium', 'low'].includes(raw?.confidence) ? raw.confidence : 'low'
   return {
     is_payment_proof: raw?.is_payment_proof !== false, // default true unless model says otherwise
     transfer_date: str(raw?.transfer_date),
     transfer_time: str(raw?.transfer_time),
     amount: num,
+    currency,
     origin_bank: str(raw?.origin_bank),
     sender_name: str(raw?.sender_name),
     destination: str(raw?.destination)?.toLowerCase() || null,
@@ -87,7 +92,10 @@ export async function ocrProofRow(supabase, row, { force = false } = {}) {
   const mediaId = mediaIdOf(msg)
   if (!mediaId) return { ok: false, status: 'failed', reason: 'no_media' }
 
-  // PDFs / documents aren't run through image OCR — flag for a manual look.
+  // PDFs (PayPhone receipts, bank PDFs) are read with Claude directly — APIMart's chat
+  // endpoint only takes images. Other documents still go to a manual look.
+  const isPdf = msg?.type === 'document' && /pdf/i.test(msg.document?.mime_type || msg.document?.filename || '')
+  if (isPdf) return ocrPdfRow(supabase, row, mediaId)
   if (msg?.type === 'document') {
     const extracted = { is_payment_proof: null, note: 'documento — revisar manualmente' }
     await supabase.from('whatsapp_messages')
@@ -145,6 +153,50 @@ export async function ocrProofRow(supabase, row, { force = false } = {}) {
     return { ok: true, status, extracted }
   } catch (err) {
     console.error('[proof-ocr] failed:', err?.message)
+    await supabase.from('whatsapp_messages').update({ extraction_status: 'failed' }).eq('id', row.id)
+    return { ok: false, status: 'failed', reason: 'media_or_network' }
+  }
+}
+
+
+const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
+const PDF_MODEL = 'claude-opus-5-5' // same reader as the payroll lists (payrollFlow.mjs)
+
+async function ocrPdfRow(supabase, row, mediaId) {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) return { ok: false, status: 'failed', reason: 'no_api_key' }
+  try {
+    const { buffer } = await fetchDualhookMedia(mediaId)
+    const res = await fetch(ANTHROPIC_URL, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: PDF_MODEL, max_tokens: 1024,
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: PROMPT },
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: Buffer.from(buffer).toString('base64') } },
+        ] }],
+      }),
+    })
+    if (!res.ok) {
+      console.error(`[proof-ocr] Anthropic ${res.status}: ${(await res.text().catch(() => '')).slice(0, 300)}`)
+      await supabase.from('whatsapp_messages').update({ extraction_status: 'failed' }).eq('id', row.id)
+      return { ok: false, status: 'failed', reason: 'ocr_error' }
+    }
+    const data = await res.json()
+    const parsed = parseModelJson((data?.content || []).map((p) => p?.text || '').join(''))
+    if (!parsed) {
+      console.error('[proof-ocr] unparseable PDF output, stop:', data?.stop_reason)
+      await supabase.from('whatsapp_messages').update({ extraction_status: 'failed' }).eq('id', row.id)
+      return { ok: false, status: 'failed', reason: 'parse_error' }
+    }
+    const extracted = { ...normalizeExtraction(parsed), model: PDF_MODEL, source: 'pdf' }
+    const status = extracted.is_payment_proof === false ? 'needs_review' : 'ok'
+    const { error: upErr } = await supabase.from('whatsapp_messages').update({ extracted, extraction_status: status }).eq('id', row.id)
+    if (upErr) console.error('[proof-ocr] store failed:', upErr.message)
+    return { ok: true, status, extracted }
+  } catch (err) {
+    console.error('[proof-ocr] PDF failed:', err?.message)
     await supabase.from('whatsapp_messages').update({ extraction_status: 'failed' }).eq('id', row.id)
     return { ok: false, status: 'failed', reason: 'media_or_network' }
   }

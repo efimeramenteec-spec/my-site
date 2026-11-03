@@ -148,7 +148,8 @@ function precheck(proof, ex) {
   if (proof.extraction_status !== 'ok') return { action: 'withhold', reason: `extraction_${proof.extraction_status || 'pending'}` }
   if (!ex) return { action: 'withhold', reason: 'not_payment_proof' }
   if (ex.confidence === 'low') return { action: 'withhold', reason: 'low_confidence' }
-  if (ex.recipient_name && !/mariana/i.test(ex.recipient_name)) return { action: 'withhold', reason: 'recipient_mismatch' }
+  // Banks truncate names ("Villegas Kraemer Mari"): Mariana's first name OR either surname counts.
+  if (ex.recipient_name && !/mariana|villegas|kraemer/i.test(ex.recipient_name)) return { action: 'withhold', reason: 'recipient_mismatch' }
   if (ex.amount == null) return { action: 'withhold', reason: 'no_amount' }
   return null
 }
@@ -746,10 +747,34 @@ function proposalRecord(e, motivo) {
 // Orchestrator. Options: { now, live, daysBack }.
 //   • live=false → dry: OCR + decide, but mark/reconcile/notify NOTHING (preview).
 //   • live=true  → apply the #77 automatic marks; hold the rest + tell Nicolás once.
+// Therapists send payroll lists / invoices from their own numbers — never payments (Nicolás 3 Nov).
+// Mariana is the exception: her number forwards patients' receipts (#81 A, always held).
+const MARIANA_THERAPIST_ID = 'b219e764-4664-594c-9eb3-d2b19e52caac'
+async function closeTherapistProofs(supabase, { now, sinceMs, live }) {
+  const { data: ts, error } = await supabase.from('therapists').select('id, telefono').not('telefono', 'is', null)
+  if (error) throw new Error('therapists query: ' + error.message)
+  const phones = new Set((ts || []).filter((t) => t.id !== MARIANA_THERAPIST_ID).map((t) => last9(t.telefono)).filter((x) => x.length === 9))
+  if (!phones.size) return 0
+  const { data: rows, error: rErr } = await supabase.from('whatsapp_messages').select('id, raw_payload')
+    .eq('direccion', 'inbound').is('reconciled_at', null).is('cierre', null).gte('received_at', new Date(sinceMs).toISOString())
+  if (rErr) throw new Error('therapist proofs query: ' + rErr.message)
+  const ids = (rows || []).filter((r) => ['image', 'document'].includes(r.raw_payload?.message?.type) &&
+    phones.has(last9(r.raw_payload?.message?.from))).map((r) => r.id)
+  if (ids.length && live) {
+    const { error: uErr } = await supabase.from('whatsapp_messages').update({ cierre: 'ignorado', reconciled_at: now.toISOString(),
+      reconciled_session_ids: [], cierre_nota: 'mensaje de terapeuta (no es pago)' }).in('id', ids)
+    if (uErr) throw new Error('therapist proofs close: ' + uErr.message)
+  }
+  return ids.length
+}
+
 export async function runProofAutomation(supabase, { now = new Date(), live = false, daysBack = 7, deps = {} } = {}) {
   const notify = deps.notifyOwner || notifyOwner
+  let therapistClosed = 0
+  try { therapistClosed = await closeTherapistProofs(supabase, { now, sinceMs: now.getTime() - daysBack * 864e5, live }) }
+  catch (err) { console.warn('[proof-auto] therapist skip failed:', err.message) }
   const evals = await evaluateProofs(supabase, { now, daysBack })
-  const report = { today: gyeToday(now), live: !!live, marked: 0, lotes: 0, withheld: 0, alerted: 0, failed: 0, repeats: 0, items: [] }
+  const report = { today: gyeToday(now), live: !!live, therapistClosed, marked: 0, lotes: 0, withheld: 0, alerted: 0, failed: 0, repeats: 0, items: [] }
   // #83: one read of every referenced comprobante for the whole run. null = the read failed
   // → no repeat is closed and nothing with a reference is auto-applied (fail closed).
   let refRows = null
