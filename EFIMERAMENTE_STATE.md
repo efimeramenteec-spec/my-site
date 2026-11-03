@@ -103,6 +103,30 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-11-03 — Payroll unstuck + owner alerts re-ping + Comprobantes: PDFs, COP, therapist skip (Michael, add974b + bd603a0)
+- **Payroll accept path (#48, `netlify/lib/payrollFlow.mjs` `acceptPayroll`, `payroll-run?action=accept&periodo=&nombre=`):**
+  a `mismatch` could only resolve when the SYSTEM changed to the therapist's count; when the therapist's list misses
+  confirmed sessions there was no exit. Now Nicolás's "sí" stores `detalle.aceptado_sistema {a, at}`; `checkOne` treats it as
+  a match while the system count still equals `a` and sends `aceptadoMessage` (`payrollCopy.mjs`, "En tu lista faltaba…").
+  The hand-written `detalle.override_owner` on María Gracia's row was never read by code (ignore that key).
+- **October payroll DONE:** all 6 sent (Francisco 8/$200, Camila 24/$576, Carolina 26/$642, Daniela 40/$960, María Gracia
+  16/$384 via accept, Sophia 6/$120). Sophia was asked by hand (payroll-send) about 2 Oct + 29 Oct; she confirmed 2 Oct,
+  Andrea Torres 29 Oct was cancelled → session 9e10e2d3 → cancelada (trigger reverted the $35 to her package: $70 left).
+- **Protocol ends at the report (Nicolás 3 Nov):** no invoice tracking, no "closing the month" — no invoice, no payment.
+- **Owner outbox (`netlify/lib/ownerOutbox.mjs` notifyOwner):** was ONE ping per closed window → an unanswered 2 Nov ping
+  left 15 alerts silent. Now at most one ping per 24 h while his window is closed.
+- **Comprobantes (`netlify/lib/proofOcr.mjs`, `netlify/lib/proofReconcile.mjs`):** PDFs read via Anthropic Messages API
+  (`ocrPdfRow`, document block, `claude-opus-5-5`, ANTHROPIC_API_KEY) — tested on Nikole's PayPhone PDF ($50, ref 93027592);
+  new `currency` field, non-USD → confidence low → held (Mayra's "101799" was COP from a Colombian bank); `closeTherapistProofs`
+  closes image/doc proofs from therapist phones (except Mariana, #81 A) as `ignorado` "mensaje de terapeuta"; recipient check
+  accepts "mariana|villegas|kraemer" (banks truncate). Gabriela Acosta (payer of Martín Torres) $35 then auto-matched Martín 30 Oct.
+- **Data (Nicolás's orders):** Zara 22 Oct paid by her 26 Oct receipt e3d66145; Nikole 29 Oct pareja 39→$50 paid (PayPhone);
+  Fátima Tubon $240 = two package lotes 4×$30 (Fátima bf3a1f24 + Valentina Yanchaluiza a2ad3f7c, proof c085c8e5 on Fátima's lote
+  only — `saldo_lotes_proof_id_unique`), 29 Oct consumed from each → $90 left each; Shyam 2 Nov paid from his package ($70 left);
+  Mayra + therapist lists + Zara 30 Sep/Raguel 16 Oct receipts closed; Fabian Banderas phone (was Camila's) → '' (telefono NOT NULL).
+- **Ad #3 draft** (La Odisea / Gollwitzer, ~55 s) at `~/.claude/ad-guiones/efimeramente-03-odisea-gollwitzer-BORRADOR.md`, awaiting
+  Nicolás's approval (Compuerta 2). Toy Story 5 angle pinned for a later ad.
+
 ### 2026-11-02 — #48 Payroll workflow: automatic every 2nd (Michael, 8ade73d → 450fc9a)
 - **Flow (Nicolás's design):** template `conteo_sesiones` (UTILITY, Meta id 1500377868577111, PENDING on 2 Nov) to each
   therapist on payroll (provision_rate > 0 → never Mariana) → hourly read of their replies (text, screenshots, PDFs; Claude
@@ -213,33 +237,20 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
   Michael persona picks up the new `michael.md` at build (`prebuild` → `scripts/hq-agents-sync.mjs` → `hqAgents.json`).
 - **Loose ends** (payroll Oct, ACESS, receipts, POST-02, patient hygiene, volume note) recorded in the Drive TO-DO.
 
-### 2026-10-29 (night) — #97 Efimeramente HQ office game, separate site (Terminal, 637e8d4; game repo ~/efimeramente-hq b5eaa2d)
-- **Nicolás's call: NOT inside the panel** (different aesthetics + mind space). Own site **https://efimeramente-hq.netlify.app** (Netlify `efimeramente-hq`, id `9d75aecb-d507-4973-b8f2-418d84481aed`, not git-linked: deploy with Netlify MCP `deploy-site` from `~/efimeramente-hq`; build env VITE_SUPABASE_URL/ANON_KEY set on the site). Local git only (no GitHub remote yet). Vanilla JS + canvas (Vite), 22x14 tile office, pixel faces from the mockup, Nicolás walks (keys/D-pad), A at a desk = Pokémon-style dialog, "!" over employees with queued orders, whiteboard/desk show today's sessions + 24 h leads + 30-day HQ cost. Sign-in = panel account (Supabase), owner only.
-- **Backend stays in this repo:** `netlify/functions/hq-chat.mjs` (owner-gated: POST {agent,texto} → hq_orders canal 'panel' + wakes hq-desk-background {orderId}; GET ?id= for polling), `hqDesk.mjs` refactor: shared `answerOrder` (snapshot + last 4 exchanges with that employee + Claude; replies in the order's language) for WhatsApp and the game, `handlePanelOrder` never sends anything. `netlify/lib/ownerGate.mjs` (CORS allow-list incl. the game site; used by hq-status + hq-chat). `hq_orders.canal` column (whatsapp|panel). Harness `scripts/harness-hq-96.mjs` covers both channels.
-- Verified: live server test (panel order answered in place, $0.009, no outbox row; test row deleted), CORS only for the game origin, hq-chat 401 without login, walking/collisions/prompts/sign-in box in Chrome. Real chat needs Nicolás's login (not tested by Terminal).
-- **Known gap:** the desk brain only sees the DB snapshot, not the Drive backlog, so Michael's "top priority" in the game is weaker than /michael's. Fix idea: give the desk a short priorities field.
-- The #96 roster page `/hq` inside the panel still exists; ask Nicolás whether to remove it now that the game is the HQ.
-
-### 2026-10-29 — #96 Efimeramente HQ: AI staff + WhatsApp desk + /hq page (Terminal, 1cd3099 + 8866916)
-- **Employees** = `.claude/agents/{michael,alex,vince,tim,wes}.md` (frontmatter name/description/tools/status/model; body = role, owns, rules, commands, what needs Nicolás's "sí", reports-to/hand-off). `/michael` … `/wes` in `.claude/commands/` make a session become that employee: read the Drive TO-DO (WHO'S WHO first) + its agent file + its `en_cola` hq_orders, then wait. Verified: a fresh headless `claude -p "/michael"` stated role + top 3 (#79, #15, #55) unprompted. Ad commands stay user-level in `~/.claude/commands/` (adscript/adgenerator/adgenclose), referenced, not modified. CLAUDE.md line: "This repo is Efimeramente HQ".
-- **WhatsApp desk:** `whatsapp-cloud-webhook` → `hqOrderFor(msg)` (`netlify/lib/hqDesk.mjs`) placed AFTER the facturas/fac_* handler and BEFORE `routeOwnerMessage`: owner phone only (isOwnerPhone AND last-9 968029896), text only, `^(michael|alex|vince|tim|wes)\s*[:,]` on an accent-folded body. Match → `hq-desk-background` (x-lead-verify gate) → `handleHqOrder`: insert `hq_orders` (wamid unique), read-only snapshot (held receipts, unapproved lotes, today's sessions, 24 h leads, open orders, payroll), `callClaudeHQ` in leadBrain.mjs (same key/model, forced tool `responder` {respuesta, necesita_trabajo}), reply ≤600 chars as `owner_outbox` kind `hq_reply` (`texto_exacto`) delivered only if his 24 h window is open (else stays pendiente, NO ping template), tokens + `cost_usd` (Sonnet $3/$15 per M) logged. Work orders → `en_cola` + "Lo ejecuto con Terminal". Writes ONLY hq_orders + owner_outbox. System prompt = agent file body (bundled into `netlify/lib/hqAgents.json` by `scripts/hq-agents-sync.mjs`, runs on `prebuild`; JSON committed) + desk-mode rules + standing facts.
-- **DB:** `hq_orders` (migration `hq_orders_96`, `supabase/hq-orders-96.sql`): RLS on, no policies, REVOKE ALL anon/authenticated, service_role only.
-- **/hq page:** `src/pages/HQ.jsx` (owner route + nav "HQ"), the mockup's faces/layout/colours scoped under `.hq`; live pill + last 3 orders + 30-day cost from owner-gated `netlify/functions/hq-status.mjs`.
-- **Verified:** harness `node scripts/harness-hq-96.mjs` (Michael/Wes → desk; "hola" + IG link → owner path as before; facturas unchanged; window closed = stored not sent; read-only). Live: Nicolás's "Michael: que está pendiente?" → hq_orders 614bf43e, inbound wamid.HBgMNTkzOTY4MDI5ODk2FQIAEhgUM0FBOTUwOUZGM0E5OUUxMUVCRTYA, reply wamid.HBgMNTkzOTY4MDI5ODk2FQIAERgUQ0U3RTk5N0EyQzlERDJGQzgwNDEA, 1901+203 tokens, $0.00875, 5 s.
-- **Gotcha:** first live reply flagged "0 leads" although Meta is off → standing facts added to the desk prompt (8866916). The desk has no Drive access: the backlog lives with `/michael`.
-- **Drive:** TO-DO rewritten with WHO'S WHO; DIRECTOR HANDOFF.md folded in and trashed (one memory file). `/cierre` now signs the employee.
-
 ## Pending / Backlog
 
 ### 🔥 Next (Michael picks up) — priorities live in the Drive TO-DO
+- [ ] **Ad #3 La Odisea** — draft in `~/.claude/ad-guiones/efimeramente-03-odisea-gollwitzer-BORRADOR.md`; Nicolás approves
+      (as is / 48 s cut) → rename without BORRADOR → Tim (/adgenerator). Toy Story 5 angle (Lilypad, Wilson 2014, Lieberman) pinned next.
+- [ ] **Carousel (#93–#95) ON HOLD** (Nicolás 3 Nov).
+- [ ] **Juan José Flores $35 receipt** (4f5b3348, 3 Nov) held: tarifa $39. Nicolás is handling unpaid sessions himself.
+- [ ] **Watch:** next PDF receipt reads by itself (extraction.source='pdf'); owner re-ping once/24 h works; therapist images auto-close.
 - [ ] **/carrusel #93–#95** (#92 done 27 Oct): #93 queue (Nicolás sends IG links to 9933 → queued) + `/carrusel` command
       (translation + `renderCarousel`), #94 WhatsApp preview to Nicolás → post to @efimeramente.ec ONLY after he replies "sí"
       (Instagram posting), #95 Mon/Wed/Fri 19:00 GYE schedule. **Mode decided (#92c): exact translation**, flow + hashtags + color
       rotation in `assets/brand/BRAND.md` "/carrusel flow". Colors: FINAL rule #92f = 8 violet combos rotating via `nextPair` (POST-01 used combo 1, so #93's history starts with `violeta-sobre-crema`). POST-01 (#92g: Chetta titles) is in Drive IG · Listos and was WhatsApp'd to Nicolás 28 Oct to post by hand. #94 preview = `owner-outbox-send` (image messages + texto_exacto); images need public HTTPS links (a hosting path for #94 is still to decide: Supabase storage signed URLs from a function).
 - [ ] Ask blnk estudio whether Helvetica Now Display + Chetta Vissto can be used on the web (needed before the website).
-- [ ] **Zara Basantez 26 Oct $32 receipt** (e3d66145) held — waiting on Nicolás (what it pays). (#89)
 - [ ] **#90 duplicate patients:** Kathy, Melania, Romesvary, Cecilia Reascos lead record → merge; Luna/Domenica/Nikole wait on Nicolás.
-- [ ] Unreadable receipt 762ee117 (26 Oct 12:28, needs_review, no patient) still open in Comprobantes.
 - [ ] **Supabase advisor WARNs left (#90 follow-up, not urgent):** 8 SECURITY DEFINER fns executable by anon via /rpc
       (trigger fns + is_owner/my_terapeuta_id — revoke EXECUTE from anon after checking callers), 6 fns with mutable
       search_path, Auth leaked-password protection off (dashboard toggle). Old backups could eventually be dropped (Nicolás's call).
@@ -251,10 +262,6 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
       still to fix: Fátima Tubon +59398067281 (one digit short), Wolfgang Armas +59363158790 (→ +593963158790).
 - [ ] **#85 flags:** Karo still `inactivo` with a 15 Oct session · Odd-character phones (Cristina Gomez, Andres Luzuriaga, Sebastián Villegas).
       (Closed: David Betancourt tarifa + 3 Oct → $35; Daniela Santillan tarifa → $36; Martín Torres isn't facturacion_obligatoria → payer cédula irrelevant.)
-- [ ] **October payroll (#48) — running by itself:** Francisco + Carolina (26, $642) sent. Daniela's PDF goes out when she
-      answers `info_consultorio`. **María Gracia mismatch: she says 15, system 16 — the difference is Catalina Fernández 22 Oct 17:00**
-      (on the system, not on her list; Nicolás decides: cancel it in the panel or tell her). Report goes out by itself once equal. Camila + Sophia owe their counts. Watch `payroll-run?action=status&periodo=2026-10`.
-      Not built yet: tracking therapist invoices (`factura_recibida`) and closing the month.
 - [ ] **Auto-deploy flaky?** 21 Oct pushes didn't deploy; 22 Oct (0ab636f) did. If it stalls again: Deployed via the Netlify
       connector `deploy-site` → `npx @netlify/mcp … --site-id f8418788…` (needs `npm_config_cache=<scratchpad>`: ~/.npm has
       root-owned files → EEXIST). Check the GitHub→Netlify build hook in the dashboard (Nicolás) or keep using the connector.
@@ -306,10 +313,6 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - [ ] **María Gracia delivery** — her 3 payroll messages were "sent" not "delivered" at 19:05 UTC 5 Oct; re-check
       `whatsapp_delivery_status` for her wamids (payroll_runs.detalle.wamids). Failed → resend via payroll-send.
 - [ ] **Carolina v2 PDF ($828)** — Nicolás sends it himself (Paula 30/09 cancelled); her invoice should be $828.
-- [ ] **Invoices to Mariana** — when each therapist sends theirs, set payroll_runs.estado='factura_recibida'.
-- [ ] **Monthly protocol** — turn #48 into a repeatable /nomina flow (payrollCopy.mjs + payroll-send + payroll_runs).
-      Payroll = confirmed non-llamada sessions ONLY; llamadas never appear in the payroll conversation.
-
 ### 🔴 Contífico / invoicing follow-ups — surfaced 2026-10-02→04
 - [x] **#16 first live run Mon 5 Oct** — done: "facturas" 15:10 UTC, Aprobar 17:56, 1 emitted; its RIDE was
       still unauthorized at the end of the run → now handled by the #47 sweep.
