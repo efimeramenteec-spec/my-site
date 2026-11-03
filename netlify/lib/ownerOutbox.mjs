@@ -136,9 +136,11 @@ export async function notifyOwner(supabase, { kind, resumen, messages }, deps = 
     // Window looked open but the send failed — fall through to the closed path.
   }
 
-  // Closed window: at most ONE ping since his last inbound.
-  let q = supabase.from(TABLE).select('id').not('ping_sent_at', 'is', null)
-  if (lastIn) q = q.gt('ping_sent_at', lastIn)
+  // Closed window: at most ONE ping per 24 h since his last inbound. (Was one per closed window: an
+  // unanswered ping on 2 Nov left 15 alerts silent for a day+, incl. payroll mismatches.)
+  const dayAgo = new Date(deps.now().getTime() - WINDOW_MS).toISOString()
+  const since = lastIn && lastIn > dayAgo ? lastIn : dayAgo
+  const q = supabase.from(TABLE).select('id').not('ping_sent_at', 'is', null).gt('ping_sent_at', since)
   const { data: pinged } = await q.limit(1)
   if (pinged?.length) return { id: row.id, via: 'en_cola' }
 

@@ -5,10 +5,11 @@
 //        → sends the conteo_sesiones template (live=1; default = plan only) and creates the payroll_runs rows
 //   &action=check                       → fires one background pass now (same as the hourly run)
 //   &action=recheck&periodo=…&nombre=X  → "revisa a X": back to pendiente_lista, re-read on the next pass
+//   &action=accept&periodo=…&nombre=X   → Nicolás's "sí": the system count is right → report goes out next pass
 //   &action=status&periodo=…            → the month's rows
 
 import { getSupabaseAdmin } from '../lib/whatsapp.mjs'
-import { startPayroll, recheckPayroll } from '../lib/payrollFlow.mjs'
+import { startPayroll, recheckPayroll, acceptPayroll } from '../lib/payrollFlow.mjs'
 
 const json = (o, s = 200) => new Response(JSON.stringify(o, null, 2), { status: s, headers: { 'Content-Type': 'application/json' } })
 const list = (v) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean) : [])
@@ -33,6 +34,7 @@ export default async (req) => {
       const res = await fetch(`${base}/.netlify/functions/payroll-check-background`, { method: 'POST', headers: { 'x-payroll-token': token } })
       return json({ fired: res.status })
     }
+    if (action === 'accept') return json(await acceptPayroll(supabase, { periodo, nombre: url.searchParams.get('nombre') }))
     if (action === 'recheck') return json(await recheckPayroll(supabase, { periodo, nombre: url.searchParams.get('nombre') }))
     const { data, error } = await supabase.from('payroll_runs')
       .select('periodo, estado, sesiones, monto, conteo_terapeuta, pedido_at, revisado_hasta, aviso_sin_lista_at, aviso_owner_at, detalle, therapist:therapists(nombre)')

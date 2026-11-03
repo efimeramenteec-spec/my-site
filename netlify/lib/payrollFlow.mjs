@@ -15,7 +15,7 @@
 //   5. 24 h after the template, still nothing → ONE WhatsApp to Nicolás listing who hasn't sent.
 // The bank deposit stays with Nicolás. Payroll copy never goes through cleanBotText (🐚✨ signature).
 
-import { matchMessage } from './payrollCopy.mjs'
+import { matchMessage, aceptadoMessage } from './payrollCopy.mjs'
 import { normalizePhone } from './whatsapp.mjs'
 import { mediaIdOf, fetchDualhookMedia } from './waMedia.mjs'
 import { parseModelJson } from './proofOcr.mjs'
@@ -286,8 +286,8 @@ async function checkOne(supabase, row, byId, therapists, now, report, deps) {
     let read = null
     if (nothingNew) {
       // A mismatch re-compares every pass: Nicolás fixed the sessions → counts now equal → the report goes out.
-      if (row.estado === 'mismatch' && row.conteo_terapeuta != null &&
-          (await systemCount(supabase, t.id, row.periodo)) === row.conteo_terapeuta) {
+      const sis = row.estado === 'mismatch' && row.conteo_terapeuta != null ? await systemCount(supabase, t.id, row.periodo) : null
+      if (sis != null && (sis === row.conteo_terapeuta || row.detalle?.aceptado_sistema?.a === sis)) {
         read = { tiene_conteo: true, conteo: row.conteo_terapeuta, ambiguo: false, nota: row.detalle?.lectura?.nota || 'recomparado' }
       } else {
         report.waiting.push(t.nombre)
@@ -352,7 +352,9 @@ async function checkOne(supabase, row, byId, therapists, now, report, deps) {
     const { ultimo_error: _cleared, ...prevDetalle } = row.detalle || {}
     stamp.detalle = { ...prevDetalle, lectura: { conteo, nota: read.nota || null, detalle: read.detalle || row.detalle?.lectura?.detalle || null, at: now.toISOString() }, sistema }
 
-    if (conteo !== sistema) {
+    // Nicolás accepted the system count (their list missed sessions) → send the system report.
+    const aceptado = conteo !== sistema && row.detalle?.aceptado_sistema?.a === sistema
+    if (conteo !== sistema && !aceptado) {
       // Tell Nicolás once per count (a chatty follow-up with the same count doesn't re-alert).
       const already = row.estado === 'mismatch' && row.conteo_terapeuta === conteo
       if (!already) {
@@ -403,7 +405,9 @@ async function checkOne(supabase, row, byId, therapists, now, report, deps) {
     if (up.error) throw new Error('storage upload: ' + up.error.message)
     const sig = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600)
     if (sig.error) throw new Error('signed url: ' + sig.error.message)
-    const body = matchMessage({ nombre: t.nombre, mes, n: pdf.count, monto: money(pdf.pay) })
+    const body = aceptado && pdf.count > conteo
+      ? aceptadoMessage({ nombre: t.nombre, mes, n: pdf.count, monto: money(pdf.pay), faltan: pdf.count - conteo })
+      : matchMessage({ nombre: t.nombre, mes, n: pdf.count, monto: money(pdf.pay) })
     const wText = await deps.sendText(to, body, { previewUrl: false })
     const fname = `Efimeramente-Sesiones-${[t.nombre, t.apellido].filter(Boolean).join('-')}-${mes}-${row.periodo.slice(0, 4)}.pdf`.replace(/\s+/g, '-')
     const wPdf = await deps.sendDocument(to, { link: sig.data.signedUrl, filename: fname })
@@ -446,4 +450,19 @@ export async function recheckPayroll(supabase, { periodo, nombre }) {
     .eq('periodo', periodo).eq('terapeuta_id', t.id).in('estado', ['mismatch', 'pendiente_lista']).select('id')
   if (error) throw new Error(error.message)
   return { reset: data?.length || 0 }
+}
+
+// "acepta el sistema para X": Nicolás confirmed the system count is right (the therapist's list missed
+// sessions). Stored on the row; the next pass sends the system report. Only valid while the count stays the same.
+export async function acceptPayroll(supabase, { periodo, nombre }) {
+  const t = (await payrollTherapists(supabase)).find((x) => x.nombre.toLowerCase() === String(nombre).toLowerCase())
+  if (!t) throw new Error('no therapist ' + nombre)
+  const { data: row, error } = await supabase.from('payroll_runs').select('id, estado, detalle')
+    .eq('periodo', periodo).eq('terapeuta_id', t.id).maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!row || row.estado !== 'mismatch') throw new Error(`${t.nombre} ${periodo} is ${row?.estado || 'missing'}, not mismatch`)
+  const a = await systemCount(supabase, t.id, periodo)
+  const detalle = { ...(row.detalle || {}), aceptado_sistema: { a, at: new Date().toISOString() } }
+  await supabase.from('payroll_runs').update({ detalle, updated_at: new Date().toISOString() }).eq('id', row.id)
+  return { nombre: t.nombre, aceptado: a }
 }

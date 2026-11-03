@@ -19,6 +19,12 @@ export function matchMessage({ nombre, mes, n, monto }) {
   return `Hola ${nombre}, revisé tus sesiones de ${mes} y todo cuadra con el sistema: ${n} sesiones, total ${monto}. Te adjunto el reporte. Ya puedes hacer tu factura a Mariana y mandármela por aquí. Gracias!\n${FIRMA}`
 }
 
+// Nicolás accepted the SYSTEM count (the therapist's list missed confirmed sessions).
+export function aceptadoMessage({ nombre, mes, n, monto, faltan }) {
+  const f = faltan === 1 ? '1 sesión que sí está confirmada' : `${faltan} sesiones que sí están confirmadas`
+  return `Hola ${nombre}, revisé tus sesiones de ${mes}. En tu lista faltaba ${f} en el sistema, así que son ${n} sesiones, total ${monto}. Te adjunto el reporte con el detalle. Ya puedes hacer tu factura a Mariana y mandármela por aquí. Gracias!\n${FIRMA}`
+}
+
 export function pedirListaMessage({ nombre, mes }) {
   return `Hola ${nombre}, me pasas el detalle de tus sesiones de ${mes} (fecha y paciente) para cruzarlo con el sistema y hacer tu pago? Gracias!\n${FIRMA}`
 }
