@@ -5,6 +5,29 @@ Completed work, 2026-09-14 and earlier. Split out of `EFIMERAMENTE_STATE.md` on 
 
 Newest first.
 
+<!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-11-05 -->
+
+### 2026-10-31 — #98 One desk: Michael plans AND executes (Michael)
+- **Working model (Nicolás, 31 Oct):** the director/executor split is gone. A local `/michael` session on the Mac plans,
+  scores and executes (code, DB, deploys, Chrome with his logins). Ritual: every task = NEW session `/michael` (git pull,
+  TO-DO, top 3) → work → `/cierre`. One executor at a time: pull first, push last, `git pull --rebase` on reject, never
+  force-push. "Sí" needed only for money applied to patients, patient-facing copy, anything public, deleting data.
+  Written into `CLAUDE.md` ("How we work — one desk"), `.claude/agents/michael.md` (no `tools:` limit any more),
+  `.claude/commands/michael.md` (step 0 = git pull) and `/cierre` (rebase rule; default signature `(Michael, …)`).
+- **Commands moved into the repo:** `/adscript`, `/adgenerator`, `/adgenclose` now live in `.claude/commands/`;
+  `~/.claude/commands/*.md` are symlinks to the repo (alex/michael/tim/vince/wes already were). The old personal
+  `marketize.md` (6 Aug, shadowed the repo's 4 Oct version) now symlinks to the repo copy. Originals backed up in
+  `~/.claude/backups/commands-20261031/`. The ad commands still read `~/.claude/workflow-*.md` + brand refs (Mac only).
+  Fix (same day): `/cierre`, `/deploy`, `/estado`, `/facturar` were repo-only, so `/cierre` didn't exist in a session started
+  from `~` — now symlinked too, and cierre/deploy/estado start with `cd ~/my-site`.
+- **Chrome:** already "Enabled by default" (`claudeInChromeDefaultEnabled` in `~/.claude.json`); fallback `claude --chrome`.
+- **Brief:** Nicolás created the cloud routine "Michael morning brief" (trig_013yA3i5MFcwvXgEFUJS2jmQ — replaced the same
+  day by Code routine trig_013EazP73bkVymgm9rueHqsq, see above; daily 07:51 GYE, read-only, Opus) and deleted the old "Director morning brief" one-offs. It writes nothing, so its output stays in its
+  claude.ai session (no WhatsApp/push step in its prompt).
+- **HQ office game parked** (still deployed). WhatsApp desk behavior unchanged (read-only rules are in `hqDesk.mjs`); its
+  Michael persona picks up the new `michael.md` at build (`prebuild` → `scripts/hq-agents-sync.mjs` → `hqAgents.json`).
+- **Loose ends** (payroll Oct, ACESS, receipts, POST-02, patient hygiene, volume note) recorded in the Drive TO-DO.
+
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-11-03 -->
 
 ### 2026-10-29 (night) — #97 Efimeramente HQ office game, separate site (Terminal, 637e8d4; game repo ~/efimeramente-hq b5eaa2d)

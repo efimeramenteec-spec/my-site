@@ -103,6 +103,20 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-11-05 — Ad #8 "La primera señal de cordura" produced as a zigzag comic + CTA fixed (Tim; ad work, no app code)
+- **Script = Nicolás's own, used as written (~70 s, no cuts)** → `~/.claude/ad-guiones/efimeramente-08-primera-senal-de-cordura-BORRADOR.md`.
+- **CTA corrected (Nicolás, 5 Nov): "Agenda hoy tu llamada gratuita y encuentra a tu terapeuta ideal."** The first APPOINTMENT is
+  NOT free (only the call). `.claude/agents/vince.md` updated (→ `netlify/lib/hqAgents.json` on next build). Drafts #3–#7 still end
+  with the old "La primera cita es gratis" — swap the CTA before producing any of them.
+- **Style test:** 1 frame each in enamel pin / Bauhaus / editorial vector → Nicolás chose **editorial vector**.
+- **New format: zigzag comic.** 23 Seedream 1K panels on one comic page (gutters, 2 columns, snake order right→down→left…); each panel
+  gets a Kling v3-omni std 3 s clip (first_frame only); the camera swipe between panels is CODE (PIL+ffmpeg), not AI → zero melting.
+  Builder `~/Downloads/TEST-Efimeramente-PrimeraSenalDeCordura/comic_pan.py` (`CLIPMAX=2.6 SWIPE=0.45`, args `panel.png:clip.mp4`).
+  Output `VectorEditorial-Efimeramente-PrimeraSenalDeCordura-COMPLETO.mp4` (68.6 s, mute) + README with the panel/locución table.
+- **Gotchas:** a reference image drags its whole setting (patterns frame copied the hallway; #6 copied #4) → say "NEW SETTING" and
+  describe the new composition; Kling made Mariana slide into the shop window (clip 22) → "stays in the doorway, never behind the glass".
+  Cost ≈ $8.6 APIMart (Nicolás topped up $10; ~$6.2 left).
+
 ### 2026-11-03 — Payroll unstuck + owner alerts re-ping + Comprobantes: PDFs, COP, therapist skip (Michael, add974b + bd603a0)
 - **Payroll accept path (#48, `netlify/lib/payrollFlow.mjs` `acceptPayroll`, `payroll-run?action=accept&periodo=&nombre=`):**
   a `mismatch` could only resolve when the SYSTEM changed to the therapist's count; when the therapist's list misses
@@ -216,30 +230,12 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - Test-run findings for Nicolás (not acted on): unapproved credit paid 5 sessions on 22 Oct ($169: Emilie Conforme, Zara
   Basantez, Paola Ibarra, Daniela Santillan, Karo Merizalde) — approve or undo.
 
-### 2026-10-31 — #98 One desk: Michael plans AND executes (Michael)
-- **Working model (Nicolás, 31 Oct):** the director/executor split is gone. A local `/michael` session on the Mac plans,
-  scores and executes (code, DB, deploys, Chrome with his logins). Ritual: every task = NEW session `/michael` (git pull,
-  TO-DO, top 3) → work → `/cierre`. One executor at a time: pull first, push last, `git pull --rebase` on reject, never
-  force-push. "Sí" needed only for money applied to patients, patient-facing copy, anything public, deleting data.
-  Written into `CLAUDE.md` ("How we work — one desk"), `.claude/agents/michael.md` (no `tools:` limit any more),
-  `.claude/commands/michael.md` (step 0 = git pull) and `/cierre` (rebase rule; default signature `(Michael, …)`).
-- **Commands moved into the repo:** `/adscript`, `/adgenerator`, `/adgenclose` now live in `.claude/commands/`;
-  `~/.claude/commands/*.md` are symlinks to the repo (alex/michael/tim/vince/wes already were). The old personal
-  `marketize.md` (6 Aug, shadowed the repo's 4 Oct version) now symlinks to the repo copy. Originals backed up in
-  `~/.claude/backups/commands-20261031/`. The ad commands still read `~/.claude/workflow-*.md` + brand refs (Mac only).
-  Fix (same day): `/cierre`, `/deploy`, `/estado`, `/facturar` were repo-only, so `/cierre` didn't exist in a session started
-  from `~` — now symlinked too, and cierre/deploy/estado start with `cd ~/my-site`.
-- **Chrome:** already "Enabled by default" (`claudeInChromeDefaultEnabled` in `~/.claude.json`); fallback `claude --chrome`.
-- **Brief:** Nicolás created the cloud routine "Michael morning brief" (trig_013yA3i5MFcwvXgEFUJS2jmQ — replaced the same
-  day by Code routine trig_013EazP73bkVymgm9rueHqsq, see above; daily 07:51 GYE, read-only, Opus) and deleted the old "Director morning brief" one-offs. It writes nothing, so its output stays in its
-  claude.ai session (no WhatsApp/push step in its prompt).
-- **HQ office game parked** (still deployed). WhatsApp desk behavior unchanged (read-only rules are in `hqDesk.mjs`); its
-  Michael persona picks up the new `michael.md` at build (`prebuild` → `scripts/hq-agents-sync.mjs` → `hqAgents.json`).
-- **Loose ends** (payroll Oct, ACESS, receipts, POST-02, patient hygiene, volume note) recorded in the Drive TO-DO.
 
 ## Pending / Backlog
 
 ### 🔥 Next (Michael picks up) — priorities live in the Drive TO-DO
+- [ ] **Ad #8 La primera señal de cordura** — COMPLETO.mp4 delivered (5 Nov); Nicolás edits in CapCut (voice, subs, whoosh per swipe)
+      → his "sí" before it runs. Comic format = new default candidate for the next ads.
 - [ ] **Ad #3 La Odisea** — draft in `~/.claude/ad-guiones/efimeramente-03-odisea-gollwitzer-BORRADOR.md`; Nicolás approves
       (as is / 48 s cut) → rename without BORRADOR → Tim (/adgenerator). Toy Story 5 angle (Lilypad, Wilson 2014, Lieberman) pinned next.
 - [ ] **Carousel (#93–#95) ON HOLD** (Nicolás 3 Nov).
