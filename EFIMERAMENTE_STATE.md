@@ -45,7 +45,14 @@
 | Maria Gracia Villalba | mariamariavc8@gmail.com | ✅ yes |
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
-## ✅ Lead funnel (#4 + #20) — LIVE for real leads since 2026-09-26 (`LEAD_BOT_LIVE=true`)
+## ⏸️ Lead bot PAUSED (#100, Nicolás 6 Nov 2026) — `LEAD_BOT_LIVE=false`
+Nicolás: "it has flaws and I will lose customers. Only temporary." Only the ad-lead bot is off (auto replies to
+new leads, +2h/+22h nudges, 1h call reminders to leads, therapist "¿se hizo?" question, 48h first-session nudge).
+Leads are still RECORDED (funnel + CAPI keep working); Nicolás answers them by hand. Patient reminders, payment
+reminders, invoices, receipts, payroll, owner outbox: untouched. His own phone (LEAD_BOT_TEST_PHONES) still gets the
+bot for testing. **To turn back on:** Netlify env `LEAD_BOT_LIVE=true` (all contexts) + redeploy (push to main).
+
+## ✅ Lead funnel (#4 + #20) — LIVE for real leads since 2026-09-26 (`LEAD_BOT_LIVE=true`; paused 6 Nov, see above)
 
 **Rollback:** set Netlify env `LEAD_BOT_LIVE=false` + redeploy (empty commit) → bot goes silent, measurement continues.
 
