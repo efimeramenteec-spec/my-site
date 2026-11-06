@@ -45,6 +45,19 @@ export function botAllowedForPhone(phone, lead = null) {
   return !!phone && list.includes(last9(phone))
 }
 
+// #100 (Nicolás, 6 Nov): LEAD_BOT_REPLIES_OFF=true pauses ONLY the bot's answers to
+// inbound lead messages (runBot). Follow-ups (nudges, call reminder, therapist result,
+// rebook, 48h nudge) keep running under LEAD_BOT_LIVE. Test phones / es_prueba still get
+// replies so Nicolás can test fixes from his own phone.
+export function botRepliesAllowed(phone, lead = null) {
+  if (!botAllowedForPhone(phone, lead)) return false
+  if (process.env.LEAD_BOT_REPLIES_OFF !== 'true') return true
+  if (lead?.es_prueba) return true
+  const list = (process.env.LEAD_BOT_TEST_PHONES || '')
+    .split(',').map((s) => s.trim()).filter(Boolean).map(last9)
+  return !!phone && list.includes(last9(phone))
+}
+
 function phoneMatches(rows, fromRaw) {
   const norm = normalizePhone(fromRaw)
   const l9 = last9(fromRaw)
@@ -1256,7 +1269,7 @@ export function mergeMessages(msgs) {
 // crashes before sending — derives to Nicolás with motivo 'sin_respuesta'.
 export async function runBot(supabase, { lead, isNew, msg, msgs = null }) {
   if (!lead || lead.bot_paused) return
-  if (!botAllowedForPhone(lead.phone, lead)) return
+  if (!botRepliesAllowed(lead.phone, lead)) return
   if (msgs) msg = mergeMessages(msgs)
   lead.__sent = 0
   lead.__derived = false

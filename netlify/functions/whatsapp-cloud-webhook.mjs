@@ -27,7 +27,7 @@
 import crypto from 'crypto'
 import { getSupabaseAdmin, normalizePhone, resolveReplyEstado, applyInboundReplyEstado } from '../lib/whatsapp.mjs'
 import { notifyTherapist } from '../lib/push.mjs'
-import { isTherapistOrPayer, recordLead, handleEchoes, runBot, handleTherapistResult, isTap, botAllowedForPhone } from '../lib/leadBot.mjs'
+import { isTherapistOrPayer, recordLead, handleEchoes, runBot, handleTherapistResult, isTap, botRepliesAllowed } from '../lib/leadBot.mjs'
 import { sendReadReceipt } from '../lib/waSend.mjs'
 import { isOwnerPhone, isFacturasCommand, facturaTap, handleDescartar } from '../lib/facturarAprobacion.mjs'
 import { flushOwnerOutbox, supersedeOwnerOutbox } from '../lib/ownerOutbox.mjs'
@@ -360,7 +360,7 @@ export default async (req) => {
                 if (isTap(msg)) {
                   // Button taps → immediate reply, inline (no delay).
                   await runBot(supabase, { lead, isNew: rec.isNew, msg })
-                } else if (!lead.bot_paused && botAllowedForPhone(lead.phone, lead)) {
+                } else if (!lead.bot_paused && botRepliesAllowed(lead.phone, lead)) {
                   // Free text / media → queued for the lead's next turn (#59):
                   // messages within 4 s are answered together, one turn at a
                   // time. Show "escribiendo…" now (text only); the background

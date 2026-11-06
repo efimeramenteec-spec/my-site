@@ -45,14 +45,15 @@
 | Maria Gracia Villalba | mariamariavc8@gmail.com | ✅ yes |
 | Mariana Villegas | marianavillegaskraemer@gmail.com | ✅ yes |
 
-## ⏸️ Lead bot PAUSED (#100, Nicolás 6 Nov 2026) — `LEAD_BOT_LIVE=false`
-Nicolás: "it has flaws and I will lose customers. Only temporary." Only the ad-lead bot is off (auto replies to
-new leads, +2h/+22h nudges, 1h call reminders to leads, therapist "¿se hizo?" question, 48h first-session nudge).
-Leads are still RECORDED (funnel + CAPI keep working); Nicolás answers them by hand. Patient reminders, payment
-reminders, invoices, receipts, payroll, owner outbox: untouched. His own phone (LEAD_BOT_TEST_PHONES) still gets the
-bot for testing. **To turn back on:** Netlify env `LEAD_BOT_LIVE=true` (all contexts) + redeploy (push to main).
+## ⏸️ Lead bot REPLIES paused (#100, Nicolás 6 Nov 2026) — `LEAD_BOT_REPLIES_OFF=true`
+Nicolás: "it has flaws and I will lose customers. Only temporary" → "Only stop the auto-answering from ads."
+`LEAD_BOT_LIVE` stays `true`; the new `LEAD_BOT_REPLIES_OFF=true` makes `runBot` (every answer to an inbound lead
+message, taps and free text) a no-op via `leadBot.mjs#botRepliesAllowed`; the webhook doesn't queue/type either.
+STILL ON: +2h/+22h nudges, 1h call reminder, therapist "Se hizo/No contestó" + rebook, 48h first-session nudge,
+lead recording, funnel, CAPI. Nicolás answers leads by hand. His phone (LEAD_BOT_TEST_PHONES) / modo prueba still
+get replies, for testing fixes. **To turn replies back on:** delete `LEAD_BOT_REPLIES_OFF` (or set `false`) + redeploy.
 
-## ✅ Lead funnel (#4 + #20) — LIVE for real leads since 2026-09-26 (`LEAD_BOT_LIVE=true`; paused 6 Nov, see above)
+## ✅ Lead funnel (#4 + #20) — LIVE for real leads since 2026-09-26 (`LEAD_BOT_LIVE=true`; replies paused 6 Nov, see above)
 
 **Rollback:** set Netlify env `LEAD_BOT_LIVE=false` + redeploy (empty commit) → bot goes silent, measurement continues.
 
