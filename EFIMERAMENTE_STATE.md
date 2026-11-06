@@ -103,6 +103,18 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 
 ## Completed Features
 
+### 2026-11-05 (later) — Ad #8 FINAL + Tim's playbook rewritten (Tim)
+- **Final cut by Nicolás:** `~/Downloads/VectorEditorial-Efimeramente-PrimeraSenalDeCordura/FINAL-EDITORIAL-VECTOR.mov` (1080×1920,
+  59.8 s, his voice converted on makeityours.app, voice "Nil Gallego", + subtitles). Project folder renamed from `TEST-…`. Script
+  marked FINAL (`~/.claude/ad-guiones/efimeramente-08-primera-senal-de-cordura.md`). Nicolás is building a Meta campaign with it.
+- **Redone after his review:** panels 20–21 (two near-identical bike clips with a "crazy" laughing rider → potter's wheel +
+  the opening door now open with a sun) and 14 (Mariana laughing with a magnifying glass read as laughing at the patient →
+  close-up, creatures reflected in her glasses, mouth closed). A first fix of 20 that went back to a therapy-room scene was rejected.
+- **`.claude/agents/tim.md` rewritten:** zigzag comic = default format; 1 test frame per style; Nicolás's scripts as written; new CTA;
+  lessons (scene variety, nobody laughs, references drag their setting, Kling slides people into glass). Reusable tools in
+  `~/.claude/adgenerator-comic/` (`comic_pan.py`, `gen.py`, `vgen.py`); comic block added to `~/.claude/workflow-anuncio.md`.
+- Bauhaus version of the same script postponed (APIMart ~$5.3 left, a full ad ≈ $6).
+
 ### 2026-11-05 — Ad #8 "La primera señal de cordura" produced as a zigzag comic + CTA fixed (Tim; ad work, no app code)
 - **Script = Nicolás's own, used as written (~70 s, no cuts)** → `~/.claude/ad-guiones/efimeramente-08-primera-senal-de-cordura-BORRADOR.md`.
 - **CTA corrected (Nicolás, 5 Nov): "Agenda hoy tu llamada gratuita y encuentra a tu terapeuta ideal."** The first APPOINTMENT is
@@ -217,25 +229,12 @@ answer flow is now only the fallback.** WhatsApp reply buttons are still single-
 - **New rule:** never tell Nicolás to open a new session (CLAUDE.md + `.claude/agents/michael.md`).
 - Shipped from the Mac: branch `claude/compassionate-moore-45c7b8` fast-forwarded into main, then deleted.
 
-### 2026-10-31 — Morning brief moved to a Code routine (Michael)
-- **New routine `trig_013EazP73bkVymgm9rueHqsq` "Michael morning brief"** (claude.ai/code/routines), created via the
-  RemoteTrigger API: cron `51 12 * * *` UTC = 07:51 GYE daily, env Default (`env_013KVxsFaBA6TcAZMz8F2Vbi`), model Opus,
-  repo my-site, connectors Supabase + Gmail + Google_Drive only, same prompt as the old one (read-only). Test fire 31 Oct
-  (`cse_01FSMHUHibvAZceHwsS7M9Gm`) succeeded in 46 s and sent a phone push.
-- **Why:** the old one (`trig_013yA3i5MFcwvXgEFUJS2jmQ`) was a Cowork task — it didn't show in Code → Routines. Deleted.
-  Also deleted the paused "Comprobantes y saldos: revisión diaria" (`trig_014bnWaSpPv3quC8YPHZWqGS`).
-- **Gotcha:** "ACESS replies daily check" (`trig_01VkgnsdCwuvtPWcijCp8WHT`, paused since 22 Oct) could NOT be deleted —
-  `delete_trigger` hit an approval gate twice. Harmless (disabled); Cowork-made routines don't appear in the Code
-  Routines page, so delete it from the Cowork app or approve the tool call next time.
-- Test-run findings for Nicolás (not acted on): unapproved credit paid 5 sessions on 22 Oct ($169: Emilie Conforme, Zara
-  Basantez, Paola Ibarra, Daniela Santillan, Karo Merizalde) — approve or undo.
-
 
 ## Pending / Backlog
 
 ### 🔥 Next (Michael picks up) — priorities live in the Drive TO-DO
-- [ ] **Ad #8 La primera señal de cordura** — COMPLETO.mp4 delivered (5 Nov); Nicolás edits in CapCut (voice, subs, whoosh per swipe)
-      → his "sí" before it runs. Comic format = new default candidate for the next ads.
+- [ ] **Ad #8 La primera señal de cordura** — FINAL (`FINAL-EDITORIAL-VECTOR.mov`), Nicolás launching a Meta campaign with it
+      (5 Nov) → Alex: first read of results at the next /marketize. Comic format = default for the next ads (Tim).
 - [ ] **Ad #3 La Odisea** — draft in `~/.claude/ad-guiones/efimeramente-03-odisea-gollwitzer-BORRADOR.md`; Nicolás approves
       (as is / 48 s cut) → rename without BORRADOR → Tim (/adgenerator). Toy Story 5 angle (Lilypad, Wilson 2014, Lieberman) pinned next.
 - [ ] **Carousel (#93–#95) ON HOLD** (Nicolás 3 Nov).

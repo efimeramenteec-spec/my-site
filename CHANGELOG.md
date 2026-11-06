@@ -7,6 +7,19 @@ Newest first.
 
 <!-- moved from EFIMERAMENTE_STATE.md by /cierre 2026-11-05 -->
 
+### 2026-10-31 — Morning brief moved to a Code routine (Michael)
+- **New routine `trig_013EazP73bkVymgm9rueHqsq` "Michael morning brief"** (claude.ai/code/routines), created via the
+  RemoteTrigger API: cron `51 12 * * *` UTC = 07:51 GYE daily, env Default (`env_013KVxsFaBA6TcAZMz8F2Vbi`), model Opus,
+  repo my-site, connectors Supabase + Gmail + Google_Drive only, same prompt as the old one (read-only). Test fire 31 Oct
+  (`cse_01FSMHUHibvAZceHwsS7M9Gm`) succeeded in 46 s and sent a phone push.
+- **Why:** the old one (`trig_013yA3i5MFcwvXgEFUJS2jmQ`) was a Cowork task — it didn't show in Code → Routines. Deleted.
+  Also deleted the paused "Comprobantes y saldos: revisión diaria" (`trig_014bnWaSpPv3quC8YPHZWqGS`).
+- **Gotcha:** "ACESS replies daily check" (`trig_01VkgnsdCwuvtPWcijCp8WHT`, paused since 22 Oct) could NOT be deleted —
+  `delete_trigger` hit an approval gate twice. Harmless (disabled); Cowork-made routines don't appear in the Code
+  Routines page, so delete it from the Cowork app or approve the tool call next time.
+- Test-run findings for Nicolás (not acted on): unapproved credit paid 5 sessions on 22 Oct ($169: Emilie Conforme, Zara
+  Basantez, Paola Ibarra, Daniela Santillan, Karo Merizalde) — approve or undo.
+
 ### 2026-10-31 — #98 One desk: Michael plans AND executes (Michael)
 - **Working model (Nicolás, 31 Oct):** the director/executor split is gone. A local `/michael` session on the Mac plans,
   scores and executes (code, DB, deploys, Chrome with his logins). Ritual: every task = NEW session `/michael` (git pull,
